@@ -34,10 +34,15 @@
               then import ./Cargo.dependencies.nix { inherit pkgs; }
               else { });
           # most recent development    
+          cargo-libnix = (import nix/derivations/default.nix {
+            inherit project_root pkgs external_crate_dependencies;
+            rustc = fenix.packages.${system}.stable.rustc;
+            cargo = fenix.packages.${system}.stable.cargo;
+           }).cargo-0_88_0-bin-b4cc6eeacb818d24;
         in
         with pkgs;
         rec {
-          packages = { inherit cargo-libnix-1_87_0_plus_v1; };
+          packages = { inherit cargo-libnix cargo-libnix-1_87_0_plus_v1; };
           devShells.default = mkShell {
             buildInputs = [
               # to build cargo with 'CARGO_BACKEND=legacy cargo build' 
@@ -50,6 +55,7 @@
               # your cargo compiler
               #fenix.packages.${system}.stable.cargo
               cargo-libnix-1_87_0_plus_v1
+              #cargo-libnix
               # comfy tools
               fenix.packages.${system}.stable.rust-src
               fenix.packages.${system}.stable.rustfmt

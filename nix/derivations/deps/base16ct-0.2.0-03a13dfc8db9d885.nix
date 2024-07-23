@@ -1,0 +1,96 @@
+# generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
+{ fn, pkgs, rustc, cargo, deps, project_root }: with deps;
+  pkgs.stdenv.mkDerivation rec {
+    name = "base16ct-0_2_0-03a13dfc8db9d885";
+    meta.cargo_crate_info = {
+      name = "base16ct";
+      version = "0.2.0";
+      crate_hash = "03a13dfc8db9d885";
+      type = "";
+    };
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
+    passthru.rust_crate_libraries = [];
+    passthru.rust_crate_parent = [];
+    passthru.rust_script_build_run = [];
+    phases = "unpackPhase buildPhase";
+
+    src = pkgs.fetchurl {
+      url = "https://crates.io/api/v1/crates/base16ct/0.2.0/download";
+      sha256 = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf";
+    };
+
+    unpackPhase = ''
+      tar xf $src
+      cd base16ct-0.2.0
+    '';
+
+    RUSTC = "${rustc}/bin/rustc";
+    CARGO_CRATE_NAME = "base16ct";
+    CARGO_MANIFEST_DIR = "./";
+    CARGO_MANIFEST_PATH = "./Cargo.toml";
+    CARGO_PKG_AUTHORS = "RustCrypto Developers";
+    CARGO_PKG_DESCRIPTION = "Pure Rust implementation of Base16 a.k.a hexadecimal (RFC 4648) which avoids
+any usages of data-dependent branches/LUTs and thereby provides portable
+\"best effort\" constant-time operation and embedded-friendly no_std support";
+    CARGO_PKG_HOMEPAGE = "";
+    CARGO_PKG_LICENSE = "Apache-2.0 OR MIT";
+    CARGO_PKG_LICENSE_FILE = "";
+    CARGO_PKG_NAME = "base16ct";
+    CARGO_PKG_README = "README.md";
+    CARGO_PKG_REPOSITORY = "https://github.com/RustCrypto/formats/tree/master/base16ct";
+    CARGO_PKG_RUST_VERSION = "1.60";
+    CARGO_PKG_VERSION = "0.2.0";
+    CARGO_PKG_VERSION_MAJOR = "0";
+    CARGO_PKG_VERSION_MINOR = "2";
+    CARGO_PKG_VERSION_PATCH = "0";
+    CARGO_PKG_VERSION_PRE = "";
+
+    buildPhase = ''
+      ${fn.import_bash_function_helpers}
+      export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
+      export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
+      
+      mkdir -p $out/nix
+      export OUT_DIR=$out
+
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
+
+      rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
+      set -x +e
+      ${RUSTC} \
+              --crate-name base16ct \
+              --edition=2021 src/lib.rs \
+              --error-format=json \
+              --json=diagnostic-rendered-ansi,artifacts,future-incompat \
+              --crate-type lib \
+              --emit=dep-info,metadata,link \
+              -C opt-level=3 \
+              -C embed-bitcode=no \
+              ${fn.rustc_arguments passthru.rust_crate_parent} \
+              --cfg 'feature="alloc"' \
+              --check-cfg 'cfg(docsrs,test)' \
+              --check-cfg 'cfg(feature, values("alloc", "std"))' \
+              -C metadata=945261a65887851d \
+              -C extra-filename=-03a13dfc8db9d885 \
+              --out-dir $OUT_DIR \
+              -C strip=debuginfo \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
+              ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
+              --cap-lints allow 2> $rustc_json_output_lines
+      rustc_exit_value=$?
+      set +x -e
+           
+      print_rustc_rendered_messages $rustc_json_output_lines
+      
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
+      
+      if [ "$rustc_exit_value" -ne 0 ]; then
+          exit $rustc_exit_value
+      fi
+    '';
+
+}
