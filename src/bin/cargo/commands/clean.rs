@@ -7,6 +7,7 @@ use cargo::ops::CleanContext;
 use cargo::ops::{self, CleanOptions};
 use cargo::util::print_available_packages;
 use std::time::Duration;
+use crate::util::BuildBackend;
 
 pub fn cli() -> Command {
     subcommand("clean")
@@ -127,6 +128,12 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'clean' is not supported yet"),
+            101,
+        ));
+    }
     match args.subcommand() {
         Some(("gc", args)) => {
             return gc(gctx, args);

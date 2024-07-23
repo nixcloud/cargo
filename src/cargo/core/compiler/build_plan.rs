@@ -132,6 +132,7 @@ impl BuildPlan {
                 internal(format!("couldn't find invocation for {}", invocation_name))
             })?;
 
+        println!("update: {:#?}", cmd);
         invocation.update_cmd(cmd)?;
         for output in outputs.iter() {
             invocation.add_output(&output.path, &output.hardlink);

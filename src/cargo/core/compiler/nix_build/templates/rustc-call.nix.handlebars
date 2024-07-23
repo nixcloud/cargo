@@ -1,0 +1,35 @@
+# generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
+{ {{{function_arguments}}} }: with deps;
+  pkgs.stdenv.mkDerivation rec {
+    name = "{{{nix_attribute_name}}}";
+{{{cargo_crate_info}}}
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
+    passthru.rust_crate_libraries = [{{{rust_crate_libraries}}}];
+    passthru.rust_crate_parent = [{{{rust_crate_parent}}}];
+    passthru.rust_script_build_run = [{{{rust_script_build_run}}}];
+    phases = "{{{nix_phases}}}";
+
+{{{src}}}
+
+{{{unpack_phase}}}
+
+    RUSTC = "${rustc}/bin/rustc";
+{{{environment_variables}}}
+
+    buildPhase = ''
+      ${fn.import_bash_function_helpers}
+      export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
+      export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
+      {{{change_directory}}}
+      mkdir -p $out/nix
+      export OUT_DIR=$out
+
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
+{{{additional_build_phase_arguments}}}
+{{{command_line}}}
+    '';
+{{{append}}}
+}

@@ -1,0 +1,188 @@
+# generated from default.nix.handlebars using cargo (manual edits won't be persistent)
+{ pkgs, lib ? pkgs.lib, rustc, cargo, external_crate_dependencies, project_root }:
+let
+  build_rs_libnix' = pkgs.callPackage ./build_rs_libnix.nix {
+    inherit pkgs;
+  };
+  callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo project_root; });
+  fn = rec {
+    build_rs_libnix = "${build_rs_libnix'}/bin/build-rs-libnix";
+    allCollectedInputs = a: lib.unique (
+      builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.rust_crate_libraries)) [] a
+    );
+    rustc_linker_arguments = rust_crate_libraries: builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs rust_crate_libraries));
+    rustc_linker_arguments_dir = rust_crate_libraries: 
+      pkgs.stdenv.mkDerivation {
+        name = "rustc-linker-arguments-dir";
+        # anyhow-139173be5e005a44.d  libanyhow-139173be5e005a44.rlib  libanyhow-139173be5e005a44.rmeta  nix
+        buildCommand = ''
+          mkdir -p $out/deps
+          for lib in ${builtins.concatStringsSep " " (map (lib: "${lib}") (allCollectedInputs rust_crate_libraries))}; do
+            if [ -d "$lib" ]; then
+              for f in "$lib"/*.rlib "$lib"/*.rmeta "$lib"/*.so; do
+                if [ -e "$f" ]; then
+                  ln -s "$f" "$out/deps/" || true
+                fi
+              done
+            fi
+          done
+          echo ${builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs rust_crate_libraries))} > $out/rustc-linker-arguments
+        '';
+      };
+    rustc_arguments = rust_crate_parent: assert lib.assertMsg (builtins.length rust_crate_parent <= 1) "passthru.rust_crate_parent must have 0 or 1 element at maxium" ;
+      lib.replaceStrings ["\n"] [""] (builtins.concatStringsSep " " (map (crate:
+        if builtins.pathExists "${crate}/nix/rustc-arguments" then
+          builtins.readFile "${crate}/nix/rustc-arguments"
+        else
+          ""
+        ) rust_crate_parent));
+    rustc_propagated_arguments = rust_crate_libraries: lib.replaceStrings ["\n"] [""] (builtins.concatStringsSep " " (map (crate:
+      if builtins.pathExists "${crate}/nix/rustc-propagated-arguments" then
+        builtins.readFile "${crate}/nix/rustc-propagated-arguments"
+      else
+        ""
+      ) (allCollectedInputs rust_crate_libraries)));
+    environment_variables = rust_script_build_run: builtins.concatStringsSep " " (map (d: "${d}/nix/environment-variables") rust_script_build_run);
+    get_rust_crate_parent = parent_list:
+      assert lib.assertMsg (builtins.length parent_list == 1) "item is supposed to have exactly one parent, while it has 0 or more than 1";
+      builtins.head parent_list;
+    import_bash_function_helpers = ''
+      print_compiling_message() {
+        local fullname="$1"
+        printf '\033[0;32mCompiling\033[0m %s\n' "$fullname"
+      }
+
+      # to indicate that a crate build inside a mkDerivation has started of type
+      print_cargo_message_type_0() {
+        local fullname="$1"         # "serde-1_21_3-bfbc21afc6e0b538"
+        local name="$2"             # "serde" 
+        local type="$3"             # "(lib)"
+        echo "@cargo { \"type\":0, \"crate_name\":\"$name\", \"crate_type\":\"$type\", \"id\":\"$fullname\" }"
+      }
+
+      # to indicate that a mkDerivation has finished compiling a crate of type rustc call counterpart: finishes a type 0 message
+      print_cargo_message_type_2() {
+        local fullname="$1"         # "serde-1_21_3-bfbc21afc6e0b538"
+        local name="$2"             # "serde"
+        local type="$3"             # "(lib)"
+        local rustc_exit_code="$4"
+        local rustc_json_output_lines="$5"
+        output=$(${pkgs.jq}/bin/jq -s -r -c \
+          --arg fullname "$fullname" \
+          --arg name "$name" \
+          --arg type "$type" \
+          --arg exit_code "$rustc_exit_code" \
+          '{type: 2, crate_name: $name, crate_type: $type, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
+          "$rustc_json_output_lines")
+        printf '@cargo %s\n' "$output"
+      }
+
+      # "build.rs run" calls this
+      print_cargo_message_type_3() {
+        local name="$1"
+        local type="$2"
+        local notice="$3"
+        local exit_code="$4"
+        local build_script_build_output_lines="$5"
+        output=$(${pkgs.jq}/bin/jq -c -n \
+          --arg name "$name" \
+          --arg type "$type" \
+          --arg notice "$notice" \
+          --arg exit_code "$exit_code" \
+          --rawfile msg $build_script_build_output_lines \
+          '{type: 3, crate_name: $name, crate_type: $type, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
+        printf '@cargo %s\n' "$output"
+      }
+
+      # rustc outputs json, from that we extracted the .rendered part and print it to stdout 
+      # (so we see useful messages during 'nix build')
+      print_rustc_rendered_messages() {
+        local rustc_json_output_lines="$1"
+        while IFS= read -r line
+        do
+            tmpFile=$(${pkgs.mktemp}/bin/mktemp)
+            echo "$line" > $tmpFile
+            ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
+        done < $rustc_json_output_lines
+      }
+
+      # set env variables from the passthru propagation, used for DEP_* and similar from build.rs
+      load_environment_variables_from_files() {
+        local files="$1"
+        for file in $files; do
+          if [ -f $file ]; then
+            set -a
+              while read -r line; do
+                echo -e "\033[38;5;208m$line\033[0m"
+              done < "$file"
+              source $file
+              set +a
+          fi
+        done
+      }
+
+      copy_build_script_run_results_over_with_nix() {
+        local build_script_run_out_dir="$1"
+        cp -r "$build_script_run_out_dir"/* $OUT_DIR
+      }
+
+      copy_build_script_run_results_over_without_nix() {
+        local build_script_run_out_dir="$1"
+        cp -r "$build_script_run_out_dir"/* $OUT_DIR
+        rm -Rf $OUT_DIR/nix
+      }
+    '';
+    inject_deps = cargo_crate_info:
+      let
+        deps = external_crate_dependencies.deps;
+        name = cargo_crate_info.name;
+        version = cargo_crate_info.version;
+        crate_hash = cargo_crate_info.hash;
+        entry = deps.${name} or null;
+      in
+        if builtins.isAttrs entry then
+          let
+            verEntry = entry.${version} or null;
+          in
+            if builtins.isAttrs verEntry then
+              verEntry.${crate_hash} or (throw "No deps found for ${name} version ${version} hash ${crate_hash}")
+            else if builtins.isList verEntry then
+              verEntry
+            else
+              throw "No deps found for '${name}' version ${version}"
+        else if builtins.isList entry then
+          entry
+        else
+          [];
+    inject_envs = cargo_crate_info:
+      let
+        envs = external_crate_dependencies.envs;
+        name = cargo_crate_info.name;
+        version = cargo_crate_info.version;
+        crate_hash = cargo_crate_info.crate_hash;
+        entry = envs.${name} or null;
+      in
+        if builtins.isAttrs entry then
+          let
+            verEntry = entry.${version} or null;
+          in
+            if builtins.isAttrs verEntry then
+              if builtins.isAttrs verEntry then
+                if verEntry ? "${crate_hash}" then verEntry.${crate_hash} else verEntry
+              else
+                {}
+            else
+              entry
+        else
+          {};
+    relativeFileset = project_root: relPaths: lib.fileset.unions (map (p: project_root + "/${p}") relPaths);
+  };
+  self = {
+    target = callPackage' ./target.nix {};
+{{{nix_packages_root}}}
+    deps = {
+{{{nix_packages_deps}}}
+    };
+  };
+in
+self

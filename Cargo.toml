@@ -24,7 +24,9 @@ anstyle = "1.0.10"
 anyhow = "1.0.95"
 base64 = "0.22.1"
 blake3 = "1.5.5"
+colored = "3.0.0"
 build-rs = { version = "0.3.0", path = "crates/build-rs" }
+build-rs-libnix = { version = "0.1.11" }
 cargo = { path = "" }
 cargo-credential = { version = "0.4.2", path = "credential/cargo-credential" }
 cargo-credential-libsecret = { version = "0.4.13", path = "credential/cargo-credential-libsecret" }
@@ -217,6 +219,11 @@ unicase.workspace = true
 unicode-width.workspace = true
 url.workspace = true
 walkdir.workspace = true
+handlebars.workspace = true
+indoc = "2.0.6"
+logone = "0.2.9"
+colored.workspace = true
+build-rs-libnix.workspace = true
 
 [target.'cfg(target_has_atomic = "64")'.dependencies]
 tracing-chrome.workspace = true

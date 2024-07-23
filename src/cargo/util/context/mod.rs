@@ -68,6 +68,7 @@ use std::time::Instant;
 
 use self::ConfigValue as CV;
 use crate::core::compiler::rustdoc::RustdocExternMap;
+use crate::core::compiler::nix_build::NixBuildOptions;
 use crate::core::global_cache_tracker::{DeferredGlobalLastUse, GlobalCacheTracker};
 use crate::core::shell::Verbosity;
 use crate::core::{features, CliUnstable, Shell, SourceId, Workspace, WorkspaceRootConfig};
@@ -251,6 +252,13 @@ pub struct GlobalContext {
     /// A cache of modifications to make to [`GlobalContext::global_cache_tracker`],
     /// saved to disk in a batch to improve performance.
     deferred_global_last_use: LazyCell<RefCell<DeferredGlobalLastUse>>,
+    /// The build backend used for compiling crates, either:
+    ///  - "Legacy" or
+    ///  - "Nix"
+    // Note: This should live in build_config but I didn't understand the deserializer and
+    //       did not get it working properly. That why this hack is here now.
+    backend: BuildBackend,
+    pub write_nix_buildsystem_options: LazyCell<Option<NixBuildOptions>>,
 }
 
 impl GlobalContext {
@@ -279,6 +287,18 @@ impl GlobalContext {
         let cache_rustc_info = match env.get_env_os(cache_key) {
             Some(cache) => cache != "0",
             _ => true,
+        };
+
+        let build_backend_key = "CARGO_BACKEND";
+        let backend: BuildBackend = match env.get_env_os(build_backend_key) {
+            Some(value) => match value.to_str() {
+                Some(value) => match value.to_lowercase().as_str() {
+                    "nix" => BuildBackend::Nix,
+                    _ => BuildBackend::Legacy,
+                },
+                None => BuildBackend::Legacy,
+            },
+            None => BuildBackend::Legacy,
         };
 
         GlobalContext {
@@ -326,6 +346,8 @@ impl GlobalContext {
             ws_roots: RefCell::new(HashMap::new()),
             global_cache_tracker: LazyCell::new(),
             deferred_global_last_use: LazyCell::new(),
+            backend,
+            write_nix_buildsystem_options: LazyCell::new(),
         }
     }
 
@@ -2106,6 +2128,15 @@ impl GlobalContext {
             Ok(WarningHandling::default())
         }
     }
+
+    pub fn backend(&self) -> CargoResult<BuildBackend> {
+        // if self.unstable_flags.backend {
+        //     Ok(self.backend)
+        // } else {
+        //     Ok(BuildBackend::Legacy)
+        // }
+        Ok(self.backend)
+    }
 }
 
 /// Internal error for serde errors.
@@ -2764,6 +2795,13 @@ pub enum WarningHandling {
     Allow,
     /// Error if  warnings are emitted.
     Deny,
+}
+#[derive(Debug, Copy, Clone, Default, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum BuildBackend {
+    #[default]
+    Legacy,
+    Nix,
 }
 
 /// Configuration for `build.target`.

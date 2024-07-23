@@ -1,6 +1,7 @@
 use crate::command_prelude::*;
 use cargo::ops;
 use std::path::PathBuf;
+use crate::util::BuildBackend;
 
 pub fn cli() -> Command {
     subcommand("vendor")
@@ -56,6 +57,12 @@ fn unsupported(name: &'static str) -> Arg {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'vendor' is not supported yet"),
+            101,
+        ));
+    }
     // We're doing the vendoring operation ourselves, so we don't actually want
     // to respect any of the `source` configuration in Cargo itself. That's
     // intended for other consumers of Cargo, but we want to go straight to the

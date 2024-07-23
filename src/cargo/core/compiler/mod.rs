@@ -46,6 +46,7 @@ pub(crate) mod job_queue;
 pub(crate) mod layout;
 mod links;
 mod lto;
+pub mod nix_build;
 mod output_depinfo;
 mod output_sbom;
 pub mod rustdoc;
@@ -55,6 +56,7 @@ mod unit;
 pub mod unit_dependencies;
 pub mod unit_graph;
 
+use crate::util::BuildBackend;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -172,6 +174,7 @@ fn compile<'gctx>(
     exec: &Arc<dyn Executor>,
     force_rebuild: bool,
 ) -> CargoResult<()> {
+    //println!("compile compiler/mod.rs called");
     let bcx = build_runner.bcx;
     let build_plan = bcx.build_config.build_plan;
     if !build_runner.compiled.insert(unit.clone()) {
@@ -262,6 +265,8 @@ fn rustc(
     unit: &Unit,
     exec: &Arc<dyn Executor>,
 ) -> CargoResult<Work> {
+    //println!("rustc for: {}", unit.target.name());
+
     let mut rustc = prepare_rustc(build_runner, unit)?;
     let build_plan = build_runner.bcx.build_config.build_plan;
 
@@ -335,6 +340,12 @@ fn rustc(
         output_options.show_diagnostics = false;
     }
     let env_config = Arc::clone(build_runner.bcx.gctx.env_config()?);
+
+    build_runner
+        .raw_process_builder
+        .lock()
+        .unwrap()
+        .push((rustc.clone(), unit.clone()));
     return Ok(Work::new(move |state| {
         // Artifacts are in a different location than typical units,
         // hence we must assure the crate- and target-dependent
@@ -497,6 +508,7 @@ fn rustc(
         current_id: PackageId,
         mode: CompileMode,
     ) -> CargoResult<()> {
+        //println!("add_native_deps");
         for key in build_scripts.to_link.iter() {
             let output = build_script_outputs.get(key.1).ok_or_else(|| {
                 internal(format!(
@@ -505,6 +517,7 @@ fn rustc(
                 ))
             })?;
             for path in output.library_paths.iter() {
+                //println!("add_native_deps: -L {:#?}", path);
                 rustc.arg("-L").arg(path);
             }
 
@@ -512,6 +525,7 @@ fn rustc(
                 if pass_l_flag {
                     for name in output.library_links.iter() {
                         rustc.arg("-l").arg(name);
+                        //println!("add_native_deps: -l {}", name);
                     }
                 }
             }
@@ -526,6 +540,7 @@ fn rustc(
                     && (key.0 == current_id || *lt == LinkArgTarget::Cdylib)
                 {
                     rustc.arg("-C").arg(format!("link-arg={}", arg));
+                    println!("add_native_deps: -C link-arg={}", arg);
                 }
             }
         }
@@ -553,6 +568,7 @@ fn link_targets(
     unit: &Unit,
     fresh: bool,
 ) -> CargoResult<Work> {
+    //println!("link_targets called");
     let bcx = build_runner.bcx;
     let outputs = build_runner.outputs(unit)?;
     let export_dir = build_runner.files().export_dir();
@@ -570,6 +586,7 @@ fn link_targets(
             .pkg
             .manifest()
             .metabuild_path(build_runner.bcx.ws.build_dir());
+        // println!("TargetSourcePath::Path(path): {:#?}", path);
         target.set_src_path(TargetSourcePath::Path(path));
     }
 
@@ -733,6 +750,8 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
         base.env("CARGO_TARGET_TMPDIR", tmp.display().to_string());
     }
 
+    //println!("yyy: base {:#?}", base);
+
     Ok(base)
 }
 
@@ -744,6 +763,7 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
 /// from build scripts.
 fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuilder> {
     let bcx = build_runner.bcx;
+    let is_nix_build: bool = build_runner.bcx.gctx.backend()? == BuildBackend::Nix;
     // script_metadata is not needed here, it is only for tests.
     let mut rustdoc = build_runner.compilation.rustdoc_process(unit, None)?;
     rustdoc.inherit_jobserver(&build_runner.jobserver);
@@ -757,10 +777,11 @@ fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResu
     }
     let doc_dir = build_runner.files().out_dir(unit);
     rustdoc.arg("-o").arg(&doc_dir);
-    rustdoc.args(&features_args(unit));
-    rustdoc.args(&check_cfg_args(unit));
+    rustdoc.args(&features_args(unit, is_nix_build));
+    rustdoc.args(&check_cfg_args(unit, is_nix_build));
 
-    add_error_format_and_color(build_runner, &mut rustdoc);
+    let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
+    add_error_format_and_color(build_runner, &mut rustdoc, is_nix_build);
     add_allow_features(build_runner, &mut rustdoc);
 
     if let Some(trim_paths) = unit.profile.trim_paths.as_ref() {
@@ -989,7 +1010,11 @@ fn add_allow_features(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuild
 /// which Cargo will extract and display to the user.
 ///
 /// [`--error-format`]: https://doc.rust-lang.org/nightly/rustc/command-line-arguments.html#--error-format-control-how-errors-are-produced
-fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuilder) {
+fn add_error_format_and_color(
+    build_runner: &BuildRunner<'_, '_>,
+    cmd: &mut ProcessBuilder,
+    is_nix_build: bool,
+) {
     cmd.arg("--error-format=json");
     let mut json = String::from("--json=diagnostic-rendered-ansi,artifacts,future-incompat");
 
@@ -1002,8 +1027,10 @@ fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut Proc
     cmd.arg(json);
 
     let gctx = build_runner.bcx.gctx;
-    if let Some(width) = gctx.shell().err_width().diagnostic_terminal_width() {
-        cmd.arg(format!("--diagnostic-width={width}"));
+    if !is_nix_build {
+        if let Some(width) = gctx.shell().err_width().diagnostic_terminal_width() {
+            cmd.arg(format!("--diagnostic-width={width}"));
+        }
     }
 }
 
@@ -1040,7 +1067,8 @@ fn build_base_args(
     edition.cmd_edition_arg(cmd);
 
     add_path_args(bcx.ws, unit, cmd);
-    add_error_format_and_color(build_runner, cmd);
+    let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
+    add_error_format_and_color(build_runner, cmd, is_nix_build);
     add_allow_features(build_runner, cmd);
 
     let mut contains_dy_lib = false;
@@ -1153,8 +1181,14 @@ fn build_base_args(
         cmd.arg("--cfg").arg("test");
     }
 
-    cmd.args(&features_args(unit));
-    cmd.args(&check_cfg_args(unit));
+    let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
+
+    if is_nix_build {
+        cmd.arg("\\\n        ${fn.rustc_arguments passthru.rust_crate_parent}");
+    }
+
+    cmd.args(&features_args(unit, is_nix_build));
+    cmd.args(&check_cfg_args(unit, is_nix_build));
 
     let meta = build_runner.files().metadata(unit);
     cmd.arg("-C")
@@ -1168,8 +1202,16 @@ fn build_base_args(
         cmd.arg("-C").arg("rpath");
     }
 
-    cmd.arg("--out-dir")
-        .arg(&build_runner.files().out_dir(unit));
+    match bcx.gctx.backend()? {
+        BuildBackend::Legacy => {
+            cmd.arg("--out-dir")
+                .arg(&build_runner.files().out_dir(unit));
+        }
+        BuildBackend::Nix => {
+            //println!("WARNING HACK: --out-dir=$OUT_DIR");
+            cmd.arg("--out-dir $OUT_DIR");
+        }
+    }
 
     fn opt(cmd: &mut ProcessBuilder, key: &str, prefix: &str, val: Option<&OsStr>) {
         if let Some(val) = val {
@@ -1194,12 +1236,21 @@ fn build_base_args(
             .map(|s| s.as_ref()),
     );
     if incremental {
-        let dir = build_runner
-            .files()
-            .layout(unit.kind)
-            .incremental()
-            .as_os_str();
-        opt(cmd, "-C", "incremental=", Some(dir));
+        let dir: OsString = match bcx.gctx.backend()? {
+            BuildBackend::Legacy => {
+                build_runner
+                    .files()
+                    .layout(unit.kind)
+                    .incremental()
+                    .as_os_str()
+                    .into()
+            }
+            BuildBackend::Nix => {
+                OsString::from("$INC_DIR")
+            }
+        };
+        //$(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
+        opt(cmd, "-C", "incremental=", Some(&dir));
     }
 
     let strip = strip.into_inner();
@@ -1242,15 +1293,25 @@ fn build_base_args(
     Ok(())
 }
 
-/// All active features for the unit passed as `--cfg features=<feature-name>`.
-fn features_args(unit: &Unit) -> Vec<OsString> {
-    let mut args = Vec::with_capacity(unit.features.len() * 2);
+/// A way to support bash escape sequences required the the nix builder
+pub fn escape_args(feature_args: String, is_nix_build: bool) -> String {
+    if is_nix_build {
+        format!("'{}'", feature_args)
+    } else {
+        format!("{}", feature_args)
+    }
+}
 
+/// All active features for the unit passed as `--cfg features=<feature-name>`.
+fn features_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
+    let mut args = Vec::with_capacity(unit.features.len() * 2);
     for feat in &unit.features {
         args.push(OsString::from("--cfg"));
-        args.push(OsString::from(format!("feature=\"{}\"", feat)));
+        args.push(OsString::from(escape_args(
+            format!("feature=\"{}\"", feat),
+            is_nix_build,
+        )));
     }
-
     args
 }
 
@@ -1376,7 +1437,7 @@ fn package_remap(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> OsString {
 }
 
 /// Generates the `--check-cfg` arguments for the `unit`.
-fn check_cfg_args(unit: &Unit) -> Vec<OsString> {
+fn check_cfg_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
     // The routine below generates the --check-cfg arguments. Our goals here are to
     // enable the checking of conditionals and pass the list of declared features.
     //
@@ -1418,9 +1479,12 @@ fn check_cfg_args(unit: &Unit) -> Vec<OsString> {
 
     vec![
         OsString::from("--check-cfg"),
-        OsString::from("cfg(docsrs,test)"),
+        OsString::from(escape_args("cfg(docsrs,test)".to_string(), is_nix_build)),
         OsString::from("--check-cfg"),
-        arg_feature,
+        OsString::from(escape_args(
+            arg_feature.to_str().unwrap().to_string(),
+            is_nix_build,
+        )),
     ]
 }
 
@@ -1456,11 +1520,19 @@ fn build_deps_args(
     unit: &Unit,
 ) -> CargoResult<()> {
     let bcx = build_runner.bcx;
-    cmd.arg("-L").arg(&{
-        let mut deps = OsString::from("dependency=");
-        deps.push(build_runner.files().deps_dir(unit));
-        deps
-    });
+
+    if bcx.gctx.backend()? == BuildBackend::Legacy {
+        cmd.arg("-L").arg(&{
+            let mut deps = OsString::from("dependency=");
+            deps.push(build_runner.files().deps_dir(unit));
+            deps
+        });
+    } else {
+        //cmd.arg("\\\n        ${fn.rustc_linker_arguments passthru.rust_crate_libraries}");
+        cmd.arg("\\\n        -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps");
+        cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_script_build_run}");
+        cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_crate_libraries}");
+    }
 
     // Be sure that the host path is also listed. This'll ensure that proc macro
     // dependencies are correctly found (for reexported macros).
@@ -1548,7 +1620,6 @@ fn add_custom_flags(
 
     Ok(())
 }
-
 /// Generates a list of `--extern` arguments.
 pub fn extern_args(
     build_runner: &BuildRunner<'_, '_>,
@@ -1585,11 +1656,34 @@ pub fn extern_args(
             value.push(extern_crate_name.as_str());
             value.push("=");
 
-            let mut pass = |file| {
-                let mut value = value.clone();
-                value.push(file);
-                result.push(OsString::from("--extern"));
-                result.push(value);
+            let mut pass = |file: &PathBuf| {
+                match build_runner.bcx.gctx.backend().unwrap() {
+                    BuildBackend::Legacy => {
+                        let mut value = value.clone();
+                        value.push(file);
+                        result.push(OsString::from("--extern"));
+                        result.push(value);
+                    }
+                    BuildBackend::Nix => {
+                        let binding = OsString::new();
+                        let file = file.file_name().unwrap_or(&binding);
+                        let mut value: OsString = value.clone();
+
+                        //println!("WARNING HACK: --extern=${{lib-termcolor-1_4_1}}/...");
+                        // ${lib-termcolor-1_4_1}
+                        let nix_attribute_name = crate::core::compiler::nix_build::nix_code::create_nix_name(
+                            &dep.unit,
+                            &build_runner,
+                            crate::core::compiler::nix_build::NixNameMode::AttributeName,
+                            false,
+                        );
+                        value.push(format!("${{{}}}/", nix_attribute_name));
+
+                        value.push(file);
+                        result.push(OsString::from("--extern"));
+                        result.push(value);
+                    }
+                };
             };
 
             let outputs = build_runner.outputs(&dep.unit)?;

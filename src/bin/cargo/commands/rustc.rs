@@ -1,6 +1,7 @@
 use crate::command_prelude::*;
 use cargo::ops;
 use cargo::util::interning::InternedString;
+use crate::util::BuildBackend;
 
 const PRINT_ARG_NAME: &str = "print";
 const CRATE_TYPE_ARG_NAME: &str = "crate-type";
@@ -60,6 +61,12 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'rustc' is not supported yet"),
+            101,
+        ));
+    }
     let ws = args.workspace(gctx)?;
     // This is a legacy behavior that changes the behavior based on the profile.
     // If we want to support this more formally, I think adding a --mode flag

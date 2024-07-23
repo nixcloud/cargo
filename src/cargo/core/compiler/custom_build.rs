@@ -445,6 +445,12 @@ fn build_work(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResul
         .map(|dep| dep.unit.profile.debuginfo.is_turned_on())
         .unwrap_or(false);
 
+    build_runner
+        .raw_process_builder
+        .lock()
+        .unwrap()
+        .push((cmd.clone(), unit.clone()));
+
     // Prepare the unit of "dirty work" which will actually run the custom build
     // command.
     //

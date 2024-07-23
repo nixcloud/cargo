@@ -1,6 +1,7 @@
 use cargo::ops::{self, DocOptions, OutputFormat};
 
 use crate::command_prelude::*;
+use crate::util::BuildBackend;
 
 pub fn cli() -> Command {
     subcommand("rustdoc")
@@ -53,6 +54,12 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'rustdoc' is not supported yet"),
+            101,
+        ));
+    }
     let ws = args.workspace(gctx)?;
     let output_format = if let Some(output_format) = args._value_of("output-format") {
         gctx.cli_unstable()

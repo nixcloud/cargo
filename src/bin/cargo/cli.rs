@@ -16,6 +16,7 @@ use crate::command_prelude::*;
 use crate::util::is_rustup;
 use cargo::core::shell::ColorChoice;
 use cargo::util::style;
+use crate::util::BuildBackend;
 
 #[tracing::instrument(skip_all)]
 pub fn main(gctx: &mut GlobalContext) -> CliResult {
@@ -94,6 +95,18 @@ pub fn main(gctx: &mut GlobalContext) -> CliResult {
         )?;
         super::init_git(gctx);
 
+        println!("❄❄❄  nixcloud edition ❄❄❄");
+        println!("This is an unofficial fork of Cargo — not endorsed by the Rust Project.");
+        println!("Support me: Consider a star at https://github.com/nixcloud/cargo/stargazers");
+        println!("Support you: File issues at: https://github.com/nixcloud/cargo/issues/");
+        match gctx.backend()? {
+            BuildBackend::Legacy => {
+                println!("\x1b[35mUsing 'legacy' backend to build crates\x1b[0m");
+            }
+            BuildBackend::Nix => {
+                println!("\x1b[35mUsing 'nix' backend to build crates\x1b[0m");
+            }
+        };
         exec.exec(gctx, subcommand_args)?;
     }
     Ok(())

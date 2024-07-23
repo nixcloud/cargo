@@ -12,6 +12,7 @@ use itertools::Itertools;
 use semver::VersionReq;
 
 use cargo_util::paths;
+use crate::util::BuildBackend;
 
 pub fn cli() -> Command {
     subcommand("install")
@@ -109,6 +110,12 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'install' is not supported yet"),
+            101,
+        ));
+    }
     let path = args.value_of_path("path", gctx);
     if let Some(path) = &path {
         gctx.reload_rooted_at(path)?;

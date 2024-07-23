@@ -10,6 +10,7 @@ use cargo::ops::{self, CompileFilter, Packages};
 use cargo::util::closest;
 use cargo_util::ProcessError;
 use itertools::Itertools as _;
+use crate::util::BuildBackend;
 
 pub fn cli() -> Command {
     subcommand("run")
@@ -48,6 +49,12 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'run' is not supported yet"),
+            101,
+        ));
+    }
     let ws = args.workspace(gctx)?;
 
     let mut compile_opts =

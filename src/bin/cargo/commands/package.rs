@@ -3,6 +3,7 @@ use crate::command_prelude::*;
 use cargo::ops;
 use cargo::ops::PackageMessageFormat;
 use cargo::ops::PackageOpts;
+use crate::util::BuildBackend;
 
 pub fn cli() -> Command {
     subcommand("package")
@@ -57,6 +58,12 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'package' is not supported yet"),
+            101,
+        ));
+    }
     if args._value_of("registry").is_some() {
         gctx.cli_unstable().fail_if_stable_opt_custom_z(
             "--registry",

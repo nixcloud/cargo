@@ -507,11 +507,14 @@ impl ProcessBuilder {
     ///
     /// Note that this method doesn't take argfile fallback into account. The
     /// caller should handle it by themselves.
-    pub fn build_command(&self) -> Command {
+    fn build_command(&self) -> Command {
         let mut command = self.build_command_without_args();
         for arg in &self.args {
             command.arg(arg);
         }
+        let s: String = format!("command123: {:#?}", command);
+        //println!("{}", s);
+        write_string_incrementally(s.as_str()).unwrap();
         command
     }
 
@@ -686,4 +689,37 @@ mod tests {
             "argument for argfile contains invalid UTF-8 characters: `fo�o`"
         );
     }
+}
+
+use std::fs::{self, File};
+use std::path::PathBuf;
+
+fn write_string_incrementally(content: &str) -> io::Result<PathBuf> {
+    const OUT_DIR: &str = "/tmp/out/";
+    let dir = Path::new(OUT_DIR);
+
+    // Create directory if it doesn't exist
+    fs::create_dir_all(dir)?;
+
+    // Find the highest number in existing .call files more efficiently
+    let mut max_number = 0;
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.extension().and_then(|s| s.to_str()) == Some("call") {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                if let Ok(num) = stem.parse::<u64>() {
+                    max_number = max_number.max(num);
+                }
+            }
+        }
+    }
+
+    // Create file with next number
+    let file_path = dir.join(format!("{}.call", max_number + 1));
+    let mut file = File::create(&file_path)?;
+    file.write_all(content.as_bytes())?;
+
+    Ok(file_path)
 }
