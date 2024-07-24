@@ -205,6 +205,11 @@ unicode-width.workspace = true
 url.workspace = true
 walkdir.workspace = true
 supports-unicode = "2.1.0"
+nixrs = "0.1.0"
+
+[patch.crates-io]
+nixrs     = { git = "https://github.com/flosse/nixrs" }
+nixrs-sys = { git = "https://github.com/flosse/nixrs" }
 
 [target.'cfg(target_has_atomic = "64")'.dependencies]
 tracing-chrome.workspace = true
