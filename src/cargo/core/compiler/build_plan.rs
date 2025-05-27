@@ -67,6 +67,7 @@ impl Invocation {
     pub fn add_output(&mut self, path: &Path, link: &Option<PathBuf>) {
         self.outputs.push(path.to_path_buf());
         if let Some(ref link) = *link {
+            println!("self.links.insert(: {:#?} {:#?}", link.clone(), path.to_path_buf());
             self.links.insert(link.clone(), path.to_path_buf());
         }
     }
@@ -132,6 +133,7 @@ impl BuildPlan {
                 internal(format!("couldn't find invocation for {}", invocation_name))
             })?;
 
+            println!("update: {:#?}", cmd);
         invocation.update_cmd(cmd)?;
         for output in outputs.iter() {
             invocation.add_output(&output.path, &output.hardlink);

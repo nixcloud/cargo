@@ -100,6 +100,7 @@ pub struct SerializedPackage {
 impl Package {
     /// Creates a package from a manifest and its location.
     pub fn new(manifest: Manifest, manifest_path: &Path) -> Package {
+        println!("manifest_path: {:#?}", manifest_path);
         Package {
             inner: Rc::new(PackageInner {
                 manifest,

@@ -1,0 +1,10 @@
+# generated from default.nix.handlebars
+{ pkgs ? import <nixpkgs> {} }:
+
+let
+  callPackage' = pkgs.lib.callPackageWith (pkgs // self);
+  self = {
+{{{default_nix_packages}}}
+  };
+in
+self

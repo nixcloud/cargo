@@ -43,6 +43,7 @@ pub(super) fn download(
 ) -> CargoResult<MaybeLock> {
     let path = cache_path.join(&pkg.tarball_name());
     let path = gctx.assert_package_cache_locked(CacheLockMode::DownloadExclusive, &path);
+    println!("download call");
 
     // Attempt to open a read-only copy first to avoid an exclusive write
     // lock and also work with read-only filesystems. Note that we check the
@@ -122,6 +123,7 @@ pub(super) fn finish_download(
     data: &[u8],
 ) -> CargoResult<File> {
     // Verify what we just downloaded
+    println!("finish_download call");
     let actual = Sha256::new().update(data).finish_hex();
     if actual != checksum {
         anyhow::bail!("failed to verify the checksum of `{}`", pkg)

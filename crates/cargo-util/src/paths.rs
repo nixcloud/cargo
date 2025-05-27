@@ -593,6 +593,7 @@ fn set_not_readonly(p: &Path) -> io::Result<bool> {
 pub fn link_or_copy(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
     let src = src.as_ref();
     let dst = dst.as_ref();
+    println!("link_or_copy from: {:?} -> {:?}", src, dst);
     _link_or_copy(src, dst)
 }
 

@@ -46,6 +46,7 @@ pub(crate) mod job_queue;
 pub(crate) mod layout;
 mod links;
 mod lto;
+pub mod nix_build;
 mod output_depinfo;
 mod output_sbom;
 pub mod rustdoc;
@@ -172,6 +173,7 @@ fn compile<'gctx>(
     exec: &Arc<dyn Executor>,
     force_rebuild: bool,
 ) -> CargoResult<()> {
+    println!("compile compiler/mod.rs called");
     let bcx = build_runner.bcx;
     let build_plan = bcx.build_config.build_plan;
     if !build_runner.compiled.insert(unit.clone()) {
@@ -221,6 +223,8 @@ fn compile<'gctx>(
 
         job
     };
+
+
     jobs.enqueue(build_runner, unit, job)?;
 
     // Be sure to compile all dependencies of this target as well.
@@ -335,6 +339,11 @@ fn rustc(
         output_options.show_diagnostics = false;
     }
     let env_config = Arc::clone(build_runner.bcx.gctx.env_config()?);
+    build_runner
+        .raw_process_builder
+        .push((rustc.clone(), unit.clone()));
+    // println!("<<<<<<<<<<<<<<<<<<<<<< rustc <<<<<<<<<<<<<<<<<<<<<< {:#?}", rustc);
+    // println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
     return Ok(Work::new(move |state| {
         // Artifacts are in a different location than typical units,
         // hence we must assure the crate- and target-dependent
@@ -497,6 +506,7 @@ fn rustc(
         current_id: PackageId,
         mode: CompileMode,
     ) -> CargoResult<()> {
+        println!("add_native_deps");
         for key in build_scripts.to_link.iter() {
             let output = build_script_outputs.get(key.1).ok_or_else(|| {
                 internal(format!(
@@ -505,6 +515,7 @@ fn rustc(
                 ))
             })?;
             for path in output.library_paths.iter() {
+                println!("add_native_deps: -L {:#?}", path);
                 rustc.arg("-L").arg(path);
             }
 
@@ -512,6 +523,7 @@ fn rustc(
                 if pass_l_flag {
                     for name in output.library_links.iter() {
                         rustc.arg("-l").arg(name);
+                        println!("add_native_deps: -l {}", name);
                     }
                 }
             }
@@ -526,6 +538,7 @@ fn rustc(
                     && (key.0 == current_id || *lt == LinkArgTarget::Cdylib)
                 {
                     rustc.arg("-C").arg(format!("link-arg={}", arg));
+                    println!("add_native_deps: -C link-arg={}", arg);
                 }
             }
         }
@@ -553,6 +566,7 @@ fn link_targets(
     unit: &Unit,
     fresh: bool,
 ) -> CargoResult<Work> {
+    println!("link_targets called");
     let bcx = build_runner.bcx;
     let outputs = build_runner.outputs(unit)?;
     let export_dir = build_runner.files().export_dir();
@@ -570,6 +584,7 @@ fn link_targets(
             .pkg
             .manifest()
             .metabuild_path(build_runner.bcx.ws.build_dir());
+        println!("TargetSourcePath::Path(path): {:#?}", path);
         target.set_src_path(TargetSourcePath::Path(path));
     }
 
@@ -732,6 +747,8 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
         let tmp = build_runner.files().layout(unit.kind).prepare_tmp()?;
         base.env("CARGO_TARGET_TMPDIR", tmp.display().to_string());
     }
+
+    //println!("yyy: base {:#?}", base);
 
     Ok(base)
 }
@@ -1154,7 +1171,9 @@ fn build_base_args(
     }
 
     cmd.args(&features_args(unit));
-    cmd.args(&check_cfg_args(unit));
+    println!("WARNING HACK: removed --check-cfg cfg(docsrs,test)");
+    println!("WARNING HACK: removed --check-cfg cfg(feature, values())");
+    //cmd.args(&check_cfg_args(unit));
 
     let meta = build_runner.files().metadata(unit);
     cmd.arg("-C")
@@ -1168,8 +1187,10 @@ fn build_base_args(
         cmd.arg("-C").arg("rpath");
     }
 
-    cmd.arg("--out-dir")
-        .arg(&build_runner.files().out_dir(unit));
+    println!("WARNING HACK: --out-dir=$OUT_DIR");
+    cmd.arg("--out-dir $OUT_DIR");
+    // cmd.arg("--out-dir")
+    //     .arg(&build_runner.files().out_dir(unit));
 
     fn opt(cmd: &mut ProcessBuilder, key: &str, prefix: &str, val: Option<&OsStr>) {
         if let Some(val) = val {
@@ -1194,12 +1215,14 @@ fn build_base_args(
             .map(|s| s.as_ref()),
     );
     if incremental {
-        let dir = build_runner
-            .files()
-            .layout(unit.kind)
-            .incremental()
-            .as_os_str();
-        opt(cmd, "-C", "incremental=", Some(dir));
+        println!("WARNING HACK: incremental=$INC_DIR");
+        // let dir = build_runner
+        //     .files()
+        //     .layout(unit.kind)
+        //     .incremental()
+        //     .as_os_str();
+        // opt(cmd, "-C", "incremental=", Some(dir));
+        opt(cmd, "-C", "incremental=$INC_DIR", None);
     }
 
     let strip = strip.into_inner();
@@ -1456,11 +1479,12 @@ fn build_deps_args(
     unit: &Unit,
 ) -> CargoResult<()> {
     let bcx = build_runner.bcx;
-    cmd.arg("-L").arg(&{
-        let mut deps = OsString::from("dependency=");
-        deps.push(build_runner.files().deps_dir(unit));
-        deps
-    });
+    println!("WARNING HACK: dependency= removed");
+    // cmd.arg("-L").arg(&{
+    //     let mut deps = OsString::from("dependency=");
+    //     deps.push(build_runner.files().deps_dir(unit));
+    //     deps
+    // });
 
     // Be sure that the host path is also listed. This'll ensure that proc macro
     // dependencies are correctly found (for reexported macros).
@@ -1548,7 +1572,6 @@ fn add_custom_flags(
 
     Ok(())
 }
-
 /// Generates a list of `--extern` arguments.
 pub fn extern_args(
     build_runner: &BuildRunner<'_, '_>,
@@ -1585,8 +1608,20 @@ pub fn extern_args(
             value.push(extern_crate_name.as_str());
             value.push("=");
 
-            let mut pass = |file| {
-                let mut value = value.clone();
+            let mut pass = |file: &PathBuf| {
+                let binding = OsString::new();
+                let file = file.file_name().unwrap_or(&binding);
+                let mut value: OsString = value.clone();
+
+                println!("WARNING HACK: --extern=${{termcolor-1_4_1}}/...");
+
+                // ${termcolor-1_4_1}
+                let pkg = dep.unit.pkg.package_id();
+                let crate_name = pkg.name().to_string();
+                let crate_version = pkg.version().to_string().replace(".", "_");
+                let nix_attribute_name: String = format!("${{{}-{}}}/", crate_name, crate_version);
+                value.push(nix_attribute_name);
+
                 value.push(file);
                 result.push(OsString::from("--extern"));
                 result.push(value);

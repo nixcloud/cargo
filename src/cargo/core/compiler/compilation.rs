@@ -172,13 +172,13 @@ impl<'gctx> Compilation<'gctx> {
     /// was selected by the user on the command-line (such as with a `-p`
     /// flag), see [`crate::core::compiler::BuildRunner::primary_packages`].
     ///
-    /// `is_workspace` is true if this is a workspace member.
     pub fn rustc_process(
         &self,
         unit: &Unit,
         is_primary: bool,
         is_workspace: bool,
     ) -> CargoResult<ProcessBuilder> {
+        println!("rustc_process is called");
         let mut rustc = if is_primary && self.primary_rustc_process.is_some() {
             self.primary_rustc_process.clone().unwrap()
         } else if is_workspace {
@@ -199,6 +199,7 @@ impl<'gctx> Compilation<'gctx> {
         unit: &Unit,
         script_meta: Option<UnitHash>,
     ) -> CargoResult<ProcessBuilder> {
+        println!("rustdoc_process is called");
         let mut rustdoc = ProcessBuilder::new(&*self.gctx.rustdoc()?);
         if self.gctx.extra_verbose() {
             rustdoc.display_env_vars();
@@ -226,6 +227,7 @@ impl<'gctx> Compilation<'gctx> {
         cmd: T,
         pkg: &Package,
     ) -> CargoResult<ProcessBuilder> {
+        //println!("host_process is called");
         self.fill_env(
             ProcessBuilder::new(cmd),
             pkg,
@@ -236,11 +238,13 @@ impl<'gctx> Compilation<'gctx> {
     }
 
     pub fn target_runner(&self, kind: CompileKind) -> Option<&(PathBuf, Vec<String>)> {
+        //println!("target_runner is called");
         self.target_runners.get(&kind).and_then(|x| x.as_ref())
     }
 
     /// Gets the user-specified linker for a particular host or target.
     pub fn target_linker(&self, kind: CompileKind) -> Option<PathBuf> {
+        //println!("target_linker is called");
         self.target_linkers.get(&kind).and_then(|x| x.clone())
     }
 
@@ -258,6 +262,7 @@ impl<'gctx> Compilation<'gctx> {
         pkg: &Package,
         script_meta: Option<UnitHash>,
     ) -> CargoResult<ProcessBuilder> {
+        println!("target_process is called");
         let builder = if let Some((runner, args)) = self.target_runner(kind) {
             let mut builder = ProcessBuilder::new(runner);
             builder.args(args);
@@ -289,6 +294,7 @@ impl<'gctx> Compilation<'gctx> {
         kind: CompileKind,
         tool_kind: ToolKind,
     ) -> CargoResult<ProcessBuilder> {
+        println!("fill_env is called");
         let mut search_path = Vec::new();
         if tool_kind.is_rustc_tool() {
             if matches!(tool_kind, ToolKind::Rustdoc) {
@@ -375,6 +381,8 @@ impl<'gctx> Compilation<'gctx> {
 
         apply_env_config(self.gctx, &mut cmd)?;
 
+        //println!("fill_env: {:#?}", cmd);
+
         Ok(cmd)
     }
 }
@@ -382,6 +390,7 @@ impl<'gctx> Compilation<'gctx> {
 /// Prepares a `rustc_tool` process with additional environment variables
 /// that are only relevant in a context that has a unit
 fn fill_rustc_tool_env(mut cmd: ProcessBuilder, unit: &Unit) -> ProcessBuilder {
+    println!("fill_rustc_tool_env is called");
     if unit.target.is_executable() {
         let name = unit
             .target
@@ -397,6 +406,7 @@ fn fill_rustc_tool_env(mut cmd: ProcessBuilder, unit: &Unit) -> ProcessBuilder {
 fn get_sysroot_target_libdir(
     bcx: &BuildContext<'_, '_>,
 ) -> CargoResult<HashMap<CompileKind, PathBuf>> {
+    println!("get_sysroot_target_libdir is called");
     bcx.all_kinds
         .iter()
         .map(|&kind| {
@@ -427,6 +437,8 @@ fn target_runner(
     bcx: &BuildContext<'_, '_>,
     kind: CompileKind,
 ) -> CargoResult<Option<(PathBuf, Vec<String>)>> {
+    println!("target_runner is called");
+
     let target = bcx.target_data.short_name(&kind);
 
     // try target.{}.runner
@@ -467,6 +479,7 @@ fn target_runner(
 
 /// Gets the user-specified linker for a particular host or target from the configuration.
 fn target_linker(bcx: &BuildContext<'_, '_>, kind: CompileKind) -> CargoResult<Option<PathBuf>> {
+    println!("target_linker is called");
     // Try host.linker and target.{}.linker.
     if let Some(path) = bcx
         .target_data
@@ -475,6 +488,7 @@ fn target_linker(bcx: &BuildContext<'_, '_>, kind: CompileKind) -> CargoResult<O
         .as_ref()
         .map(|l| l.val.clone().resolve_program(bcx.gctx))
     {
+        println!("target_linker path: {:?}", path);
         return Ok(Some(path));
     }
 

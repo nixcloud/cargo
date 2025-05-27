@@ -16,7 +16,7 @@ pub use self::target_info::{
     FileFlavor, FileType, RustDocFingerprint, RustcTargetData, TargetInfo,
 };
 
-/// The build context, containing complete information needed for a build task
+/// The build context, containing complete information needed for a build task before it gets started.
 /// before it gets started.
 ///
 /// It is intended that this is mostly static information. Stuff that mutates
@@ -92,6 +92,7 @@ impl<'a, 'gctx> BuildContext<'a, 'gctx> {
         unit_graph: UnitGraph,
         scrape_units: Vec<Unit>,
     ) -> CargoResult<BuildContext<'a, 'gctx>> {
+        println!("BuildContext new");
         let all_kinds = unit_graph
             .keys()
             .map(|u| u.kind)

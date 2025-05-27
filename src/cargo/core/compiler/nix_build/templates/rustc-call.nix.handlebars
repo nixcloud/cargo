@@ -1,0 +1,27 @@
+# generated from rustc-call.nix.handlebars
+{ {{{function_arguments}}} }:
+
+  pkgs.stdenv.mkDerivation {
+    name = "{{{crate_name}}}-{{{crate_version}}}";
+    buildInputs = [{{{build_inputs}}}];
+    phases = "unpackPhase buildPhase installPhase";
+
+{{{src}}}
+
+{{{unpack_phase}}}
+
+    CARGO = "${cargo}/bin/cargo";
+{{{environment_variables}}}
+
+    buildPhase = ''
+      OUT_DIR=$(mktemp -d)
+      INC_DIR=$(mktemp -d)
+
+{{{rustc_command_line}}}
+    '';
+
+    installPhase = ''
+      mkdir -p $out
+      cp -R $OUT_DIR/* $out
+    '';
+}

@@ -1,3 +1,13 @@
+# WARNING
+
+This is my experimental cargo branch which generates files in /tmp/nix during normal `cargo build` execution.
+
+In theory later one can then do:
+
+    nix-build /tmp/nix
+
+For now it is just an experiment.
+
 # Cargo
 
 Cargo downloads your Rust project’s dependencies and compiles your project.

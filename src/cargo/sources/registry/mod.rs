@@ -479,6 +479,7 @@ impl<'gctx> RegistrySource<'gctx> {
         gctx: &'gctx GlobalContext,
     ) -> CargoResult<RegistrySource<'gctx>> {
         assert!(source_id.is_remote_registry());
+        println!("creating a remote registry");
         let name = short_name(
             source_id,
             gctx.cli_unstable()
@@ -529,6 +530,8 @@ impl<'gctx> RegistrySource<'gctx> {
         ops: Box<dyn RegistryData + 'gctx>,
         yanked_whitelist: &HashSet<PackageId>,
     ) -> RegistrySource<'gctx> {
+        println!("RegistrySource new");
+
         RegistrySource {
             name: name.into(),
             src_path: gctx.registry_source_path().join(name),
@@ -597,6 +600,8 @@ impl<'gctx> RegistrySource<'gctx> {
     ///
     /// [CVE-2022-36113]: https://blog.rust-lang.org/2022/09/14/cargo-cves.html#arbitrary-file-corruption-cve-2022-36113
     fn unpack_package(&self, pkg: PackageId, tarball: &File) -> CargoResult<PathBuf> {
+        //println!("unpack_package: {:#?}", pkg);
+
         let package_dir = format!("{}-{}", pkg.name(), pkg.version());
         let dst = self.src_path.join(&package_dir);
         let path = dst.join(PACKAGE_SOURCE_LOCK);
@@ -715,6 +720,7 @@ impl<'gctx> RegistrySource<'gctx> {
     /// you need to call either [`RegistryData::download`] or
     /// [`RegistryData::finish_download`] before calling this method.
     fn get_pkg(&mut self, package: PackageId, path: &File) -> CargoResult<Package> {
+        //println!("get_pkg - {}:{}", file!(), line!());
         let path = self
             .unpack_package(package, path)
             .with_context(|| format!("failed to unpack package `{}`", package))?;

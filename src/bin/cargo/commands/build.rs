@@ -47,6 +47,8 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    println!("❄❄❄  snowflake edition ❄❄❄");
+
     let ws = args.workspace(gctx)?;
     let mut compile_opts =
         args.compile_options(gctx, CompileMode::Build, Some(&ws), ProfileChecking::Custom)?;

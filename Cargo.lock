@@ -328,6 +328,7 @@ dependencies = [
  "git2-curl",
  "gix",
  "glob",
+ "handlebars",
  "hex",
  "hmac",
  "home 0.5.11",

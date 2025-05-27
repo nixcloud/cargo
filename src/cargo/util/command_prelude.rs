@@ -727,6 +727,7 @@ Run `{cmd}` to see possible targets."
         workspace: Option<&Workspace<'_>>,
         profile_checking: ProfileChecking,
     ) -> CargoResult<CompileOptions> {
+        println!("fn compile_options()");
         let spec = self.packages_from_flags()?;
         let mut message_format = None;
         let default_json = MessageFormat::Json {

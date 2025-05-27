@@ -112,10 +112,14 @@ pub fn print_available_tests(ws: &Workspace<'_>, options: &CompileOptions) -> Ca
 /// The first returned value here is the argument to pass to rustc, and the
 /// second is the cwd that rustc should operate in.
 pub fn path_args(ws: &Workspace<'_>, unit: &Unit) -> (PathBuf, PathBuf) {
+    println!("src: path_args");
     let src = match unit.target.src_path() {
         TargetSourcePath::Path(path) => path.to_path_buf(),
         TargetSourcePath::Metabuild => unit.pkg.manifest().metabuild_path(ws.build_dir()),
     };
+    let pkg = unit.pkg.package_id();
+    let is_root = ws.members().any(|member| member.package_id() == pkg);
+
     assert!(src.is_absolute());
     if unit.pkg.package_id().source_id().is_path() {
         // Determine which path we make this relative to: usually it's the workspace root,
@@ -125,10 +129,17 @@ pub fn path_args(ws: &Workspace<'_>, unit: &Unit) -> (PathBuf, PathBuf) {
             Some(root_dir) => normalize_path(&ws.gctx().cwd().join(root_dir)),
         };
         if let Ok(path) = src.strip_prefix(&root) {
+            println!("path.to_path_buf(): {:#?}", path.to_path_buf());
             return (path.to_path_buf(), root);
         }
     }
-    (src, unit.pkg.root().to_path_buf())
+    if !is_root {
+        println!("WARNING HACK: hacking src to drop unit.pkg.root() from path");
+        let p = src.strip_prefix(unit.pkg.root()).unwrap();
+        (PathBuf::from(p), unit.pkg.root().to_path_buf())
+    } else {
+        (src, unit.pkg.root().to_path_buf())
+    }
 }
 
 pub fn add_path_args(ws: &Workspace<'_>, unit: &Unit, cmd: &mut ProcessBuilder) {
