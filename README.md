@@ -4,9 +4,18 @@ This is my experimental cargo branch which generates files in /tmp/nix during no
 
 In theory later one can then do:
 
-    nix-build /tmp/nix
+    nix build --file /tmp/nix/ -L
 
 For now it is just an experiment.
+
+Alternative calls:
+
+    CARGO_NIX_BUILDER=fast cargo build
+    CARGO_NIX_BUILDER=sandbox cargo build
+    CARGO_NIX_BUILDER= cargo build
+
+    cargo -Znix --config build.nix=\"fast\" build
+    cargo -Znix --config build.nix=\"sandbox\" build
 
 # Cargo
 

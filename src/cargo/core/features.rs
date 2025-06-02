@@ -783,6 +783,7 @@ unstable_cli_options!(
     msrv_policy: bool = ("Enable rust-version aware policy within cargo"),
     mtime_on_use: bool = ("Configure Cargo to update the mtime of used files"),
     next_lockfile_bump: bool,
+    nix: bool = ("Allow use of the build.nix config key"),
     no_index_update: bool = ("Do not update the registry index even if the cache is outdated"),
     package_workspace: bool = ("Handle intra-workspace dependencies when packaging"),
     panic_abort_tests: bool = ("Enable support to run tests with -Cpanic=abort"),
@@ -1313,6 +1314,7 @@ impl CliUnstable {
             "target-applies-to-host" => self.target_applies_to_host = parse_empty(k, v)?,
             "unstable-options" => self.unstable_options = parse_empty(k, v)?,
             "warnings" => self.warnings = parse_empty(k, v)?,
+            "nix" => self.nix = parse_empty(k, v)?,
             _ => bail!("\
             unknown `-Z` flag specified: {k}\n\n\
             For available unstable features, see https://doc.rust-lang.org/nightly/cargo/reference/unstable.html\n\

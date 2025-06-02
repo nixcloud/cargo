@@ -1,6 +1,7 @@
 use crate::command_prelude::*;
 
 use cargo::ops;
+use crate::util::{CargoResult, NixBuild};
 
 pub fn cli() -> Command {
     subcommand("build")
@@ -28,6 +29,7 @@ pub fn cli() -> Command {
             "Build all targets",
         )
         .arg_features()
+        .arg_nix_build_opts()
         .arg_release("Build artifacts in release mode, with optimizations")
         .arg_redundant_default_mode("debug", "build", "release")
         .arg_profile("Build artifacts with the specified profile")
@@ -47,7 +49,17 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
-    println!("❄❄❄  snowflake edition ❄❄❄");
+    match gctx.nix()? {
+        None => {},
+        Some(NixBuild::Fast) => {
+            println!("❄❄❄  snowflake edition ❄❄❄");
+            println!("NixBuild is set to Fast");
+        },
+        Some(NixBuild::Sandbox) => {
+            println!("❄❄❄  snowflake edition ❄❄❄");
+            println!("NixBuild is set to Sandbox");
+        },
+    };
 
     let ws = args.workspace(gctx)?;
     let mut compile_opts =

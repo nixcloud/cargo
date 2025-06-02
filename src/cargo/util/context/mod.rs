@@ -251,6 +251,11 @@ pub struct GlobalContext {
     /// A cache of modifications to make to [`GlobalContext::global_cache_tracker`],
     /// saved to disk in a batch to improve performance.
     deferred_global_last_use: LazyCell<RefCell<DeferredGlobalLastUse>>,
+    /// The nix-build configuration for the program crate rustc call:
+    /// Either: 
+    ///  - "Fast" or
+    ///  - "Sandbox"
+    nix: Option<NixBuild>,
 }
 
 impl GlobalContext {
@@ -326,6 +331,7 @@ impl GlobalContext {
             ws_roots: RefCell::new(HashMap::new()),
             global_cache_tracker: LazyCell::new(),
             deferred_global_last_use: LazyCell::new(),
+            nix: None,
         }
     }
 
@@ -2106,6 +2112,31 @@ impl GlobalContext {
             Ok(WarningHandling::default())
         }
     }
+
+    pub fn nix(&self) -> CargoResult<Option<NixBuild>> {
+        if self.unstable_flags.nix && self.build_config()?.nix.is_some() {
+            Ok(self.build_config()?.nix)
+        } else if let Some(nix_build_env_value) = self.get_env_os("CARGO_NIX_BUILDER") {
+            // Check if the CARGO_NIX_BUILDER environment variable is set to an empty string.
+            match nix_build_env_value.to_str() {
+                Some(value) => {
+                    match value.to_lowercase().as_str() {
+                        "fast" => Ok(Some(NixBuild::Fast)),
+                        "sandbox" => Ok(Some(NixBuild::Sandbox)),
+                        "" => Ok(Some(NixBuild::default())),
+                        _ =>  {
+                            anyhow::bail!("WARNING: '{value}' is an unknown value for CARGO_NIX_BUILDER, falling back to default builder")
+                        }
+                    }
+                },
+                _ => Ok(Some(NixBuild::default())),
+            }
+        } else if let Some(nix_build_value) = &self.nix {
+            Ok(Some(nix_build_value.clone()))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Internal error for serde errors.
@@ -2751,6 +2782,7 @@ pub struct CargoBuildConfig {
     pub warnings: Option<WarningHandling>,
     /// Unstable feature `-Zsbom`.
     pub sbom: Option<bool>,
+    pub nix: Option<NixBuild>,
 }
 
 /// Whether warnings should warn, be allowed, or cause an error.
@@ -2764,6 +2796,14 @@ pub enum WarningHandling {
     Allow,
     /// Error if  warnings are emitted.
     Deny,
+}
+
+#[derive(Debug, Copy, Clone, Default, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum NixBuild {
+    #[default]
+    Fast,
+    Sandbox,
 }
 
 /// Configuration for `build.target`.

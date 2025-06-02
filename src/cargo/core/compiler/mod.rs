@@ -223,8 +223,6 @@ fn compile<'gctx>(
 
         job
     };
-
-
     jobs.enqueue(build_runner, unit, job)?;
 
     // Be sure to compile all dependencies of this target as well.
@@ -342,8 +340,6 @@ fn rustc(
     build_runner
         .raw_process_builder
         .push((rustc.clone(), unit.clone()));
-    // println!("<<<<<<<<<<<<<<<<<<<<<< rustc <<<<<<<<<<<<<<<<<<<<<< {:#?}", rustc);
-    // println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
     return Ok(Work::new(move |state| {
         // Artifacts are in a different location than typical units,
         // hence we must assure the crate- and target-dependent
@@ -1057,7 +1053,9 @@ fn build_base_args(
     edition.cmd_edition_arg(cmd);
 
     add_path_args(bcx.ws, unit, cmd);
-    add_error_format_and_color(build_runner, cmd);
+    if bcx.gctx.nix()?.is_none() {
+        add_error_format_and_color(build_runner, cmd);
+    }
     add_allow_features(build_runner, cmd);
 
     let mut contains_dy_lib = false;
@@ -1171,9 +1169,12 @@ fn build_base_args(
     }
 
     cmd.args(&features_args(unit));
-    println!("WARNING HACK: removed --check-cfg cfg(docsrs,test)");
-    println!("WARNING HACK: removed --check-cfg cfg(feature, values())");
-    //cmd.args(&check_cfg_args(unit));
+    if bcx.gctx.nix()?.is_none() {
+        cmd.args(&check_cfg_args(unit));
+    } else {
+        println!("WARNING HACK: removed --check-cfg cfg(docsrs,test)");
+        println!("WARNING HACK: removed --check-cfg cfg(feature, values())");
+    }
 
     let meta = build_runner.files().metadata(unit);
     cmd.arg("-C")
@@ -1187,10 +1188,14 @@ fn build_base_args(
         cmd.arg("-C").arg("rpath");
     }
 
-    println!("WARNING HACK: --out-dir=$OUT_DIR");
-    cmd.arg("--out-dir $OUT_DIR");
-    // cmd.arg("--out-dir")
-    //     .arg(&build_runner.files().out_dir(unit));
+    if bcx.gctx.nix()?.is_none() {
+        cmd.arg("--out-dir")
+        .arg(&build_runner.files().out_dir(unit));
+
+    } else {
+        println!("WARNING HACK: --out-dir=$OUT_DIR");
+        cmd.arg("--out-dir $OUT_DIR");
+    }
 
     fn opt(cmd: &mut ProcessBuilder, key: &str, prefix: &str, val: Option<&OsStr>) {
         if let Some(val) = val {
@@ -1215,14 +1220,17 @@ fn build_base_args(
             .map(|s| s.as_ref()),
     );
     if incremental {
-        println!("WARNING HACK: incremental=$INC_DIR");
-        // let dir = build_runner
-        //     .files()
-        //     .layout(unit.kind)
-        //     .incremental()
-        //     .as_os_str();
-        // opt(cmd, "-C", "incremental=", Some(dir));
-        opt(cmd, "-C", "incremental=$INC_DIR", None);
+        if bcx.gctx.nix()?.is_none() {
+            let dir = build_runner
+                    .files()
+                    .layout(unit.kind)
+                    .incremental()
+                    .as_os_str();
+                opt(cmd, "-C", "incremental=", Some(dir));
+        } else {
+            println!("WARNING HACK: incremental=$INC_DIR");
+            opt(cmd, "-C", "incremental=$INC_DIR", None);
+        }
     }
 
     let strip = strip.into_inner();
@@ -1479,12 +1487,16 @@ fn build_deps_args(
     unit: &Unit,
 ) -> CargoResult<()> {
     let bcx = build_runner.bcx;
-    println!("WARNING HACK: dependency= removed");
-    // cmd.arg("-L").arg(&{
-    //     let mut deps = OsString::from("dependency=");
-    //     deps.push(build_runner.files().deps_dir(unit));
-    //     deps
-    // });
+
+    if bcx.gctx.nix()?.is_none() {
+        cmd.arg("-L").arg(&{
+            let mut deps = OsString::from("dependency=");
+            deps.push(build_runner.files().deps_dir(unit));
+            deps
+        });
+    } else {
+        println!("WARNING HACK: dependency= removed");
+    }
 
     // Be sure that the host path is also listed. This'll ensure that proc macro
     // dependencies are correctly found (for reexported macros).
@@ -1609,22 +1621,29 @@ pub fn extern_args(
             value.push("=");
 
             let mut pass = |file: &PathBuf| {
-                let binding = OsString::new();
-                let file = file.file_name().unwrap_or(&binding);
-                let mut value: OsString = value.clone();
+                if build_runner.bcx.gctx.nix().unwrap().is_none() {
+                    let mut value = value.clone();
+                    value.push(file);
+                    result.push(OsString::from("--extern"));
+                    result.push(value);
+                } else {
+                    let binding = OsString::new();
+                    let file = file.file_name().unwrap_or(&binding);
+                    let mut value: OsString = value.clone();
 
-                println!("WARNING HACK: --extern=${{termcolor-1_4_1}}/...");
+                    println!("WARNING HACK: --extern=${{termcolor-1_4_1}}/...");
 
-                // ${termcolor-1_4_1}
-                let pkg = dep.unit.pkg.package_id();
-                let crate_name = pkg.name().to_string();
-                let crate_version = pkg.version().to_string().replace(".", "_");
-                let nix_attribute_name: String = format!("${{{}-{}}}/", crate_name, crate_version);
-                value.push(nix_attribute_name);
+                    // ${termcolor-1_4_1}
+                    let pkg = dep.unit.pkg.package_id();
+                    let crate_name = pkg.name().to_string();
+                    let crate_version = pkg.version().to_string().replace(".", "_");
+                    let nix_attribute_name: String = format!("${{{}-{}}}/", crate_name, crate_version);
+                    value.push(nix_attribute_name);
 
-                value.push(file);
-                result.push(OsString::from("--extern"));
-                result.push(value);
+                    value.push(file);
+                    result.push(OsString::from("--extern"));
+                    result.push(value);
+                };
             };
 
             let outputs = build_runner.outputs(&dep.unit)?;

@@ -479,7 +479,7 @@ impl<'gctx> RegistrySource<'gctx> {
         gctx: &'gctx GlobalContext,
     ) -> CargoResult<RegistrySource<'gctx>> {
         assert!(source_id.is_remote_registry());
-        println!("creating a remote registry");
+        println!("creating aq remote registry");
         let name = short_name(
             source_id,
             gctx.cli_unstable()

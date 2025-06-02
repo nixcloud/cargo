@@ -3,10 +3,11 @@ pub mod nix_build_runner;
 use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
 use crate::core::compiler::{BuildContext, BuildRunner};
-use crate::util::CargoResult;
+use crate::util::{CargoResult, NixBuild};
 use cargo_util::ProcessBuilder;
 use handlebars::Handlebars;
 use std::path::Path;
+use crate::util::context::GlobalContext;
 
 use std::collections::BTreeSet;
 use std::fs::{create_dir_all, File};
@@ -19,11 +20,33 @@ struct DefaultNixEntry {
     filename: String,
 }
 
+// used to create the nix attribute 'name' from cargo's crate_name and crate_version
+fn format_create_fullname(crate_name: &String, crate_version: &String) -> String {
+    format!(
+        "{}-{}",
+        crate_name,
+        crate_version.replace(".", "_"))
+}
+
 pub struct NixBuildRunner {}
 
 impl<'a, 'gctx> NixBuildRunner {
     pub fn new(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<()> {
         let bcx: &BuildContext<'a, 'gctx> = &build_runner.bcx;
+        let gctx: &'gctx GlobalContext = bcx.gctx;
+
+        match gctx.nix()? {
+            None => {
+                println!("NixBuild not active");
+            },
+            Some(NixBuild::Fast) => {
+                println!("NixBuild is set to Fast");
+            },
+            Some(NixBuild::Sandbox) => {
+                println!("NixBuild is set to Sandbox");
+            },
+        };
+
         let workspace = build_runner.bcx.ws;
         let unit_graph: &UnitGraph = &bcx.unit_graph;
         let mut visited = BTreeSet::new();
@@ -32,17 +55,14 @@ impl<'a, 'gctx> NixBuildRunner {
         let dir = PathBuf::from("/tmp/nix");
         create_dir_all(&dir)?;
 
+        let l = &build_runner.raw_process_builder.len();
+        println!("Need to generate: {l} units.");
+
         for (process_builder, unit) in &build_runner.raw_process_builder {
             let pkg = unit.pkg.package_id();
             let crate_name = pkg.name().to_string();
             let is_root = workspace.members().any(|member| member.package_id() == pkg);
-            println!(
-                "<<<<<<<<<<<<<<<<<<<<<< rustc {}<<<<<<<<<<<<<<<<<<<<<<",
-                crate_name
-            );
-            println!("{:#?}", process_builder);
-            println!("{:#?}", unit);
-            println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
+            
             Self::process_unit(
                 unit,
                 process_builder,
@@ -97,6 +117,24 @@ impl<'a, 'gctx> NixBuildRunner {
         if visited.contains(unit) {
             return Ok(());
         }
+
+        let pkg = unit.pkg.package_id();
+        let crate_name = pkg.name().to_string();
+        let crate_version = pkg.version().to_string();
+        let fullname = format_create_fullname(&crate_name, &crate_version);
+
+        println!("Generating {}", fullname);
+
+        if fullname == "unicase-2_7_0" {
+            //println!("unit.target: {:?}", unit.target);
+            println!(
+                "<<<<<<<<<<<<<<<<<<<<<< rustc {fullname} <<<<<<<<<<<<<<<<<<<<<<",
+            );
+            //println!("{:#?}", process_builder);
+            println!("{:#?}", unit);
+            println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
+        }
+
         visited.insert(unit.clone());
 
         let mut build_inputs: Vec<String> = vec![];
@@ -105,21 +143,13 @@ impl<'a, 'gctx> NixBuildRunner {
         if let Some(deps) = unit_graph.get(unit) {
             for dep in deps {
                 let pkg = dep.unit.pkg.package_id();
-                let crate_name = pkg.name().to_string();
-                let crate_version = pkg.version().to_string();
-                build_inputs.push(format!(
-                    "{}-{}",
-                    crate_name,
-                    crate_version.replace(".", "_")
-                ));
+                let crate_name: String = pkg.name().to_string();
+                let crate_version: String = pkg.version().to_string();
+                build_inputs.push(
+                    format_create_fullname(&crate_name, &crate_version)
+                );
             }
         }
-
-        let pkg = unit.pkg.package_id();
-        println!("unit.target: {:?}", unit.target);
-
-        let crate_name = pkg.name().to_string();
-        let crate_version = pkg.version().to_string();
 
         let src: String = if is_root {
             let mut handlebars = Handlebars::new();
@@ -157,7 +187,6 @@ impl<'a, 'gctx> NixBuildRunner {
             )?;
             rendered
         };
-
         let unpack_phase: String = if is_root {
             r#"
     unpackPhase = "";
@@ -257,6 +286,11 @@ impl<'a, 'gctx> NixBuildRunner {
             }),
         )?;
 
+        if fullname == "unicase-2_7_0" {
+            println!("-------------");
+            println!("{}", rendered);
+            println!("-------------");
+        }
         writeln!(file, "{}", rendered)?;
 
         all_nodes.push(DefaultNixEntry {

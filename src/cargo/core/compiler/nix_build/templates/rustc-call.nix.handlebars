@@ -5,19 +5,17 @@
     name = "{{{crate_name}}}-{{{crate_version}}}";
     buildInputs = [{{{build_inputs}}}];
     phases = "unpackPhase buildPhase installPhase";
-
 {{{src}}}
-
 {{{unpack_phase}}}
-
     CARGO = "${cargo}/bin/cargo";
 {{{environment_variables}}}
 
     buildPhase = ''
       OUT_DIR=$(mktemp -d)
       INC_DIR=$(mktemp -d)
-
+      set -x
 {{{rustc_command_line}}}
+      set +x
     '';
 
     installPhase = ''
