@@ -178,7 +178,7 @@ impl<'gctx> Compilation<'gctx> {
         is_primary: bool,
         is_workspace: bool,
     ) -> CargoResult<ProcessBuilder> {
-        println!("rustc_process is called");
+        //println!("rustc_process is called");
         let mut rustc = if is_primary && self.primary_rustc_process.is_some() {
             self.primary_rustc_process.clone().unwrap()
         } else if is_workspace {
@@ -294,7 +294,7 @@ impl<'gctx> Compilation<'gctx> {
         kind: CompileKind,
         tool_kind: ToolKind,
     ) -> CargoResult<ProcessBuilder> {
-        println!("fill_env is called");
+        //println!("fill_env is called");
         let mut search_path = Vec::new();
         if tool_kind.is_rustc_tool() {
             if matches!(tool_kind, ToolKind::Rustdoc) {
@@ -390,7 +390,7 @@ impl<'gctx> Compilation<'gctx> {
 /// Prepares a `rustc_tool` process with additional environment variables
 /// that are only relevant in a context that has a unit
 fn fill_rustc_tool_env(mut cmd: ProcessBuilder, unit: &Unit) -> ProcessBuilder {
-    println!("fill_rustc_tool_env is called");
+    //println!("fill_rustc_tool_env is called");
     if unit.target.is_executable() {
         let name = unit
             .target
@@ -406,7 +406,7 @@ fn fill_rustc_tool_env(mut cmd: ProcessBuilder, unit: &Unit) -> ProcessBuilder {
 fn get_sysroot_target_libdir(
     bcx: &BuildContext<'_, '_>,
 ) -> CargoResult<HashMap<CompileKind, PathBuf>> {
-    println!("get_sysroot_target_libdir is called");
+    //println!("get_sysroot_target_libdir is called");
     bcx.all_kinds
         .iter()
         .map(|&kind| {
@@ -437,7 +437,7 @@ fn target_runner(
     bcx: &BuildContext<'_, '_>,
     kind: CompileKind,
 ) -> CargoResult<Option<(PathBuf, Vec<String>)>> {
-    println!("target_runner is called");
+    //println!("target_runner is called");
 
     let target = bcx.target_data.short_name(&kind);
 

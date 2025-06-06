@@ -17,6 +17,65 @@ Alternative calls:
     cargo -Znix --config build.nix=\"fast\" build
     cargo -Znix --config build.nix=\"sandbox\" build
 
+## todo
+
+* `-L` needs to be reintegrated with `propagatedBuildInputs` concept so that
+
+       rphtml v0.5.10 (/home/nixos/rphtml)
+       ├── htmlentity v1.3.2
+       │   ├── anyhow v1.0.97
+       │   ├── lazy_static v1.5.0
+       │   └── thiserror v1.0.69
+       │       └── thiserror-impl v1.0.69 (proc-macro)
+       │           ├── proc-macro2 v1.0.94
+       │           │   └── unicode-ident v1.0.18
+       │           ├── quote v1.0.39
+       │           │   └── proc-macro2 v1.0.94 (*)
+       │           └── syn v2.0.99
+       │               ├── proc-macro2 v1.0.94 (*)
+       │               ├── quote v1.0.39 (*)
+       │               └── unicode-ident v1.0.18
+       ├── lazy_static v1.5.0
+       └── thiserror v1.0.69 (*)
+
+    https://gist.github.com/qknight/cec3d2be284ab704ae88ee2da5726821       
+
+## flake
+
+    {
+      description = "The cargo-nix using example project flake";
+      inputs = {
+        nixpkgs.url      = "github:NixOS/nixpkgs/nixos-25.05";
+        rust-overlay.url = "github:oxalica/rust-overlay";
+      };
+      outputs =
+      { self, nixpkgs, flake-utils, rust-overlay }:
+        flake-utils.lib.eachDefaultSystem
+          (system:
+            let
+              overlays = [ (import rust-overlay) ];
+              pkgs = import nixpkgs {
+                inherit system overlays;
+              };
+              rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+              allPackages = import ./nix/default.nix { inherit pkgs; };
+            in
+            with pkgs;
+            rec {
+              packages = allPackages // {
+                inherit defaultPackage;
+              };
+              devShells.default = mkShell {
+                buildInputs = [
+                  rust-bin.stable."1.86.0".default
+                ];
+              };
+            }
+          );
+    }
+
+    nix build .#anyhow-1_0_97
+
 # Cargo
 
 Cargo downloads your Rust project’s dependencies and compiles your project.

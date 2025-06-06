@@ -607,7 +607,7 @@ impl<'gctx> DrainState<'gctx> {
         let warning_handling = build_runner.bcx.gctx.warning_handling()?;
         match event {
             Message::Run(id, cmd) => {
-                println!("handle_event Message::Run");
+                // println!("handle_event Message::Run");
                 build_runner
                     .bcx
                     .gctx
@@ -617,15 +617,15 @@ impl<'gctx> DrainState<'gctx> {
                 self.timings.unit_start(id, self.active[&id].clone());
             }
             Message::BuildPlanMsg(module_name, cmd, filenames) => {
-                println!("handle_event Message::BuildPlanMsg");
+                // println!("handle_event Message::BuildPlanMsg");
                 plan.update(&module_name, &cmd, &filenames)?;
             }
             Message::Stdout(out) => {
-                println!("handle_event Message::Stdout");
+                // println!("handle_event Message::Stdout");
                 writeln!(build_runner.bcx.gctx.shell().out(), "{}", out)?;
             }
             Message::Stderr(err) => {
-                println!("handle_event Message::Stderr");
+                // println!("handle_event Message::Stderr");
                 let mut shell = build_runner.bcx.gctx.shell();
                 shell.print_ansi_stderr(err.as_bytes())?;
                 shell.err().write_all(b"\n")?;
@@ -636,7 +636,7 @@ impl<'gctx> DrainState<'gctx> {
                 diag,
                 fixable,
             } => {
-                println!("handle_event Message::Diagnostic");
+                // println!("handle_event Message::Diagnostic");
                 let emitted = self.diag_dedupe.emit_diag(&diag)?;
                 if level == "warning" {
                     self.bump_warning_count(id, emitted, fixable);
@@ -648,7 +648,7 @@ impl<'gctx> DrainState<'gctx> {
                 }
             }
             Message::Warning { id, warning } => {
-                println!("handle_event Message::Warning");
+                // println!("handle_event Message::Warning");
 
                 if warning_handling != WarningHandling::Allow {
                     build_runner.bcx.gctx.shell().warn(warning)?;
@@ -666,7 +666,7 @@ impl<'gctx> DrainState<'gctx> {
                 self.print.print(&msg)?;
             }
             Message::Finish(id, artifact, result) => {
-                println!("handle_event Message::Finish");
+                // println!("handle_event Message::Finish");
 
                 let unit = match artifact {
                     // If `id` has completely finished we remove it
@@ -958,7 +958,7 @@ impl<'gctx> DrainState<'gctx> {
         let id = JobId(self.next_id);
         self.next_id = self.next_id.checked_add(1).unwrap();
 
-        println!("(job_queue/mod.rs ~961) run {}: {:#?}", id, unit);
+        //println!("(job_queue/mod.rs ~961) run {}: {:#?}", id, unit);
 
         assert!(self.active.insert(id, unit.clone()).is_none());
 

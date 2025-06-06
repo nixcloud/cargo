@@ -8,6 +8,7 @@ use cargo_util::ProcessBuilder;
 use handlebars::Handlebars;
 use std::path::Path;
 use crate::util::context::GlobalContext;
+use crate::core::TargetKind;
 
 use std::collections::BTreeSet;
 use std::fs::{create_dir_all, File};
@@ -21,11 +22,24 @@ struct DefaultNixEntry {
 }
 
 // used to create the nix attribute 'name' from cargo's crate_name and crate_version
-fn format_create_fullname(crate_name: &String, crate_version: &String) -> String {
+pub fn format_create_fullname(lib: &String, crate_name: &String, crate_version: &String) -> String {
+    let lib = if lib =="" { "".to_string() } else { format!("{}-", lib) };
     format!(
-        "{}-{}",
+        "{}{}-{}",
+        lib,
         crate_name,
         crate_version.replace(".", "_"))
+}
+
+pub fn kind_string(tk: &TargetKind) -> String {
+    match tk {
+        TargetKind::Lib(_) => {
+            "lib".to_string()
+        },
+        _ => {
+            String::new()
+        }
+    }
 }
 
 pub struct NixBuildRunner {}
@@ -121,19 +135,21 @@ impl<'a, 'gctx> NixBuildRunner {
         let pkg = unit.pkg.package_id();
         let crate_name = pkg.name().to_string();
         let crate_version = pkg.version().to_string();
-        let fullname = format_create_fullname(&crate_name, &crate_version);
+        let lib: String = kind_string(unit.target.kind());
+
+        let fullname = format_create_fullname(&lib, &crate_name, &crate_version);
 
         println!("Generating {}", fullname);
 
-        if fullname == "unicase-2_7_0" {
-            //println!("unit.target: {:?}", unit.target);
-            println!(
-                "<<<<<<<<<<<<<<<<<<<<<< rustc {fullname} <<<<<<<<<<<<<<<<<<<<<<",
-            );
-            //println!("{:#?}", process_builder);
-            println!("{:#?}", unit);
-            println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
-        }
+        // if fullname == "unicase-2_7_0" {
+        //     //println!("unit.target: {:?}", unit.target);
+        //     println!(
+        //         "<<<<<<<<<<<<<<<<<<<<<< rustc {fullname} <<<<<<<<<<<<<<<<<<<<<<",
+        //     );
+        //     //println!("{:#?}", process_builder);
+        //     println!("{:#?}", unit);
+        //     println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
+        // }
 
         visited.insert(unit.clone());
 
@@ -145,8 +161,10 @@ impl<'a, 'gctx> NixBuildRunner {
                 let pkg = dep.unit.pkg.package_id();
                 let crate_name: String = pkg.name().to_string();
                 let crate_version: String = pkg.version().to_string();
+                let lib: String = kind_string(dep.unit.target.kind());
+                // println!("lib: {lib}");
                 build_inputs.push(
-                    format_create_fullname(&crate_name, &crate_version)
+                    format_create_fullname(&lib, &crate_name, &crate_version)
                 );
             }
         }
@@ -218,7 +236,7 @@ impl<'a, 'gctx> NixBuildRunner {
         };
         create_dir_all(&dir)?;
 
-        let file_path = dir.join(format!("{}-{}.nix", crate_name, crate_version));
+        let file_path = dir.join(format!("{fullname}.nix"));
         let mut file = File::create(&file_path)?;
 
         let mut handlebars = Handlebars::new();
@@ -294,7 +312,7 @@ impl<'a, 'gctx> NixBuildRunner {
         writeln!(file, "{}", rendered)?;
 
         all_nodes.push(DefaultNixEntry {
-            name: format!("{}-{}", crate_name, crate_version.replace(".", "_")),
+            name: format_create_fullname(&lib, &crate_name, &crate_version),
             filename: file_path.to_string_lossy().to_string(),
         });
 

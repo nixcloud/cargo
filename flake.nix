@@ -32,7 +32,7 @@
               openssl
               pkg-config
               nushell
-              rust-bin.stable."1.86.0".default
+              rust-bin.stable."1.87.0".default
             ] ++ platform_packages;
           };
         }

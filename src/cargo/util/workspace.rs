@@ -134,7 +134,7 @@ pub fn path_args(ws: &Workspace<'_>, unit: &Unit) -> (PathBuf, PathBuf) {
     let pkg = unit.pkg.package_id();
     let is_root = ws.members().any(|member| member.package_id() == pkg);
     if ws.gctx().nix().unwrap().is_some() && !is_root {
-        println!("WARNING HACK: hacking src to drop unit.pkg.root() from path");
+        //println!("WARNING HACK: hacking src to drop unit.pkg.root() from path");
         let p = src.strip_prefix(unit.pkg.root()).unwrap();
         (PathBuf::from(p), unit.pkg.root().to_path_buf())
     } else {

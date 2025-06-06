@@ -173,7 +173,7 @@ fn compile<'gctx>(
     exec: &Arc<dyn Executor>,
     force_rebuild: bool,
 ) -> CargoResult<()> {
-    println!("compile compiler/mod.rs called");
+    //println!("compile compiler/mod.rs called");
     let bcx = build_runner.bcx;
     let build_plan = bcx.build_config.build_plan;
     if !build_runner.compiled.insert(unit.clone()) {
@@ -562,7 +562,7 @@ fn link_targets(
     unit: &Unit,
     fresh: bool,
 ) -> CargoResult<Work> {
-    println!("link_targets called");
+    //println!("link_targets called");
     let bcx = build_runner.bcx;
     let outputs = build_runner.outputs(unit)?;
     let export_dir = build_runner.files().export_dir();
@@ -757,6 +757,7 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
 /// from build scripts.
 fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuilder> {
     let bcx = build_runner.bcx;
+    let isNixBuild: bool = build_runner.bcx.gctx.nix()?.is_some();
     // script_metadata is not needed here, it is only for tests.
     let mut rustdoc = build_runner.compilation.rustdoc_process(unit, None)?;
     rustdoc.inherit_jobserver(&build_runner.jobserver);
@@ -770,8 +771,8 @@ fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResu
     }
     let doc_dir = build_runner.files().out_dir(unit);
     rustdoc.arg("-o").arg(&doc_dir);
-    rustdoc.args(&features_args(unit));
-    rustdoc.args(&check_cfg_args(unit));
+    rustdoc.args(&features_args(unit, isNixBuild));
+    rustdoc.args(&check_cfg_args(unit, isNixBuild));
 
     add_error_format_and_color(build_runner, &mut rustdoc);
     add_allow_features(build_runner, &mut rustdoc);
@@ -1168,13 +1169,9 @@ fn build_base_args(
         cmd.arg("--cfg").arg("test");
     }
 
-    cmd.args(&features_args(unit));
-    if bcx.gctx.nix()?.is_none() {
-        cmd.args(&check_cfg_args(unit));
-    } else {
-        println!("WARNING HACK: removed --check-cfg cfg(docsrs,test)");
-        println!("WARNING HACK: removed --check-cfg cfg(feature, values())");
-    }
+    let isNixBuild: bool = bcx.gctx.nix()?.is_some();
+    cmd.args(&features_args(unit, isNixBuild));
+    cmd.args(&check_cfg_args(unit, isNixBuild));
 
     let meta = build_runner.files().metadata(unit);
     cmd.arg("-C")
@@ -1193,7 +1190,7 @@ fn build_base_args(
         .arg(&build_runner.files().out_dir(unit));
 
     } else {
-        println!("WARNING HACK: --out-dir=$OUT_DIR");
+        //println!("WARNING HACK: --out-dir=$OUT_DIR");
         cmd.arg("--out-dir $OUT_DIR");
     }
 
@@ -1228,7 +1225,7 @@ fn build_base_args(
                     .as_os_str();
                 opt(cmd, "-C", "incremental=", Some(dir));
         } else {
-            println!("WARNING HACK: incremental=$INC_DIR");
+            //println!("WARNING HACK: incremental=$INC_DIR");
             opt(cmd, "-C", "incremental=$INC_DIR", None);
         }
     }
@@ -1273,15 +1270,21 @@ fn build_base_args(
     Ok(())
 }
 
-/// All active features for the unit passed as `--cfg features=<feature-name>`.
-fn features_args(unit: &Unit) -> Vec<OsString> {
-    let mut args = Vec::with_capacity(unit.features.len() * 2);
+fn escape_feature_args(feature_args: String, isNixBuild: bool) -> String {
+    if isNixBuild {
+        format!("'{}'", feature_args)
+    } else {
+        format!("{}", feature_args)
+    }
+}
 
+/// All active features for the unit passed as `--cfg features=<feature-name>`.
+fn features_args(unit: &Unit, isNixBuild: bool) -> Vec<OsString> {
+    let mut args = Vec::with_capacity(unit.features.len() * 2);
     for feat in &unit.features {
         args.push(OsString::from("--cfg"));
-        args.push(OsString::from(format!("feature=\"{}\"", feat)));
+        args.push(OsString::from(escape_feature_args(format!("feature=\"{}\"", feat), isNixBuild)));
     }
-
     args
 }
 
@@ -1407,7 +1410,7 @@ fn package_remap(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> OsString {
 }
 
 /// Generates the `--check-cfg` arguments for the `unit`.
-fn check_cfg_args(unit: &Unit) -> Vec<OsString> {
+fn check_cfg_args(unit: &Unit, isNixBuild: bool) -> Vec<OsString> {
     // The routine below generates the --check-cfg arguments. Our goals here are to
     // enable the checking of conditionals and pass the list of declared features.
     //
@@ -1446,12 +1449,12 @@ fn check_cfg_args(unit: &Unit) -> Vec<OsString> {
     // We include `docsrs` here (in Cargo) instead of rustc, since there is a much closer
     // relationship between Cargo and docs.rs than rustc and docs.rs. In particular, all
     // users of docs.rs use Cargo, but not all users of rustc (like Rust-for-Linux) use docs.rs.
-
+    
     vec![
         OsString::from("--check-cfg"),
-        OsString::from("cfg(docsrs,test)"),
+        OsString::from(escape_feature_args("cfg(docsrs,test)".to_string(), isNixBuild)),
         OsString::from("--check-cfg"),
-        arg_feature,
+        OsString::from(escape_feature_args(arg_feature.to_str().unwrap().to_string(), isNixBuild)),
     ]
 }
 
@@ -1495,7 +1498,7 @@ fn build_deps_args(
             deps
         });
     } else {
-        println!("WARNING HACK: dependency= removed");
+        //println!("WARNING HACK: dependency= removed");
     }
 
     // Be sure that the host path is also listed. This'll ensure that proc macro
@@ -1631,14 +1634,16 @@ pub fn extern_args(
                     let file = file.file_name().unwrap_or(&binding);
                     let mut value: OsString = value.clone();
 
-                    println!("WARNING HACK: --extern=${{termcolor-1_4_1}}/...");
-
-                    // ${termcolor-1_4_1}
+                    //println!("WARNING HACK: --extern=${{lib-termcolor-1_4_1}}/...");
+                    // ${lib-termcolor-1_4_1}
                     let pkg = dep.unit.pkg.package_id();
                     let crate_name = pkg.name().to_string();
-                    let crate_version = pkg.version().to_string().replace(".", "_");
-                    let nix_attribute_name: String = format!("${{{}-{}}}/", crate_name, crate_version);
-                    value.push(nix_attribute_name);
+                    let crate_version = pkg.version().to_string();
+                    let lib: String = crate::core::compiler::nix_build::kind_string(dep.unit.target.kind());
+                    let nix_attribute_name = crate::core::compiler::nix_build::format_create_fullname(&lib, &crate_name, &crate_version);
+                    let nix_attribute_name_embedded = format!("${{{}}}/", nix_attribute_name);
+
+                    value.push(nix_attribute_name_embedded);
 
                     value.push(file);
                     result.push(OsString::from("--extern"));

@@ -217,7 +217,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
             let _nix_build_runner = NixBuildRunner::new(&self)?;
             // call nix-build here
             NixBuild::build().unwrap();
-            println!("WARNING HACK: we just quit before jobs.enqueue");
+            //println!("WARNING HACK: we just quit before jobs.enqueue");
             return Ok(self.compilation)
         }
 
@@ -261,11 +261,12 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
             // Collect information for `rustdoc --test`.
             if unit.mode.is_doc_test() {
+                let isNixBuild: bool = self.bcx.gctx.nix()?.is_some();
                 let mut unstable_opts = false;
                 let mut args = compiler::extern_args(&self, unit, &mut unstable_opts)?;
                 args.extend(compiler::lto_args(&self, unit));
-                args.extend(compiler::features_args(unit));
-                args.extend(compiler::check_cfg_args(unit));
+                args.extend(compiler::features_args(unit, isNixBuild));
+                args.extend(compiler::check_cfg_args(unit, isNixBuild));
 
                 let script_meta = self.find_build_script_metadata(unit);
                 if let Some(meta) = script_meta {

@@ -92,7 +92,7 @@ impl<'a, 'gctx> BuildContext<'a, 'gctx> {
         unit_graph: UnitGraph,
         scrape_units: Vec<Unit>,
     ) -> CargoResult<BuildContext<'a, 'gctx>> {
-        println!("BuildContext new");
+        //println!("BuildContext new");
         let all_kinds = unit_graph
             .keys()
             .map(|u| u.kind)
