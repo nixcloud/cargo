@@ -1499,6 +1499,7 @@ fn build_deps_args(
         });
     } else {
         //println!("WARNING HACK: dependency= removed");
+        cmd.arg("\\\n        $_L_arguments");
     }
 
     // Be sure that the host path is also listed. This'll ensure that proc macro

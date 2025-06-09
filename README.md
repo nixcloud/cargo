@@ -1,6 +1,6 @@
 # WARNING
 
-This is my experimental cargo branch which generates files in /tmp/nix during normal `cargo build` execution.
+This is my experimental cargo branch which generates files in /tmp/nix during normal `cargo build` execution when using CARGO_NIX_BUILDER=fast.
 
 In theory later one can then do:
 
@@ -57,8 +57,7 @@ Alternative calls:
               pkgs = import nixpkgs {
                 inherit system overlays;
               };
-              rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-              allPackages = import ./nix/default.nix { inherit pkgs; };
+              allPackages = import /tmp/nix/default.nix { inherit pkgs; };
             in
             with pkgs;
             rec {
@@ -74,7 +73,8 @@ Alternative calls:
           );
     }
 
-    nix build .#anyhow-1_0_97
+    nix build .#anyhow-1_0_97 -L --impure --print-out-paths
+    nix build .#rphtml-0_5_10 -L --impure --print-out-paths
 
 # Cargo
 

@@ -1,10 +1,13 @@
 # generated from rustc-call.nix.handlebars
 { {{{function_arguments}}} }:
 
-  pkgs.stdenv.mkDerivation {
+  pkgs.stdenv.mkDerivation rec {
     name = "{{{crate_name}}}-{{{crate_version}}}";
     buildInputs = [{{{build_inputs}}}];
+    passthru.requiredInputs = [{{{required_inputs}}}];
     phases = "unpackPhase buildPhase installPhase";
+    allCollectedInputs = pkgs.lib.lists.unique(pkgs.lib.flatten (map (x: x.requiredInputs) buildInputs));
+    _L_arguments = builtins.concatStringsSep " " (map (lib: "-L ${lib}") (buildInputs ++ allCollectedInputs));
 {{{src}}}
 {{{unpack_phase}}}
     CARGO = "${cargo}/bin/cargo";

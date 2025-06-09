@@ -299,16 +299,12 @@ impl<'a, 'gctx> NixBuildRunner {
                 "unpack_phase": unpack_phase,
                 "crate_version": crate_version,
                 "build_inputs": build_inputs.join(" "),
+                "required_inputs": build_inputs.join(" "),
                 "environment_variables": environment_variables,
                 "rustc_command_line": rustc_command_line,
             }),
         )?;
 
-        if fullname == "unicase-2_7_0" {
-            println!("-------------");
-            println!("{}", rendered);
-            println!("-------------");
-        }
         writeln!(file, "{}", rendered)?;
 
         all_nodes.push(DefaultNixEntry {
