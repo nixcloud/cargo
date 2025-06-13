@@ -1,7 +1,7 @@
 use crate::command_prelude::*;
 
 use cargo::ops;
-use crate::util::{CargoResult, NixBuild};
+use crate::util::NixBuild;
 
 pub fn cli() -> Command {
     subcommand("build")

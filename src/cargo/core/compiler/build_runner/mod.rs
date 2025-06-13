@@ -93,7 +93,7 @@ pub struct BuildRunner<'a, 'gctx> {
     pub failed_scrape_units: Arc<Mutex<HashSet<UnitHash>>>,
 
     /// The raw ProcessBuilder for creating the nix-build system
-    pub raw_process_builder: Vec<(ProcessBuilder, Unit)>,
+    pub raw_process_builder: Arc<Mutex<Vec<(ProcessBuilder, Unit)>>>,
 }
 
 impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
@@ -133,7 +133,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
             lto: HashMap::new(),
             metadata_for_doc_units: HashMap::new(),
             failed_scrape_units: Arc::new(Mutex::new(HashSet::new())),
-            raw_process_builder: vec![],
+            raw_process_builder: Arc::new(Mutex::new(vec![])),
         })
     }
 
@@ -261,12 +261,12 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
             // Collect information for `rustdoc --test`.
             if unit.mode.is_doc_test() {
-                let isNixBuild: bool = self.bcx.gctx.nix()?.is_some();
+                let is_nix_build: bool = self.bcx.gctx.nix()?.is_some();
                 let mut unstable_opts = false;
                 let mut args = compiler::extern_args(&self, unit, &mut unstable_opts)?;
                 args.extend(compiler::lto_args(&self, unit));
-                args.extend(compiler::features_args(unit, isNixBuild));
-                args.extend(compiler::check_cfg_args(unit, isNixBuild));
+                args.extend(compiler::features_args(unit, is_nix_build));
+                args.extend(compiler::check_cfg_args(unit, is_nix_build));
 
                 let script_meta = self.find_build_script_metadata(unit);
                 if let Some(meta) = script_meta {

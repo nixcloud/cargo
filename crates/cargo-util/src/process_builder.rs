@@ -513,8 +513,8 @@ impl ProcessBuilder {
             command.arg(arg);
         }
         let s: String = format!("command123: {:#?}", command);
-        println!("{}", s);
-        write_string_incrementally(s.as_str());
+        //println!("{}", s);
+        write_string_incrementally(s.as_str()).unwrap();
         command
     }
 

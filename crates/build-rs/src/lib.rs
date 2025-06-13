@@ -56,5 +56,5 @@ MSRV: Requires "#,
 
 mod ident;
 
-pub mod input;
-pub mod output;
+mod input;
+mod output;

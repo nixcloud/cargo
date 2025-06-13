@@ -2,27 +2,28 @@
 { {{{function_arguments}}} }:
 
   pkgs.stdenv.mkDerivation rec {
-    name = "{{{crate_name}}}-{{{crate_version}}}";
+    name = "{{{fullname}}}";
     buildInputs = [{{{build_inputs}}}];
     passthru.requiredInputs = [{{{required_inputs}}}];
     phases = "unpackPhase buildPhase installPhase";
     allCollectedInputs = pkgs.lib.lists.unique(pkgs.lib.flatten (map (x: x.requiredInputs) buildInputs));
     _L_arguments = builtins.concatStringsSep " " (map (lib: "-L ${lib}") (buildInputs ++ allCollectedInputs));
+
 {{{src}}}
 {{{unpack_phase}}}
+    RUSTC = "${rustc}/bin/rustc";
     CARGO = "${cargo}/bin/cargo";
 {{{environment_variables}}}
 
     buildPhase = ''
-      OUT_DIR=$(mktemp -d)
-      INC_DIR=$(mktemp -d)
+      export OUT_DIR=$(mktemp -d)
+      export INC_DIR=$(mktemp -d)
       set -x
-{{{rustc_command_line}}}
+{{{command_line}}}
       set +x
     '';
 
     installPhase = ''
-      mkdir -p $out
-      cp -R $OUT_DIR/* $out
+{{{install_phase}}}
     '';
 }

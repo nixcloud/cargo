@@ -264,6 +264,8 @@ fn rustc(
     unit: &Unit,
     exec: &Arc<dyn Executor>,
 ) -> CargoResult<Work> {
+    println!("rustc for: {}", unit.target.name());
+
     let mut rustc = prepare_rustc(build_runner, unit)?;
     let build_plan = build_runner.bcx.build_config.build_plan;
 
@@ -337,8 +339,9 @@ fn rustc(
         output_options.show_diagnostics = false;
     }
     let env_config = Arc::clone(build_runner.bcx.gctx.env_config()?);
+    
     build_runner
-        .raw_process_builder
+        .raw_process_builder.lock().unwrap()
         .push((rustc.clone(), unit.clone()));
     return Ok(Work::new(move |state| {
         // Artifacts are in a different location than typical units,
@@ -757,7 +760,7 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
 /// from build scripts.
 fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuilder> {
     let bcx = build_runner.bcx;
-    let isNixBuild: bool = build_runner.bcx.gctx.nix()?.is_some();
+    let is_nix_build: bool = build_runner.bcx.gctx.nix()?.is_some();
     // script_metadata is not needed here, it is only for tests.
     let mut rustdoc = build_runner.compilation.rustdoc_process(unit, None)?;
     rustdoc.inherit_jobserver(&build_runner.jobserver);
@@ -771,8 +774,8 @@ fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResu
     }
     let doc_dir = build_runner.files().out_dir(unit);
     rustdoc.arg("-o").arg(&doc_dir);
-    rustdoc.args(&features_args(unit, isNixBuild));
-    rustdoc.args(&check_cfg_args(unit, isNixBuild));
+    rustdoc.args(&features_args(unit, is_nix_build));
+    rustdoc.args(&check_cfg_args(unit, is_nix_build));
 
     add_error_format_and_color(build_runner, &mut rustdoc);
     add_allow_features(build_runner, &mut rustdoc);
@@ -1169,9 +1172,9 @@ fn build_base_args(
         cmd.arg("--cfg").arg("test");
     }
 
-    let isNixBuild: bool = bcx.gctx.nix()?.is_some();
-    cmd.args(&features_args(unit, isNixBuild));
-    cmd.args(&check_cfg_args(unit, isNixBuild));
+    let is_nix_build: bool = bcx.gctx.nix()?.is_some();
+    cmd.args(&features_args(unit, is_nix_build));
+    cmd.args(&check_cfg_args(unit, is_nix_build));
 
     let meta = build_runner.files().metadata(unit);
     cmd.arg("-C")
@@ -1270,8 +1273,8 @@ fn build_base_args(
     Ok(())
 }
 
-fn escape_feature_args(feature_args: String, isNixBuild: bool) -> String {
-    if isNixBuild {
+fn escape_feature_args(feature_args: String, is_nix_build: bool) -> String {
+    if is_nix_build {
         format!("'{}'", feature_args)
     } else {
         format!("{}", feature_args)
@@ -1279,11 +1282,11 @@ fn escape_feature_args(feature_args: String, isNixBuild: bool) -> String {
 }
 
 /// All active features for the unit passed as `--cfg features=<feature-name>`.
-fn features_args(unit: &Unit, isNixBuild: bool) -> Vec<OsString> {
+fn features_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
     let mut args = Vec::with_capacity(unit.features.len() * 2);
     for feat in &unit.features {
         args.push(OsString::from("--cfg"));
-        args.push(OsString::from(escape_feature_args(format!("feature=\"{}\"", feat), isNixBuild)));
+        args.push(OsString::from(escape_feature_args(format!("feature=\"{}\"", feat), is_nix_build)));
     }
     args
 }
@@ -1410,7 +1413,7 @@ fn package_remap(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> OsString {
 }
 
 /// Generates the `--check-cfg` arguments for the `unit`.
-fn check_cfg_args(unit: &Unit, isNixBuild: bool) -> Vec<OsString> {
+fn check_cfg_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
     // The routine below generates the --check-cfg arguments. Our goals here are to
     // enable the checking of conditionals and pass the list of declared features.
     //
@@ -1452,9 +1455,9 @@ fn check_cfg_args(unit: &Unit, isNixBuild: bool) -> Vec<OsString> {
     
     vec![
         OsString::from("--check-cfg"),
-        OsString::from(escape_feature_args("cfg(docsrs,test)".to_string(), isNixBuild)),
+        OsString::from(escape_feature_args("cfg(docsrs,test)".to_string(), is_nix_build)),
         OsString::from("--check-cfg"),
-        OsString::from(escape_feature_args(arg_feature.to_str().unwrap().to_string(), isNixBuild)),
+        OsString::from(escape_feature_args(arg_feature.to_str().unwrap().to_string(), is_nix_build)),
     ]
 }
 
@@ -1637,14 +1640,8 @@ pub fn extern_args(
 
                     //println!("WARNING HACK: --extern=${{lib-termcolor-1_4_1}}/...");
                     // ${lib-termcolor-1_4_1}
-                    let pkg = dep.unit.pkg.package_id();
-                    let crate_name = pkg.name().to_string();
-                    let crate_version = pkg.version().to_string();
-                    let lib: String = crate::core::compiler::nix_build::kind_string(dep.unit.target.kind());
-                    let nix_attribute_name = crate::core::compiler::nix_build::format_create_fullname(&lib, &crate_name, &crate_version);
-                    let nix_attribute_name_embedded = format!("${{{}}}/", nix_attribute_name);
-
-                    value.push(nix_attribute_name_embedded);
+                    let nix_attribute_name = crate::core::compiler::nix_build::create_nix_name(&dep.unit, crate::core::compiler::nix_build::NixNameMode::AttributeName);
+                    value.push(format!("${{{}}}/", nix_attribute_name));
 
                     value.push(file);
                     result.push(OsString::from("--extern"));
