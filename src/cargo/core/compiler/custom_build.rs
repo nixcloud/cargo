@@ -264,7 +264,10 @@ fn emit_build_output(
 /// * Determine if the build script needs a re-run.
 /// * Run the build script and store its output.
 fn build_work(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<Job> {
-    println!("build_work to run build-script-build for: {}", unit.target.name());
+    println!(
+        "build_work to run build-script-build for: {}",
+        unit.target.name()
+    );
     assert!(unit.mode.is_run_custom_build());
     let bcx = &build_runner.bcx;
     let dependencies = build_runner.unit_deps(unit);
@@ -446,9 +449,10 @@ fn build_work(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResul
         .map(|dep| dep.unit.profile.debuginfo.is_turned_on())
         .unwrap_or(false);
 
-        
     build_runner
-        .raw_process_builder.lock().unwrap()
+        .raw_process_builder
+        .lock()
+        .unwrap()
         .push((cmd.clone(), unit.clone()));
 
     // Prepare the unit of "dirty work" which will actually run the custom build
@@ -499,8 +503,6 @@ fn build_work(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResul
             state.build_plan(invocation_name, cmd.clone(), Arc::new(Vec::new()));
             return Ok(());
         }
-
-
 
         // And now finally, run the build command itself!
         state.running(&cmd);

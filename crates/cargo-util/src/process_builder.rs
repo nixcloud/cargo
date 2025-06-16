@@ -692,7 +692,7 @@ mod tests {
 }
 
 use std::fs::{self, File};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 
 fn write_string_incrementally(content: &str) -> io::Result<PathBuf> {
     let dir = Path::new("/tmp/out/");

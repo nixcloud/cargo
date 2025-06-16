@@ -339,9 +339,11 @@ fn rustc(
         output_options.show_diagnostics = false;
     }
     let env_config = Arc::clone(build_runner.bcx.gctx.env_config()?);
-    
+
     build_runner
-        .raw_process_builder.lock().unwrap()
+        .raw_process_builder
+        .lock()
+        .unwrap()
         .push((rustc.clone(), unit.clone()));
     return Ok(Work::new(move |state| {
         // Artifacts are in a different location than typical units,
@@ -1173,6 +1175,11 @@ fn build_base_args(
     }
 
     let is_nix_build: bool = bcx.gctx.nix()?.is_some();
+
+    if is_nix_build {
+        cmd.arg("\\\n        $RUSTC_ADDITIONAL_ARGUMENTS");
+    }
+
     cmd.args(&features_args(unit, is_nix_build));
     cmd.args(&check_cfg_args(unit, is_nix_build));
 
@@ -1190,8 +1197,7 @@ fn build_base_args(
 
     if bcx.gctx.nix()?.is_none() {
         cmd.arg("--out-dir")
-        .arg(&build_runner.files().out_dir(unit));
-
+            .arg(&build_runner.files().out_dir(unit));
     } else {
         //println!("WARNING HACK: --out-dir=$OUT_DIR");
         cmd.arg("--out-dir $OUT_DIR");
@@ -1222,11 +1228,11 @@ fn build_base_args(
     if incremental {
         if bcx.gctx.nix()?.is_none() {
             let dir = build_runner
-                    .files()
-                    .layout(unit.kind)
-                    .incremental()
-                    .as_os_str();
-                opt(cmd, "-C", "incremental=", Some(dir));
+                .files()
+                .layout(unit.kind)
+                .incremental()
+                .as_os_str();
+            opt(cmd, "-C", "incremental=", Some(dir));
         } else {
             //println!("WARNING HACK: incremental=$INC_DIR");
             opt(cmd, "-C", "incremental=$INC_DIR", None);
@@ -1286,7 +1292,10 @@ fn features_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
     let mut args = Vec::with_capacity(unit.features.len() * 2);
     for feat in &unit.features {
         args.push(OsString::from("--cfg"));
-        args.push(OsString::from(escape_feature_args(format!("feature=\"{}\"", feat), is_nix_build)));
+        args.push(OsString::from(escape_feature_args(
+            format!("feature=\"{}\"", feat),
+            is_nix_build,
+        )));
     }
     args
 }
@@ -1452,12 +1461,18 @@ fn check_cfg_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
     // We include `docsrs` here (in Cargo) instead of rustc, since there is a much closer
     // relationship between Cargo and docs.rs than rustc and docs.rs. In particular, all
     // users of docs.rs use Cargo, but not all users of rustc (like Rust-for-Linux) use docs.rs.
-    
+
     vec![
         OsString::from("--check-cfg"),
-        OsString::from(escape_feature_args("cfg(docsrs,test)".to_string(), is_nix_build)),
+        OsString::from(escape_feature_args(
+            "cfg(docsrs,test)".to_string(),
+            is_nix_build,
+        )),
         OsString::from("--check-cfg"),
-        OsString::from(escape_feature_args(arg_feature.to_str().unwrap().to_string(), is_nix_build)),
+        OsString::from(escape_feature_args(
+            arg_feature.to_str().unwrap().to_string(),
+            is_nix_build,
+        )),
     ]
 }
 
@@ -1640,7 +1655,10 @@ pub fn extern_args(
 
                     //println!("WARNING HACK: --extern=${{lib-termcolor-1_4_1}}/...");
                     // ${lib-termcolor-1_4_1}
-                    let nix_attribute_name = crate::core::compiler::nix_build::create_nix_name(&dep.unit, crate::core::compiler::nix_build::NixNameMode::AttributeName);
+                    let nix_attribute_name = crate::core::compiler::nix_build::create_nix_name(
+                        &dep.unit,
+                        crate::core::compiler::nix_build::NixNameMode::AttributeName,
+                    );
                     value.push(format!("${{{}}}/", nix_attribute_name));
 
                     value.push(file);

@@ -212,13 +212,12 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         }
 
         if self.bcx.gctx.nix()?.is_none() {
-            
         } else {
             let _nix_build_runner = NixBuildRunner::new(&self)?;
             // call nix-build here
             NixBuild::build().unwrap();
             //println!("WARNING HACK: we just quit before jobs.enqueue");
-            return Ok(self.compilation)
+            return Ok(self.compilation);
         }
 
         // Now that we've figured out everything that we're going to do, do it!

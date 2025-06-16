@@ -1,7 +1,7 @@
 use crate::command_prelude::*;
 
-use cargo::ops;
 use crate::util::NixBuild;
+use cargo::ops;
 
 pub fn cli() -> Command {
     subcommand("build")
@@ -50,15 +50,15 @@ pub fn cli() -> Command {
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
     match gctx.nix()? {
-        None => {},
+        None => {}
         Some(NixBuild::Fast) => {
             println!("❄❄❄  snowflake edition ❄❄❄");
             println!("NixBuild is set to Fast");
-        },
+        }
         Some(NixBuild::Sandbox) => {
             println!("❄❄❄  snowflake edition ❄❄❄");
             println!("NixBuild is set to Sandbox");
-        },
+        }
     };
 
     let ws = args.workspace(gctx)?;

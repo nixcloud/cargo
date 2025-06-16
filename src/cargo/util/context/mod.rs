@@ -252,7 +252,7 @@ pub struct GlobalContext {
     /// saved to disk in a batch to improve performance.
     deferred_global_last_use: LazyCell<RefCell<DeferredGlobalLastUse>>,
     /// The nix-build configuration for the program crate rustc call:
-    /// Either: 
+    /// Either:
     ///  - "Fast" or
     ///  - "Sandbox"
     nix: Option<NixBuild>,
@@ -2119,14 +2119,12 @@ impl GlobalContext {
         } else if let Some(nix_build_env_value) = self.get_env_os("CARGO_NIX_BUILDER") {
             // Check if the CARGO_NIX_BUILDER environment variable is set to an empty string.
             match nix_build_env_value.to_str() {
-                Some(value) => {
-                    match value.to_lowercase().as_str() {
-                        "fast" => Ok(Some(NixBuild::Fast)),
-                        "sandbox" => Ok(Some(NixBuild::Sandbox)),
-                        "" => Ok(Some(NixBuild::default())),
-                        _ =>  {
-                            anyhow::bail!("WARNING: '{value}' is an unknown value for CARGO_NIX_BUILDER, falling back to default builder")
-                        }
+                Some(value) => match value.to_lowercase().as_str() {
+                    "fast" => Ok(Some(NixBuild::Fast)),
+                    "sandbox" => Ok(Some(NixBuild::Sandbox)),
+                    "" => Ok(Some(NixBuild::default())),
+                    _ => {
+                        anyhow::bail!("WARNING: '{value}' is an unknown value for CARGO_NIX_BUILDER, falling back to default builder")
                     }
                 },
                 _ => Ok(Some(NixBuild::default())),
