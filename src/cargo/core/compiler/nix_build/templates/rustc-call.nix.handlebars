@@ -10,7 +10,7 @@ in
     buildInputs = [{{{build_inputs}}}];
     passthru.requiredInputs = [{{{required_inputs}}}];
     phases = "unpackPhase buildPhase installPhase";
-    _L_arguments = builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs buildInputs));
+    _L_arguments = builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs passthru.requiredInputs));
 
 {{{src}}}
 {{{unpack_phase}}}

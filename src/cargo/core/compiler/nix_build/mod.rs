@@ -187,9 +187,19 @@ impl<'a, 'gctx> NixBuildRunner {
         println!("Generating {}", fullname);
 
         let mut build_inputs: Vec<String> = vec![];
+        let mut required_inputs: Vec<String> = vec![];
         if let Some(deps) = unit_graph.get(unit) {
             for dep in deps {
                 build_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
+                match unit.target.kind() {
+                    TargetKind::Lib(_) | TargetKind::ExampleLib(_) => {
+                        if dep.unit.mode != CompileMode::Build {
+                            continue
+                        }
+                        required_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
+                    },
+                    _ => {},
+                }
             }
         }
 
@@ -333,7 +343,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "src": src,
                 "unpack_phase": unpack_phase,
                 "build_inputs": build_inputs.join(" "),
-                "required_inputs": build_inputs.join(" "),
+                "required_inputs": required_inputs.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments,
                 "command_line": command_line,
@@ -380,9 +390,20 @@ impl<'a, 'gctx> NixBuildRunner {
         // println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
 
         let mut build_inputs: Vec<String> = vec![];
+        let mut required_inputs: Vec<String> = vec![];
+
         if let Some(deps) = unit_graph.get(unit) {
             for dep in deps {
                 build_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
+                match unit.target.kind() {
+                    TargetKind::Lib(_) | TargetKind::ExampleLib(_) => {
+                        if dep.unit.mode != CompileMode::Build {
+                            continue
+                        }
+                        required_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
+                    },
+                    _ => {},
+                }
             }
         }
 
@@ -530,7 +551,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "src": src,
                 "unpack_phase": unpack_phase,
                 "build_inputs": build_inputs.join(" "),
-                "required_inputs": build_inputs.join(" "),
+                "required_inputs": required_inputs.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments,
                 "command_line": command_line,
