@@ -12,3 +12,4 @@ __pycache__
 .vscode/
 *.iml
 *.swp
+.direnv
