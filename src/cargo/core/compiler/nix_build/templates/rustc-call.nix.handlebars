@@ -1,16 +1,11 @@
 # generated from rustc-call.nix.handlebars
 { {{{function_arguments}}} }:
 
-let
-  allCollectedInputs = a: builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.requiredInputs)) [] a;
-in
-
   pkgs.stdenv.mkDerivation rec {
     name = "{{{fullname}}}";
     buildInputs = [{{{build_inputs}}}];
     passthru.requiredInputs = [{{{required_inputs}}}];
     phases = "unpackPhase buildPhase installPhase";
-    _L_arguments = builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs passthru.requiredInputs));
 
 {{{src}}}
 {{{unpack_phase}}}

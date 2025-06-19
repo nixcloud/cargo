@@ -4,8 +4,7 @@ use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
 use crate::core::compiler::{BuildContext, BuildRunner, CompileMode};
 use crate::core::TargetKind;
-use crate::util::context::GlobalContext;
-use crate::util::{CargoResult, NixBuild};
+use crate::util::CargoResult;
 use cargo_util::ProcessBuilder;
 use handlebars::Handlebars;
 use std::path::Path;
@@ -74,17 +73,16 @@ fn process_deps(unit: &Unit, unit_graph: &UnitGraph) -> (Vec<String>, Vec<String
     if let Some(deps) = unit_graph.get(unit) {
         for dep in deps {
             build_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
-            required_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
-            // FIXME why do we limit this here?
-            // match unit.target.kind() {
-            //     TargetKind::Lib(_) | TargetKind::ExampleLib(_) => {
-            //         if dep.unit.mode != CompileMode::Build {
-            //             continue
-            //         }
-            //         required_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
-            //     },
-            //     _ => {},
-            // }
+            // all except -custom-build and -custom-build_run dependencies
+            match dep.unit.target.kind() {
+                TargetKind::Lib(_) | TargetKind::ExampleLib(_) | TargetKind::Bin | TargetKind::ExampleBin => {
+                    if dep.unit.mode != CompileMode::Build {
+                        continue
+                    }
+                    required_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
+                },
+                _ => {},
+            }
         }
     }
 
@@ -96,20 +94,6 @@ pub struct NixBuildRunner {}
 impl<'a, 'gctx> NixBuildRunner {
     pub fn new(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<()> {
         let bcx: &BuildContext<'a, 'gctx> = &build_runner.bcx;
-        let gctx: &'gctx GlobalContext = bcx.gctx;
-
-        match gctx.nix()? {
-            None => {
-                println!("NixBuild not active");
-            }
-            Some(NixBuild::Fast) => {
-                println!("NixBuild is set to Fast");
-            }
-            Some(NixBuild::Sandbox) => {
-                println!("NixBuild is set to Sandbox");
-            }
-        };
-        
 
         let workspace: &Workspace<'gctx> = build_runner.bcx.ws;
         let unit_graph: &UnitGraph = &bcx.unit_graph;
@@ -122,9 +106,6 @@ impl<'a, 'gctx> NixBuildRunner {
         let r: Vec<(ProcessBuilder, Unit)> =
             build_runner.raw_process_builder.lock().unwrap().clone();
         let l = r.len();
-        println!("WS root: {:?} units.", workspace.root());
-        println!("WS root_manifest: {:?} units.", workspace.root_manifest());
-        println!("WS build_dir: {:?} units.", workspace.build_dir());
 
         println!("Need to generate: {l} units.");
 
@@ -140,11 +121,6 @@ impl<'a, 'gctx> NixBuildRunner {
             let crate_version: String = pkg.version().to_string();
             let fullname: String = create_nix_name(&unit, NixNameMode::AttributeName);
             println!("Generating {}", fullname);
-
-            //"CARGO_MANIFEST_DIR", 
-            // println!("yyy {:?}", unit.pkg.root());
-            //"CARGO_MANIFEST_PATH", 
-            // println!("yyy {:?}", unit.pkg.manifest_path());
 
             if is_run_custom_build {
                 Self::process_build_runner(
@@ -183,7 +159,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 let path = PathBuf::from(&entry.filename);
                 let rel_path = path.strip_prefix("/tmp/nix").unwrap_or(&path);
                 format!(
-                    "    {} = callPackage' ./{} {{}};",
+                    "    {} = callPackage' ./{} {{ inherit fn; }};",
                     entry.name,
                     rel_path.display()
                 )
@@ -352,7 +328,7 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let additional_build_phase_arguments: String = "".to_string();
 
-        let default_function_arguments: Vec<String> = vec!["pkgs", "stdenv", "rustc", "cargo"]
+        let default_function_arguments: Vec<String> = vec!["fn", "pkgs", "stdenv", "rustc", "cargo"]
             .iter()
             .map(|m| m.to_string())
             .collect();
@@ -550,7 +526,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 })
                 .collect::<String>()
         );
-        let default_function_arguments: Vec<String> = vec!["pkgs", "stdenv", "rustc", "cargo"]
+        let default_function_arguments: Vec<String> = vec!["fn", "pkgs", "stdenv", "rustc", "cargo"]
             .iter()
             .map(|m| m.to_string())
             .collect();
