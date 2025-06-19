@@ -264,10 +264,10 @@ fn emit_build_output(
 /// * Determine if the build script needs a re-run.
 /// * Run the build script and store its output.
 fn build_work(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<Job> {
-    println!(
-        "build_work to run build-script-build for: {}",
-        unit.target.name()
-    );
+    // println!(
+    //     "build_work to run build-script-build for: {}",
+    //     unit.target.name()
+    // );
     assert!(unit.mode.is_run_custom_build());
     let bcx = &build_runner.bcx;
     let dependencies = build_runner.unit_deps(unit);

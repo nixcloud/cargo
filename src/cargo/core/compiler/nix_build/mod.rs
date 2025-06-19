@@ -1,4 +1,5 @@
 pub mod nix_build_runner;
+use crate::core::workspace::Workspace;
 use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
 use crate::core::compiler::{BuildContext, BuildRunner, CompileMode};
@@ -21,10 +22,6 @@ struct DefaultNixEntry {
     filename: String,
 }
 
-// used to create the nix attribute 'name' from cargo's crate_name and crate_version
-// proc-macro2-1.0.94.nix
-// proc-macro2-1.0.94-script-build.nix
-// proc-macro2-1.0.94-script-run.nix
 #[derive(Debug, Eq, PartialEq)]
 pub enum NixNameMode {
     AttributeName,
@@ -38,7 +35,7 @@ fn kind_string(tk: &TargetKind) -> String {
         }
         TargetKind::ExampleLib(_) => "-example_lib".to_string(),
         TargetKind::Bin => "-bin".to_string(),
-        TargetKind::CustomBuild => "-custom_build".to_string(),
+        TargetKind::CustomBuild => "-script_build".to_string(),
         TargetKind::Test => "-test".to_string(),
         TargetKind::Bench => "-bench".to_string(),
         TargetKind::ExampleBin => "-example_bin".to_string(),
@@ -54,7 +51,7 @@ fn mode_string(mode: &CompileMode) -> &str {
         CompileMode::Doc { deps: _, json: _ } => "-doc",
         CompileMode::Doctest => "-doc_test",
         CompileMode::Docscrape => "-doc_scrape",
-        CompileMode::RunCustomBuild => "-run_custom_build",
+        CompileMode::RunCustomBuild => "_run",
     }
 }
 
@@ -69,6 +66,29 @@ pub fn create_nix_name(unit: &Unit, nix_name_mode: NixNameMode) -> String {
         NixNameMode::AttributeName => nix_name.replace(".", "_"),
         NixNameMode::FileName => nix_name + ".nix",
     }
+}
+
+fn process_deps(unit: &Unit, unit_graph: &UnitGraph) -> (Vec<String>, Vec<String>) {
+    let mut build_inputs = vec![];
+    let mut required_inputs = vec![];
+    if let Some(deps) = unit_graph.get(unit) {
+        for dep in deps {
+            build_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
+            required_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
+            // FIXME why do we limit this here?
+            // match unit.target.kind() {
+            //     TargetKind::Lib(_) | TargetKind::ExampleLib(_) => {
+            //         if dep.unit.mode != CompileMode::Build {
+            //             continue
+            //         }
+            //         required_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
+            //     },
+            //     _ => {},
+            // }
+        }
+    }
+
+    (build_inputs, required_inputs)
 }
 
 pub struct NixBuildRunner {}
@@ -89,8 +109,9 @@ impl<'a, 'gctx> NixBuildRunner {
                 println!("NixBuild is set to Sandbox");
             }
         };
+        
 
-        let workspace = build_runner.bcx.ws;
+        let workspace: &Workspace<'gctx> = build_runner.bcx.ws;
         let unit_graph: &UnitGraph = &bcx.unit_graph;
         let mut visited = BTreeSet::new();
         let mut all_nodes: Vec<DefaultNixEntry> = Vec::new();
@@ -101,6 +122,10 @@ impl<'a, 'gctx> NixBuildRunner {
         let r: Vec<(ProcessBuilder, Unit)> =
             build_runner.raw_process_builder.lock().unwrap().clone();
         let l = r.len();
+        println!("WS root: {:?} units.", workspace.root());
+        println!("WS root_manifest: {:?} units.", workspace.root_manifest());
+        println!("WS build_dir: {:?} units.", workspace.build_dir());
+
         println!("Need to generate: {l} units.");
 
         for (process_builder, unit) in r {
@@ -108,19 +133,25 @@ impl<'a, 'gctx> NixBuildRunner {
                 continue;
             }
             visited.insert(unit.clone());
-
             let pkg = unit.pkg.package_id();
             let is_root: bool = workspace.members().any(|member| member.package_id() == pkg);
             let is_run_custom_build: bool = unit.mode == CompileMode::RunCustomBuild;
             let crate_name: String = pkg.name().to_string();
             let crate_version: String = pkg.version().to_string();
             let fullname: String = create_nix_name(&unit, NixNameMode::AttributeName);
+            println!("Generating {}", fullname);
+
+            //"CARGO_MANIFEST_DIR", 
+            // println!("yyy {:?}", unit.pkg.root());
+            //"CARGO_MANIFEST_PATH", 
+            // println!("yyy {:?}", unit.pkg.manifest_path());
+
             if is_run_custom_build {
                 Self::process_build_runner(
+                    &workspace,
                     &unit,
                     crate_name,
                     crate_version,
-                    fullname,
                     &process_builder,
                     unit_graph,
                     is_root,
@@ -128,6 +159,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 )?
             } else {
                 Self::process_unit(
+                    &workspace,
                     &unit,
                     crate_name,
                     crate_version,
@@ -139,7 +171,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 )?
             }
         }
-
+        
         let mut handlebars = Handlebars::new();
         let template_str = include_str!("templates/default.nix.handlebars");
         handlebars.register_template_string("default", template_str)?;
@@ -175,33 +207,17 @@ impl<'a, 'gctx> NixBuildRunner {
 
     /// custom-build-run_custom-build
     fn process_build_runner(
+        workspace: &Workspace<'gctx>,
         unit: &Unit,
         crate_name: String,
         crate_version: String,
-        fullname: String,
         process_builder: &ProcessBuilder,
         unit_graph: &UnitGraph,
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
     ) -> CargoResult<()> {
-        println!("Generating {}", fullname);
 
-        let mut build_inputs: Vec<String> = vec![];
-        let mut required_inputs: Vec<String> = vec![];
-        if let Some(deps) = unit_graph.get(unit) {
-            for dep in deps {
-                build_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
-                match unit.target.kind() {
-                    TargetKind::Lib(_) | TargetKind::ExampleLib(_) => {
-                        if dep.unit.mode != CompileMode::Build {
-                            continue
-                        }
-                        required_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
-                    },
-                    _ => {},
-                }
-            }
-        }
+        let (build_inputs, required_inputs) = process_deps(&unit, unit_graph);
 
         let src: String = if is_root {
             let mut handlebars = Handlebars::new();
@@ -295,11 +311,22 @@ impl<'a, 'gctx> NixBuildRunner {
                     let res: String = match key.as_str() {
                         // we make these into relative paths, as in the builder there is no fs access to ~/ anyways
                         "CARGO_MANIFEST_DIR" | "CARGO_MANIFEST_PATH" => {
-                            // something like: /home/nixos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f
-                            let cwd: &Path = process_builder.get_cwd().unwrap();
-                            let path = PathBuf::from(s);
-                            let rel_path = path.strip_prefix(cwd).unwrap();
-                            format!("./{}", rel_path.display())
+                            if is_root {
+                                let ws_root = workspace.root();
+                                let path: PathBuf = PathBuf::from(s);
+                                let rel_path = path.strip_prefix(ws_root).unwrap();
+                                let l = format!("./{}", rel_path.display());
+                                //println!("xxx (is_root==true): {}", l);
+                                l
+                            } else {
+                                // something like: /home/nixos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f
+                                let cwd: &Path = process_builder.get_cwd().unwrap();
+                                let path = PathBuf::from(s);
+                                let rel_path = path.strip_prefix(cwd).unwrap();
+                                let l = format!("./{}", rel_path.display());
+                                //println!("xxx: {}", l);
+                                l
+                            }
                         }
                         _ => s,
                     };
@@ -312,14 +339,13 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let command_line: String = {
             assert!(build_inputs.len() == 1);
-            //format!("${{{}}}/build_script_build-* > $OUT_DIR/build_script_build.out", build_inputs[0]).to_string()
 
             format!(
-                r#"
+                indoc!{r#"
                 ${{{}}}/build_script_build-* > $OUT_DIR/build_script_build.out
-                ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/build_script_build.out.environment-variables
-                ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out rustc-arguments > $OUT_DIR/build_script_build.out.rustc-arguments
-            "#,
+                ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/.environment-variables
+                ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out rustc-arguments > $OUT_DIR/.rustc-arguments
+            "#},
                 build_inputs[0]
             )
         };
@@ -370,6 +396,7 @@ impl<'a, 'gctx> NixBuildRunner {
     }
 
     fn process_unit(
+        workspace: &Workspace<'gctx>,
         unit: &Unit,
         crate_name: String,
         crate_version: String,
@@ -379,7 +406,6 @@ impl<'a, 'gctx> NixBuildRunner {
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
     ) -> CargoResult<()> {
-        println!("Generating {}", fullname);
 
         // println!("unit.target: {:?}", unit.target);
         // println!(
@@ -389,23 +415,10 @@ impl<'a, 'gctx> NixBuildRunner {
         // println!("{:#?}", unit);
         // println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
 
-        let mut build_inputs: Vec<String> = vec![];
-        let mut required_inputs: Vec<String> = vec![];
+        // let mut build_inputs: Vec<String> = vec![];
+        // let mut required_inputs: Vec<String> = vec![];
 
-        if let Some(deps) = unit_graph.get(unit) {
-            for dep in deps {
-                build_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
-                match unit.target.kind() {
-                    TargetKind::Lib(_) | TargetKind::ExampleLib(_) => {
-                        if dep.unit.mode != CompileMode::Build {
-                            continue
-                        }
-                        required_inputs.push(create_nix_name(&dep.unit, NixNameMode::AttributeName));
-                    },
-                    _ => {},
-                }
-            }
-        }
+        let (build_inputs, required_inputs) = process_deps(&unit, unit_graph);
 
         let src: String = if is_root {
             let mut handlebars = Handlebars::new();
@@ -445,18 +458,17 @@ impl<'a, 'gctx> NixBuildRunner {
             rendered
         };
         let unpack_phase: String = if is_root {
-            r#"
-    unpackPhase = "";
-"#
-            .to_string()
+            indoc!{r#"
+                unpackPhase = "";
+            "#}.to_string()
         } else {
             let mut handlebars = Handlebars::new();
-            let template_str = r#"
-    unpackPhase = ''
-      tar xf $src
-      cd {{{crate_name}}}-{{{crate_version}}}
-    '';
-"#;
+            let template_str = indoc!{r#"
+                unpackPhase = ''
+                    tar xf $src
+                    cd {{{crate_name}}}-{{{crate_version}}}
+                '';
+            "#};
 
             handlebars.register_template_string("unpack_phase", template_str)?;
             let rendered: String = handlebars.render(
@@ -496,15 +508,22 @@ impl<'a, 'gctx> NixBuildRunner {
                     let res: String = match key.as_str() {
                         // we make these into relative paths, as in the builder there is no fs access to ~/ anyways
                         "CARGO_MANIFEST_DIR" | "CARGO_MANIFEST_PATH" => {
-                            println!("{}: {:?}", key.as_str(), value);
+                            //println!("{}: {:?}", key.as_str(), value);
                             if is_root {
-                                s
+                                let ws_root = workspace.root();
+                                let path: PathBuf = PathBuf::from(s);
+                                let rel_path = path.strip_prefix(ws_root).unwrap();
+                                let l = format!("./{}", rel_path.display());
+                                //println!("xxx (is_root==true): {}", l);
+                                l
                             } else {
                                 // something like: /home/nixos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f
                                 let cwd: &Path = process_builder.get_cwd().unwrap();
                                 let path = PathBuf::from(s);
                                 let rel_path = path.strip_prefix(cwd).unwrap();
-                                format!("./{}", rel_path.display())
+                                let l = format!("./{}", rel_path.display());
+                                //println!("xxx: {}", l);
+                                l
                             }
                         }
                         _ => s,
@@ -531,15 +550,24 @@ impl<'a, 'gctx> NixBuildRunner {
                 })
                 .collect::<String>()
         );
-        // RUSTC_ADDITIONAL_ARGUMENTS=$(cat ${libc-0_2_170-custom_build-run_custom_build}/build_script_build.out.rustc-arguments)
-        let additional_build_phase_arguments: String = "".to_string();
-
         let default_function_arguments: Vec<String> = vec!["pkgs", "stdenv", "rustc", "cargo"]
             .iter()
             .map(|m| m.to_string())
             .collect();
         let function_arguments: Vec<String> =
             [default_function_arguments, build_inputs.clone()].concat();
+
+        // RUSTC_ADDITIONAL_ARGUMENTS=$(cat ${libc-0_2_170-custom_build-run_custom_build}/build_script_build.out.rustc-arguments)
+        // if build_inputs contains format!("{fullname}-script_build_run") then
+        let mut additional_build_phase_arguments: Vec<String> = vec![];
+        if build_inputs.contains(&format!("{}-script_build_run", fullname)) {
+            additional_build_phase_arguments.push(
+                format!("export RUSTC_ADDITIONAL_ARGUMENTS=$(cat ${{{}-script_build_run}}/.rustc-arguments)", fullname).to_string()
+            );
+            additional_build_phase_arguments.push(
+                format!("cp ${{{}-script_build_run}}/* $OUT_DIR", fullname).to_string()
+            );
+        };
 
         let rendered = handlebars.render(
             "rustc-call",
@@ -553,7 +581,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "build_inputs": build_inputs.join(" "),
                 "required_inputs": required_inputs.join(" "),
                 "environment_variables": environment_variables,
-                "additional_build_phase_arguments": additional_build_phase_arguments,
+                "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": command_line,
                 "install_phase": install_phase,
             }),

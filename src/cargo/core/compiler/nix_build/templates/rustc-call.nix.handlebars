@@ -19,10 +19,14 @@ in
 {{{environment_variables}}}
 
     buildPhase = ''
+      export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
+      export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
+
       export OUT_DIR=$(mktemp -d)
       export INC_DIR=$(mktemp -d)
-{{{additional_build_phase_arguments}}}
+
       set -x
+{{{additional_build_phase_arguments}}}
 {{{command_line}}}
       set +x
     '';

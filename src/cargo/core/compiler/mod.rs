@@ -264,7 +264,7 @@ fn rustc(
     unit: &Unit,
     exec: &Arc<dyn Executor>,
 ) -> CargoResult<Work> {
-    println!("rustc for: {}", unit.target.name());
+    //println!("rustc for: {}", unit.target.name());
 
     let mut rustc = prepare_rustc(build_runner, unit)?;
     let build_plan = build_runner.bcx.build_config.build_plan;
