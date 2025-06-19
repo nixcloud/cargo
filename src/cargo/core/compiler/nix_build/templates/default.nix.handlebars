@@ -4,7 +4,9 @@
 let
   callPackage' = pkgs.lib.callPackageWith (pkgs // self);
   fn = rec {
-    allCollectedInputs = a: builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.requiredInputs)) [] a;
+    allCollectedInputs = a: pkgs.lib.unique (
+      builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.requiredInputs)) [] a
+    );
     rustc_linker_arguments = requiredInputs: builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs requiredInputs));
   };
   self = {

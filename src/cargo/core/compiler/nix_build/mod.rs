@@ -326,8 +326,6 @@ impl<'a, 'gctx> NixBuildRunner {
             )
         };
 
-        let additional_build_phase_arguments: String = "".to_string();
-
         let default_function_arguments: Vec<String> = vec!["fn", "pkgs", "stdenv", "rustc", "cargo"]
             .iter()
             .map(|m| m.to_string())
@@ -347,7 +345,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "build_inputs": build_inputs.join(" "),
                 "required_inputs": required_inputs.join(" "),
                 "environment_variables": environment_variables,
-                "additional_build_phase_arguments": additional_build_phase_arguments,
+                "additional_build_phase_arguments": "",
                 "command_line": command_line,
                 "install_phase": install_phase,
             }),
@@ -533,12 +531,22 @@ impl<'a, 'gctx> NixBuildRunner {
         let function_arguments: Vec<String> =
             [default_function_arguments, build_inputs.clone()].concat();
 
-        // RUSTC_ADDITIONAL_ARGUMENTS=$(cat ${libc-0_2_170-custom_build-run_custom_build}/build_script_build.out.rustc-arguments)
-        // if build_inputs contains format!("{fullname}-script_build_run") then
         let mut additional_build_phase_arguments: Vec<String> = vec![];
         if build_inputs.contains(&format!("{}-script_build_run", fullname)) {
             additional_build_phase_arguments.push(
-                format!("export RUSTC_ADDITIONAL_ARGUMENTS=$(cat ${{{}-script_build_run}}/.rustc-arguments)", fullname).to_string()
+                format!(indoc!{r#"
+                  if [ -f ${{{}-script_build_run}}/.rustc-arguments]; then 
+                    export RUSTC_ADDITIONAL_ARGUMENTS=$(cat ${{{}-script_build_run}}/.rustc-arguments); 
+                  fi
+                "#}, fullname, fullname).to_string()
+            );
+            additional_build_phase_arguments.push(
+                format!(indoc!{r#"
+                  if [ -f ${{{}-script_build_run}}/.environment-variables]; then 
+                    source ${{{}-script_build_run}}/.environment-variables; 
+                  fi
+                "#}, fullname, fullname).to_string()
+                
             );
             additional_build_phase_arguments.push(
                 format!("cp ${{{}-script_build_run}}/* $OUT_DIR", fullname).to_string()
