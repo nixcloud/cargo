@@ -20,13 +20,14 @@
       export OUT_DIR=$(mktemp -d)
       export INC_DIR=$(mktemp -d)
 
-      set -x
+      (set -x 
 {{{additional_build_phase_arguments}}}
 {{{command_line}}}
-      set +x
+      )
     '';
 
     installPhase = ''
-{{{install_phase}}}
+      mkdir -p $out
+      cp -R $OUT_DIR/* $out
     '';
 }

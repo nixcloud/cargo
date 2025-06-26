@@ -1279,7 +1279,8 @@ fn build_base_args(
     Ok(())
 }
 
-fn escape_feature_args(feature_args: String, is_nix_build: bool) -> String {
+/// A way to support bash escape sequences required the the nix builder
+pub fn escape_args(feature_args: String, is_nix_build: bool) -> String {
     if is_nix_build {
         format!("'{}'", feature_args)
     } else {
@@ -1292,7 +1293,7 @@ fn features_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
     let mut args = Vec::with_capacity(unit.features.len() * 2);
     for feat in &unit.features {
         args.push(OsString::from("--cfg"));
-        args.push(OsString::from(escape_feature_args(
+        args.push(OsString::from(escape_args(
             format!("feature=\"{}\"", feat),
             is_nix_build,
         )));
@@ -1464,12 +1465,9 @@ fn check_cfg_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
 
     vec![
         OsString::from("--check-cfg"),
-        OsString::from(escape_feature_args(
-            "cfg(docsrs,test)".to_string(),
-            is_nix_build,
-        )),
+        OsString::from(escape_args("cfg(docsrs,test)".to_string(), is_nix_build)),
         OsString::from("--check-cfg"),
-        OsString::from(escape_feature_args(
+        OsString::from(escape_args(
             arg_feature.to_str().unwrap().to_string(),
             is_nix_build,
         )),
@@ -1657,6 +1655,7 @@ pub fn extern_args(
                     // ${lib-termcolor-1_4_1}
                     let nix_attribute_name = crate::core::compiler::nix_build::create_nix_name(
                         &dep.unit,
+                        &build_runner,
                         crate::core::compiler::nix_build::NixNameMode::AttributeName,
                     );
                     value.push(format!("${{{}}}/", nix_attribute_name));

@@ -272,12 +272,12 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
                     if let Some(output) = self.build_script_outputs.lock().unwrap().get(meta) {
                         for cfg in &output.cfgs {
                             args.push("--cfg".into());
-                            args.push(cfg.into());
+                            args.push(compiler::escape_args(cfg.into(), is_nix_build).into());
                         }
 
                         for check_cfg in &output.check_cfgs {
                             args.push("--check-cfg".into());
-                            args.push(check_cfg.into());
+                            args.push(compiler::escape_args(check_cfg.into(), is_nix_build).into());
                         }
 
                         for (lt, arg) in &output.linker_args {

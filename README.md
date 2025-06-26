@@ -1,14 +1,11 @@
 # WARNING
 
-This is my experimental cargo branch which generates files in /tmp/nix during normal `cargo build` execution when using CARGO_NIX_BUILDER=fast.
+For now it is just an experiment how to generate a nix based build system directly from cargo.
 
-In theory later one can then do:
+Call with: `CARGO_NIX_BUILDER=fast cargo build` to generate files in /tmp/nix and use the output from a flake to build.
+Call with: `cargo build` to study the traditional build and see /tmp/out but this needs a manual cleanup before each run.
 
-    nix build --file /tmp/nix/ -L
-
-For now it is just an experiment.
-
-Alternative calls:
+Alternative calls for using the nix backend in cargo:
 
     CARGO_NIX_BUILDER=fast cargo build
     CARGO_NIX_BUILDER=sandbox cargo build
@@ -17,29 +14,6 @@ Alternative calls:
     cargo -Znix --config build.nix=\"fast\" build
     cargo -Znix --config build.nix=\"sandbox\" build
 
-## todo
-
-* `-L` needs to be reintegrated with `propagatedBuildInputs` concept so that
-
-       rphtml v0.5.10 (/home/nixos/rphtml)
-       ├── htmlentity v1.3.2
-       │   ├── anyhow v1.0.97
-       │   ├── lazy_static v1.5.0
-       │   └── thiserror v1.0.69
-       │       └── thiserror-impl v1.0.69 (proc-macro)
-       │           ├── proc-macro2 v1.0.94
-       │           │   └── unicode-ident v1.0.18
-       │           ├── quote v1.0.39
-       │           │   └── proc-macro2 v1.0.94 (*)
-       │           └── syn v2.0.99
-       │               ├── proc-macro2 v1.0.94 (*)
-       │               ├── quote v1.0.39 (*)
-       │               └── unicode-ident v1.0.18
-       ├── lazy_static v1.5.0
-       └── thiserror v1.0.69 (*)
-
-    https://gist.github.com/qknight/cec3d2be284ab704ae88ee2da5726821       
-
 ## flake
 
     {
@@ -47,13 +21,14 @@ Alternative calls:
       inputs = {
         nixpkgs.url      = "github:NixOS/nixpkgs/nixos-25.05";
         rust-overlay.url = "github:oxalica/rust-overlay";
+        build-parser.url = "github:nixcloud/cargo-build_script_build-parser";
       };
       outputs =
-      { self, nixpkgs, flake-utils, rust-overlay }:
+      { self, nixpkgs, flake-utils, rust-overlay, build-parser }:
         flake-utils.lib.eachDefaultSystem
           (system:
             let
-              overlays = [ (import rust-overlay) ];
+              overlays = [ (import rust-overlay) build-parser.overlay ];
               pkgs = import nixpkgs {
                 inherit system overlays;
               };
@@ -67,6 +42,7 @@ Alternative calls:
               devShells.default = mkShell {
                 buildInputs = [
                   rust-bin.stable."1.86.0".default
+                  build-parser.packages.${system}.default
                 ];
               };
             }
@@ -75,6 +51,18 @@ Alternative calls:
 
     nix build .#anyhow-1_0_97 -L --impure --print-out-paths
     nix build .#rphtml-0_5_10 -L --impure --print-out-paths
+
+## tests
+
+need to write these tests:
+
+* several serde instances of the same version but different features (like klick does)
+* a bundled c library
+* a system c library (with pkg-config usage)
+* different arch to build for
+* usage of zig (WASM)
+
+<hr>
 
 # Cargo
 
