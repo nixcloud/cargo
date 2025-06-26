@@ -4,7 +4,7 @@ use crate::core::compiler::Unit;
 use crate::core::compiler::{BuildContext, BuildRunner, CompileMode};
 use crate::core::workspace::Workspace;
 use crate::core::TargetKind;
-use crate::core::{GitReference, SourceKind};
+use crate::core::SourceKind;
 use crate::util::CargoResult;
 use anyhow::anyhow;
 use cargo_util::ProcessBuilder;
@@ -57,6 +57,48 @@ fn mode_string(mode: &CompileMode) -> &str {
     }
 }
 
+pub trait AttrReplaceExt: ToString {
+    fn nix_attr_replace(&self) -> String;
+}
+
+impl AttrReplaceExt for String {
+    fn nix_attr_replace(&self) -> String {
+        self.replace(".", "_").nix_file_replace()
+    }
+}
+
+pub trait FileReplaceExt: ToString {
+    fn nix_file_replace(&self) -> String;
+}
+
+impl FileReplaceExt for String {
+    fn nix_file_replace(&self) -> String {
+        self.replace("+", "_plus_")
+    }
+}
+
+fn assert_valid_nix_attr_name(name: &str) {
+    //println!("Nix attr name: '{}'", name);
+    // This regex matches valid unquoted Nix attribute names
+    let valid_nix_attr = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9'_-]*$").unwrap();
+    assert!(
+        valid_nix_attr.is_match(name),
+        "Invalid Nix attribute name: `{}`",
+        name
+    );
+}
+
+fn assert_valid_nix_file_name(name: &str) {
+    //println!("Nix file name: '{}'", name);
+    // This regex matches valid unquoted Nix file names
+    let valid_nix_file = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9'\._+-]*$").unwrap();
+    assert!(
+        valid_nix_file.is_match(name),
+        "Invalid Nix file name: `{}`",
+        name
+    );
+}
+
 pub fn create_nix_name(
     unit: &Unit,
     build_runner: &BuildRunner,
@@ -73,9 +115,17 @@ pub fn create_nix_name(
 
     let nix_name: String = format!("{}-{}{}{}-{}", crate_name, crate_version, kind, mode, hash);
     match nix_name_mode {
-        NixNameMode::AttributeName => nix_name.replace(".", "_"),
-        NixNameMode::FileName => nix_name + ".nix",
-    }
+        NixNameMode::AttributeName => {
+            let res: String = nix_name.nix_attr_replace();
+            assert_valid_nix_attr_name(&res);
+            return res
+        },
+        NixNameMode::FileName => {
+            let res: String = nix_name + ".nix";
+            assert_valid_nix_file_name(&res);
+            return res.nix_file_replace()
+        },
+    };
 }
 
 fn process_deps(
@@ -436,13 +486,13 @@ impl<'a, 'gctx> NixBuildRunner {
             // ]
 
             let search: String =
-                format!("{}-{}-script_build", crate_name, crate_version).replace(".", "_"); // FIXME make the -script_build and -script_build-run a const
+                format!("{}-{}-script_build", crate_name, crate_version).nix_attr_replace();
 
             let mut matches: Vec<(usize, &String)> = Vec::new();
             for (index, input) in build_inputs.iter().enumerate() {
                 //println!("input: {:?}", input);
                 //println!("search: {:?}", search);
-                let pattern = format!(r"^{}-[a-zA-Z0-9]+$", search.replace("+", "\\+")); // FIXME generalize this for the regexp
+                let pattern = format!(r"^{}-[a-zA-Z0-9]+$", search); // FIXME generalize this for the regexp
                 let re = Regex::new(&pattern).unwrap();
                 if re.is_match(input) {
                     matches.push((index, input));
@@ -451,12 +501,13 @@ impl<'a, 'gctx> NixBuildRunner {
             //println!("matches.len() {:?}", matches.len());
 
             if matches.len() < 1 {
-                println!("matches: {}", matches.len());
+                println!("For buildInputs found these matches: {}", matches.len());
                 std::process::abort(); // FIXME rewrite with proper error
             } else {
                 format!(
-                    indoc! {r#"
-                    ${{{}}}/build_script_build-* > $OUT_DIR/build_script_build.out
+                    indoc! {
+                r#"
+                    ${{{}}}/build_script_build-* 2>$OUT_DIR/build_script_build.stderr | grep -e '^cargo:' > $OUT_DIR/build_script_build.out
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/.environment-variables
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out rustc-arguments > $OUT_DIR/.rustc-arguments
                 "#},
