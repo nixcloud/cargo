@@ -1,4 +1,7 @@
 pub mod nix_build_runner;
+mod download;
+use download::download_git_for_metadata;
+
 use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
 use crate::core::compiler::{BuildContext, BuildRunner, CompileMode};
@@ -220,6 +223,8 @@ fn generate_src<'gctx>(
                 // println!("  Commit hash: {}", precise_rev);
                 let url: String = source_id.url().to_string();
 
+                let meta_data = download_git_for_metadata(&url, &precise_rev.to_string(), &"".to_string())?;
+
                 let mut handlebars = Handlebars::new();
                 let template_str = indoc! {
                 r#"
@@ -235,7 +240,7 @@ fn generate_src<'gctx>(
                     &serde_json::json!({
                         "url": url,
                         "rev": precise_rev,
-                        "sha256": "",
+                        "sha256": meta_data.sha256,
                     }),
                 )?;
                 return Ok(rendered);
