@@ -14,6 +14,14 @@ Alternative calls for using the nix backend in cargo:
     cargo -Znix --config build.nix=\"fast\" build
     cargo -Znix --config build.nix=\"sandbox\" build
 
+The nix backend currently supports this:
+* generates a nix build system whcih needs to be evaluated outside of cargo (for now)
+* builds simple projects as rphtml, html5ever but fails with complexer ones like cargo or klick
+* supports build-script-build aka build.rs execution with an external tool (for now external)
+* supports crates residing in: local fs, crates.io and using git (all but local is in /nix/store)
+* build dependencies inside a nix-build isolated environment
+* integrates well with the flake concept
+
 ## flake
 
     {

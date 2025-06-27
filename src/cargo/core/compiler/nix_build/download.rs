@@ -47,7 +47,7 @@ pub fn download_git_for_metadata(url: &String, rev: &String, branch: &String) ->
         branch.to_string(),
         String::from("--sparse-checkout")
     ];
-
+    println!("{:?}", &args);
     let output = run_command(args)?;
     let json: Value = serde_json::from_slice(&output.stdout)?;
 

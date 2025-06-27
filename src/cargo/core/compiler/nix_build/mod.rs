@@ -102,9 +102,9 @@ fn assert_valid_nix_file_name(name: &str) {
     );
 }
 
-pub fn create_nix_name(
+pub fn create_nix_name<'a, 'gctx>(
     unit: &Unit,
-    build_runner: &BuildRunner,
+    build_runner: &BuildRunner<'a, 'gctx>,
     nix_name_mode: NixNameMode,
 ) -> String {
     let pkg = unit.pkg.package_id();
@@ -131,10 +131,10 @@ pub fn create_nix_name(
     };
 }
 
-fn process_deps(
+fn process_deps<'a, 'gctx>(
     unit: &Unit,
     unit_graph: &UnitGraph,
-    build_runner: &BuildRunner,
+    build_runner: &BuildRunner<'a, 'gctx>,
 ) -> (Vec<String>, Vec<String>) {
     let mut build_inputs = vec![];
     let mut required_inputs = vec![];
@@ -201,7 +201,7 @@ fn generate_src<'gctx>(
             )?;
             return Ok(rendered);
         }
-        SourceKind::Git(git_ref) => {
+        SourceKind::Git(_git_ref) => {
             // println!("Source: Git");
 
             // match git_ref {
@@ -362,6 +362,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let template_str = include_str!("templates/default.nix.handlebars");
         handlebars.register_template_string("default", template_str)?;
 
+        all_nodes.sort_by(|a, b| a.name.cmp(&b.name));
         // Render default_nix_packages as `name = callPackage' ./relative_path {};`
         let default_nix_packages = all_nodes
             .iter()
@@ -401,7 +402,7 @@ impl<'a, 'gctx> NixBuildRunner {
         unit_graph: &UnitGraph,
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
-        build_runner: &BuildRunner,
+        build_runner: &BuildRunner<'a, 'gctx>,
     ) -> CargoResult<()> {
         let (build_inputs, required_inputs) = process_deps(&unit, unit_graph, build_runner);
 
@@ -574,7 +575,7 @@ impl<'a, 'gctx> NixBuildRunner {
         unit_graph: &UnitGraph,
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
-        build_runner: &BuildRunner,
+        build_runner: &BuildRunner<'a, 'gctx>,
     ) -> CargoResult<()> {
         // println!("unit.target: {:?}", unit.target);
         // println!(
