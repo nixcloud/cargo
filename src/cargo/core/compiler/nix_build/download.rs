@@ -1,7 +1,7 @@
-use std::process::{Command, Output};
-use serde_json::Value;
-use serde::{Serialize, Deserialize};
 use crate::util::CargoResult;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::process::{Command, Output};
 
 // {
 //     "url": "https://github.com/slowtec/rust-embed",
@@ -27,16 +27,18 @@ pub struct CargoMetadata {
 }
 
 fn run_command(args: Vec<String>) -> CargoResult<Output> {
-    let output = Command::new("nix-prefetch-git")
-        .args(args)
-        .output()?;
+    let output = Command::new("nix-prefetch-git").args(args).output()?;
     if !output.status.success() {
         return Err(anyhow::anyhow!("Command execution failed").into());
     }
     Ok(output)
 }
 
-pub fn download_git_for_metadata(url: &String, rev: &String, branch: &String) -> CargoResult<CargoMetadata> {
+pub fn download_git_for_metadata(
+    url: &String,
+    rev: &String,
+    branch: &String,
+) -> CargoResult<CargoMetadata> {
     println!("Starting git download to extract the sha256");
     let args = vec![
         String::from("--url"),
@@ -45,7 +47,7 @@ pub fn download_git_for_metadata(url: &String, rev: &String, branch: &String) ->
         rev.to_string(),
         String::from("--branch-name"),
         branch.to_string(),
-        String::from("--sparse-checkout")
+        String::from("--sparse-checkout"),
     ];
     println!("{:?}", &args);
     let output = run_command(args)?;

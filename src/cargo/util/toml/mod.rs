@@ -1,3 +1,4 @@
+use crate::core::compiler;
 use annotate_snippets::{Level, Snippet};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -1578,11 +1579,13 @@ pub fn to_real_manifest(
         warnings,
     )?;
     let default = manifest::TomlLints::default();
+    let is_nix_build: bool = gctx.nix()?.is_some();
     let rustflags = lints_to_rustflags(
         normalized_toml
             .normalized_lints()
             .expect("previously normalized")
             .unwrap_or(&default),
+        is_nix_build,
     )?;
 
     let metadata = ManifestMetadata {
@@ -2691,7 +2694,7 @@ switch to nightly channel you can pass
     warnings.push(message);
 }
 
-fn lints_to_rustflags(lints: &manifest::TomlLints) -> CargoResult<Vec<String>> {
+fn lints_to_rustflags(lints: &manifest::TomlLints, is_nix_build: bool) -> CargoResult<Vec<String>> {
     let mut rustflags = lints
         .iter()
         // We don't want to pass any of the `cargo` lints to `rustc`
@@ -2733,7 +2736,8 @@ fn lints_to_rustflags(lints: &manifest::TomlLints) -> CargoResult<Vec<String>> {
                     {
                         for check_cfg in check_cfgs {
                             rustflags.push("--check-cfg".to_string());
-                            rustflags.push(check_cfg);
+                            rustflags
+                                .push(compiler::escape_args(check_cfg.into(), is_nix_build).into());
                         }
                     // error about `check-cfg` not being a list-of-string
                     } else {

@@ -1,13 +1,15 @@
-pub mod nix_build_runner;
 mod download;
+pub mod nix_build_runner;
 use download::download_git_for_metadata;
+mod asserts;
+use asserts::{assert_valid_nix_attr_name, assert_valid_nix_file_name, assert_escapes};
 
 use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
 use crate::core::compiler::{BuildContext, BuildRunner, CompileMode};
 use crate::core::workspace::Workspace;
-use crate::core::TargetKind;
 use crate::core::SourceKind;
+use crate::core::TargetKind;
 use crate::util::CargoResult;
 use anyhow::anyhow;
 use cargo_util::ProcessBuilder;
@@ -80,28 +82,6 @@ impl FileReplaceExt for String {
     }
 }
 
-fn assert_valid_nix_attr_name(name: &str) {
-    //println!("Nix attr name: '{}'", name);
-    // This regex matches valid unquoted Nix attribute names
-    let valid_nix_attr = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9'_-]*$").unwrap();
-    assert!(
-        valid_nix_attr.is_match(name),
-        "Invalid Nix attribute name: `{}`",
-        name
-    );
-}
-
-fn assert_valid_nix_file_name(name: &str) {
-    //println!("Nix file name: '{}'", name);
-    // This regex matches valid unquoted Nix file names
-    let valid_nix_file = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9'\._+-]*$").unwrap();
-    assert!(
-        valid_nix_file.is_match(name),
-        "Invalid Nix file name: `{}`",
-        name
-    );
-}
-
 pub fn create_nix_name<'a, 'gctx>(
     unit: &Unit,
     build_runner: &BuildRunner<'a, 'gctx>,
@@ -119,15 +99,12 @@ pub fn create_nix_name<'a, 'gctx>(
     let nix_name: String = format!("{}-{}{}{}-{}", crate_name, crate_version, kind, mode, hash);
     match nix_name_mode {
         NixNameMode::AttributeName => {
-            let res: String = nix_name.nix_attr_replace();
-            assert_valid_nix_attr_name(&res);
-            return res
-        },
+            return assert_valid_nix_attr_name(nix_name.nix_attr_replace())
+        }
         NixNameMode::FileName => {
-            let res: String = nix_name + ".nix";
-            assert_valid_nix_file_name(&res);
-            return res.nix_file_replace()
-        },
+            let file_name = nix_name + ".nix";
+            return assert_valid_nix_file_name(file_name.nix_file_replace())
+        }
     };
 }
 
@@ -176,13 +153,16 @@ fn generate_src<'gctx>(
     let source_id = unit.pkg.package_id().source_id();
     match source_id.kind() {
         SourceKind::Path => {
-            let src = std::env::current_dir().unwrap_or(PathBuf::from("./..")); // FIXME maybe use source_id.url()) instead?
-            println!("  |- source_id.url(): {}", source_id.url());
-            println!(
-                "  |- std::env::current_dir().unwrap_or(PathBuf::from(\"./..\")): {}",
-                src.display()
-            );
-            println!("  |- FIXME: need to generate a sha256 nix hash from the git repo");
+            let src: PathBuf = source_id
+                .url()
+                .to_file_path()
+                .map_err(|_| {
+                    format!(
+                        "Failed to convert URL '{}' into a file path",
+                        source_id.url()
+                    )
+                })
+                .unwrap();
             let mut handlebars = Handlebars::new();
             let template_str = indoc! {
             r#"
@@ -223,7 +203,8 @@ fn generate_src<'gctx>(
                 // println!("  Commit hash: {}", precise_rev);
                 let url: String = source_id.url().to_string();
 
-                let meta_data = download_git_for_metadata(&url, &precise_rev.to_string(), &"".to_string())?;
+                let meta_data =
+                    download_git_for_metadata(&url, &precise_rev.to_string(), &"".to_string())?;
 
                 let mut handlebars = Handlebars::new();
                 let template_str = indoc! {
@@ -512,7 +493,7 @@ impl<'a, 'gctx> NixBuildRunner {
             } else {
                 format!(
                     indoc! {
-                r#"
+                    r#"
                     ${{{}}}/build_script_build-* 2>$OUT_DIR/build_script_build.stderr | grep -e '^cargo:' > $OUT_DIR/build_script_build.out
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/.environment-variables
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out rustc-arguments > $OUT_DIR/.rustc-arguments
@@ -543,7 +524,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "required_inputs": required_inputs.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": "",
-                "command_line": command_line,
+                "command_line": assert_escapes(&command_line),
             }),
         )?;
 
@@ -681,6 +662,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 })
                 .collect::<String>()
         );
+
         let default_function_arguments: Vec<String> =
             vec!["fn", "pkgs", "stdenv", "rustc", "cargo"]
                 .iter()
@@ -726,7 +708,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "required_inputs": required_inputs.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
-                "command_line": command_line,
+                "command_line": assert_escapes(&command_line),
             }),
         )?;
 

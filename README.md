@@ -51,6 +51,7 @@ The nix backend currently supports this:
                 buildInputs = [
                   rust-bin.stable."1.86.0".default
                   build-parser.packages.${system}.default
+                  nix-prefetch-scripts
                 ];
               };
             }
