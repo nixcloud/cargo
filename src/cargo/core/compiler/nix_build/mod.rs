@@ -1,5 +1,6 @@
 mod download;
 pub mod nix_build_runner;
+pub mod build_rs_parser;
 use download::download_git_for_metadata;
 mod asserts;
 use asserts::{assert_valid_nix_attr_name, assert_valid_nix_file_name, assert_escapes};
@@ -495,8 +496,8 @@ impl<'a, 'gctx> NixBuildRunner {
                     indoc! {
                     r#"
                     ${{{}}}/build_script_build-* 2>$OUT_DIR/build_script_build.stderr | grep -e '^cargo:' > $OUT_DIR/build_script_build.out
-                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/.environment-variables
-                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out rustc-arguments > $OUT_DIR/.rustc-arguments
+                    ${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out rustc_arguments > $OUT_DIR/.rustc-arguments
+                    ${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/.environment-variables
                 "#},
                     matches[0].1
                 )

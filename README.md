@@ -2,6 +2,12 @@
 
 For now it is just an experiment how to generate a nix based build system directly from cargo.
 
+This particular commit is in the process of getting rid of https://github.com/nixcloud/cargo-nix-build-test-environment-declarative as a standalone and moving the code into cargo itself. As a result one has to use 'this' particular cargo version from nix and I haven't figured out how to do this yet.
+
+When I have figured that out, it will be added to the example flake blow so that it becomes easy.
+
+# How to use
+
 Call with: `CARGO_NIX_BUILDER=fast cargo build` to generate files in /tmp/nix and use the output from a flake to build.
 Call with: `cargo build` to study the traditional build and see /tmp/out but this needs a manual cleanup before each run.
 
@@ -29,14 +35,13 @@ The nix backend currently supports this:
       inputs = {
         nixpkgs.url      = "github:NixOS/nixpkgs/nixos-25.05";
         rust-overlay.url = "github:oxalica/rust-overlay";
-        build-parser.url = "github:nixcloud/cargo-build_script_build-parser";
       };
       outputs =
-      { self, nixpkgs, flake-utils, rust-overlay, build-parser }:
+      { self, nixpkgs, flake-utils, rust-overlay }:
         flake-utils.lib.eachDefaultSystem
           (system:
             let
-              overlays = [ (import rust-overlay) build-parser.overlay ];
+              overlays = [ (import rust-overlay) ];
               pkgs = import nixpkgs {
                 inherit system overlays;
               };
@@ -50,7 +55,6 @@ The nix backend currently supports this:
               devShells.default = mkShell {
                 buildInputs = [
                   rust-bin.stable."1.86.0".default
-                  build-parser.packages.${system}.default
                   nix-prefetch-scripts
                 ];
               };
