@@ -87,6 +87,7 @@ pub fn create_nix_name<'a, 'gctx>(
     unit: &Unit,
     build_runner: &BuildRunner<'a, 'gctx>,
     nix_name_mode: NixNameMode,
+    only_name_and_version: bool,
 ) -> String {
     let pkg = unit.pkg.package_id();
     let crate_name = pkg.name().to_string();
@@ -97,7 +98,11 @@ pub fn create_nix_name<'a, 'gctx>(
     let meta = build_runner.files().metadata(&unit);
     let hash: String = meta.c_extra_filename().unwrap().to_string();
 
-    let nix_name: String = format!("{}-{}{}{}-{}", crate_name, crate_version, kind, mode, hash);
+    let nix_name: String = 
+    match only_name_and_version {
+        false => format!("{}-{}{}{}-{}", crate_name, crate_version, kind, mode, hash),
+        true => format!("{}-{}", crate_name, crate_version)
+    };
     match nix_name_mode {
         NixNameMode::AttributeName => {
             return assert_valid_nix_attr_name(nix_name.nix_attr_replace())
@@ -122,6 +127,7 @@ fn process_deps<'a, 'gctx>(
                 &dep.unit,
                 &build_runner,
                 NixNameMode::AttributeName,
+                false,
             ));
             // all except -custom-build and -custom-build_run dependencies
             match dep.unit.target.kind() {
@@ -136,6 +142,7 @@ fn process_deps<'a, 'gctx>(
                         &dep.unit,
                         &build_runner,
                         NixNameMode::AttributeName,
+                        false,
                     ));
                 }
                 _ => {}
@@ -210,11 +217,11 @@ fn generate_src<'gctx>(
                 let mut handlebars = Handlebars::new();
                 let template_str = indoc! {
                 r#"
-                  pkgs.fetchGit {
+                  src = pkgs.fetchgit {
                     url = "{{{url}}}";
-                    ref = "{{{rev}}}";
+                    rev = "{{{rev}}}";
                     sha256 = "{{{sha256}}}";
-                  }
+                  };
                 "#};
                 handlebars.register_template_string("fetch", template_str)?;
                 let rendered: String = handlebars.render(
@@ -308,7 +315,7 @@ impl<'a, 'gctx> NixBuildRunner {
             let is_run_custom_build: bool = unit.mode == CompileMode::RunCustomBuild;
             let crate_name: String = pkg.name().to_string();
             let crate_version: String = pkg.version().to_string();
-            let fullname: String = create_nix_name(&unit, build_runner, NixNameMode::AttributeName);
+            let fullname: String = create_nix_name(&unit, build_runner, NixNameMode::AttributeName, false);
 
             println!("Generating {}", fullname);
 
@@ -330,7 +337,6 @@ impl<'a, 'gctx> NixBuildRunner {
                     &unit,
                     crate_name,
                     crate_version,
-                    fullname,
                     &process_builder,
                     unit_graph,
                     is_root,
@@ -462,6 +468,13 @@ impl<'a, 'gctx> NixBuildRunner {
             .collect::<Vec<String>>()
             .join("\n");
 
+            let mut rustc_inherited_arguments: Vec<String> = vec![];
+            rustc_inherited_arguments.push(
+                format!(
+                    indoc! {r#"
+                    rustc_inherited_arguments="";
+                "#}).to_string());
+
         let command_line: String = {
             //println!("{}: {:#?}", build_inputs.len(), build_inputs);
             assert!(build_inputs.len() >= 1); // FIXME rewrite with proper error
@@ -492,12 +505,15 @@ impl<'a, 'gctx> NixBuildRunner {
                 println!("For buildInputs found these matches: {}", matches.len());
                 std::process::abort(); // FIXME rewrite with proper error
             } else {
+                //${{{}}}/build_script_build-* 2>$OUT_DIR/build_script_build.stderr > $OUT_DIR/build_script_build.out
+                // ${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out rustc_arguments > $OUT_DIR/rustc-arguments
+                // ${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/environment-variables
                 format!(
                     indoc! {
                     r#"
-                    ${{{}}}/build_script_build-* 2>$OUT_DIR/build_script_build.stderr | grep -e '^cargo:' > $OUT_DIR/build_script_build.out
-                    ${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out rustc_arguments > $OUT_DIR/.rustc-arguments
-                    ${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/.environment-variables
+                    ${{{}}}/build_script_build-* 2>$OUT_DIR/build_script_build.stderr | grep -e '^cargo:' > $OUT_DIR/build_script_build.out || true
+                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/environment-variables
+                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out rustc-arguments > $OUT_DIR/rustc-arguments  
                 "#},
                     matches[0].1
                 )
@@ -516,7 +532,7 @@ impl<'a, 'gctx> NixBuildRunner {
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
-                "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName),
+                "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
                 "crate_name": crate_name,
                 "crate_version": crate_version,
                 "src": src,
@@ -526,6 +542,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": "",
                 "command_line": assert_escapes(&command_line),
+                "rustc_inherited_arguments": rustc_inherited_arguments.join("\n"),
             }),
         )?;
 
@@ -535,12 +552,12 @@ impl<'a, 'gctx> NixBuildRunner {
             PathBuf::from("/tmp/nix/deps")
         };
         create_dir_all(&dir)?;
-        let file_path = dir.join(create_nix_name(unit, build_runner, NixNameMode::FileName));
+        let file_path = dir.join(create_nix_name(unit, build_runner, NixNameMode::FileName, false));
         let mut file = File::create(&file_path)?;
         writeln!(file, "{}", rendered)?;
 
         all_nodes.push(DefaultNixEntry {
-            name: create_nix_name(unit, build_runner, NixNameMode::AttributeName),
+            name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
             filename: file_path.to_string_lossy().to_string(),
         });
 
@@ -552,7 +569,6 @@ impl<'a, 'gctx> NixBuildRunner {
         unit: &Unit,
         crate_name: String,
         crate_version: String,
-        fullname: String,
         process_builder: &ProcessBuilder,
         unit_graph: &UnitGraph,
         is_root: bool,
@@ -672,35 +688,64 @@ impl<'a, 'gctx> NixBuildRunner {
         let function_arguments: Vec<String> =
             [default_function_arguments, build_inputs.clone()].concat();
 
+
         let mut additional_build_phase_arguments: Vec<String> = vec![];
-        if build_inputs.contains(&format!("{}-script_build_run", fullname)) {
-            additional_build_phase_arguments.push(
-                format!(indoc!{r#"
-                  if [ -f ${{{}-script_build_run}}/.rustc-arguments]; then 
-                    export RUSTC_ADDITIONAL_ARGUMENTS=$(cat ${{{}-script_build_run}}/.rustc-arguments); 
-                  fi
-                "#}, fullname, fullname).to_string()
-            );
+        let mut rustc_inherited_arguments: Vec<String> = vec![];
+
+        let name_and_version: String = create_nix_name(unit, build_runner, NixNameMode::AttributeName, true);
+        // we search for something like 'rustversion-1_0_19-script_build-4138656a97af0b01'
+        fn find_unique_match(input: Vec<String>, pattern: String) -> Option<String> {
+            let re = Regex::new(pattern.as_str()).ok()?;
+        
+            let mut matches = input.into_iter().filter(|s| re.is_match(s));
+        
+            let first = matches.next()?;
+            if matches.next().is_none() {
+                Some(first)
+            } else {
+                None
+            }
+        }
+        let parent_output: Option<String> = find_unique_match(build_inputs.clone(), format!("{}-script_build_run-[a-z0-9]+", name_and_version));
+
+        if let Some(parent_full_name) = parent_output {
             additional_build_phase_arguments.push(
                 format!(
                     indoc! {r#"
-                  if [ -f ${{{}-script_build_run}}/.environment-variables]; then 
-                    source ${{{}-script_build_run}}/.environment-variables; 
+                  if [ -f ${{{}}}/environment-variables ]; then 
+                    source ${{{}}}/environment-variables; 
                   fi
                 "#},
-                    fullname, fullname
+                parent_full_name, parent_full_name
                 )
                 .to_string(),
             );
             additional_build_phase_arguments
-                .push(format!("cp ${{{}-script_build_run}}/* $OUT_DIR", fullname).to_string());
+                .push(format!("cp ${{{}}}/* $OUT_DIR", parent_full_name).to_string());
+            rustc_inherited_arguments.push(
+                format!(
+                    indoc! {r#"
+                    rustc_inherited_arguments=pkgs.lib.replaceString "\n" "" (
+                      if builtins.pathExists "${{{}}}/rustc-arguments" then
+                          builtins.readFile "${{{}}}/rustc-arguments"
+                      else
+                        ""
+                    );
+                "#},
+                parent_full_name, parent_full_name).to_string());
+        } else {
+            rustc_inherited_arguments.push(
+                format!(
+                    indoc! {r#"
+                    rustc_inherited_arguments="";
+                "#}).to_string());
         };
 
         let rendered = handlebars.render(
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
-                "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName),
+                "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
                 "crate_name": crate_name,
                 "crate_version": crate_version,
                 "src": src,
@@ -710,6 +755,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": assert_escapes(&command_line),
+                "rustc_inherited_arguments": rustc_inherited_arguments.join("\n"),
             }),
         )?;
 
@@ -719,12 +765,12 @@ impl<'a, 'gctx> NixBuildRunner {
             PathBuf::from("/tmp/nix/deps")
         };
         create_dir_all(&dir)?;
-        let file_path = dir.join(create_nix_name(unit, build_runner, NixNameMode::FileName));
+        let file_path = dir.join(create_nix_name(unit, build_runner, NixNameMode::FileName, false));
         let mut file = File::create(&file_path)?;
         writeln!(file, "{}", rendered)?;
 
         all_nodes.push(DefaultNixEntry {
-            name: create_nix_name(unit, build_runner, NixNameMode::AttributeName),
+            name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
             filename: file_path.to_string_lossy().to_string(),
         });
 

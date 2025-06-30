@@ -1,6 +1,8 @@
 # generated from rustc-call.nix.handlebars
 { {{{function_arguments}}} }:
-
+let
+{{{rustc_inherited_arguments}}}
+in
   pkgs.stdenv.mkDerivation rec {
     name = "{{{fullname}}}";
     buildInputs = [{{{build_inputs}}}];
@@ -19,6 +21,8 @@
 
       export OUT_DIR=$(mktemp -d)
       export INC_DIR=$(mktemp -d)
+
+      echo -e "\e[92mCompiling\e[0m {{{fullname}}}"
 
       (set -x 
 {{{additional_build_phase_arguments}}}

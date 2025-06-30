@@ -1177,7 +1177,7 @@ fn build_base_args(
     let is_nix_build: bool = bcx.gctx.nix()?.is_some();
 
     if is_nix_build {
-        cmd.arg("\\\n        $RUSTC_ADDITIONAL_ARGUMENTS");
+        cmd.arg("\\\n        ${rustc_inherited_arguments}");
     }
 
     cmd.args(&features_args(unit, is_nix_build));
@@ -1657,6 +1657,7 @@ pub fn extern_args(
                         &dep.unit,
                         &build_runner,
                         crate::core::compiler::nix_build::NixNameMode::AttributeName,
+                        false,
                     );
                     value.push(format!("${{{}}}/", nix_attribute_name));
 
