@@ -83,6 +83,20 @@ impl FileReplaceExt for String {
     }
 }
 
+pub trait IndentationExt: ToString {
+    fn indentation(&self, spaces: usize) -> String;
+}
+
+impl IndentationExt for String {
+    fn indentation(&self, spaces: usize) -> String {
+        let space_str = " ".repeat(spaces);
+        self.lines()
+            .map(|line| space_str.clone() + line)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 pub fn create_nix_name<'a, 'gctx>(
     unit: &Unit,
     build_runner: &BuildRunner<'a, 'gctx>,
@@ -175,10 +189,10 @@ fn generate_src<'gctx>(
             let template_str = indoc! {
             r#"
                 src = builtins.filterSource
-                    (path: type:
+                  (path: type:
                     let base = baseNameOf path;
-                    in !(base == "target" || base == "result" || builtins.match "result-*" base != null))
-                    {{{src}}};
+                    in !(base == "target" || base == "result" || builtins.match "result-*" base != null)
+                  ) {{{src}}};
             "#};
             handlebars.register_template_string("fetch", template_str)?;
             let rendered: String = handlebars.render(
@@ -187,7 +201,7 @@ fn generate_src<'gctx>(
                     "src": src,
                 }),
             )?;
-            return Ok(rendered);
+            return Ok(rendered.indentation(4));
         }
         SourceKind::Git(_git_ref) => {
             // println!("Source: Git");
@@ -232,7 +246,7 @@ fn generate_src<'gctx>(
                         "sha256": meta_data.sha256,
                     }),
                 )?;
-                return Ok(rendered);
+                return Ok(rendered.indentation(4));
             } else {
                 println!("Source GIT but commit hash not given!");
             }
@@ -275,7 +289,7 @@ fn generate_src<'gctx>(
                         "hash": hash
                     }),
                 )?;
-                return Ok(rendered);
+                return Ok(rendered.indentation(4));
             } else {
                 println!("Source is another registry: {}", source_id.url());
             }
@@ -400,16 +414,16 @@ impl<'a, 'gctx> NixBuildRunner {
             indoc! {r#"
               unpackPhase = "";
             "#}
-            .to_string()
+            .to_string().indentation(4)
         } else {
             let mut handlebars = Handlebars::new();
             let template_str = indoc! {
             r#"
                 unpackPhase = ''
-                    tar xf $src
-                    cd {{{crate_name}}}-{{{crate_version}}}
+                  tar xf $src
+                  cd {{{crate_name}}}-{{{crate_version}}}
                 '';
-            "#};
+            "#}.to_string().indentation(4);
 
             handlebars.register_template_string("unpack_phase", template_str)?;
             let rendered: String = handlebars.render(
@@ -471,9 +485,10 @@ impl<'a, 'gctx> NixBuildRunner {
             let mut rustc_inherited_arguments: Vec<String> = vec![];
             rustc_inherited_arguments.push(
                 format!(
-                    indoc! {r#"
+                    indoc! {
+                r#"
                     rustc_inherited_arguments="";
-                "#}).to_string());
+                "#}).to_string().indentation(2));
 
         let command_line: String = {
             //println!("{}: {:#?}", build_inputs.len(), build_inputs);
@@ -505,18 +520,21 @@ impl<'a, 'gctx> NixBuildRunner {
                 println!("For buildInputs found these matches: {}", matches.len());
                 std::process::abort(); // FIXME rewrite with proper error
             } else {
-                //${{{}}}/build_script_build-* 2>$OUT_DIR/build_script_build.stderr > $OUT_DIR/build_script_build.out
-                // ${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out rustc_arguments > $OUT_DIR/rustc-arguments
-                // ${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/environment-variables
+                let program_script_build = matches[0].1;
+                //${{{}}}/build_script_build-* > $OUT_DIR/build_script_build.out
+                //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out rustc_arguments > $OUT_DIR/rustc-arguments
+                //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/environment-variables
                 format!(
                     indoc! {
                     r#"
-                    ${{{}}}/build_script_build-* 2>$OUT_DIR/build_script_build.stderr | grep -e '^cargo:' > $OUT_DIR/build_script_build.out || true
-                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/environment-variables
-                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out rustc-arguments > $OUT_DIR/rustc-arguments  
+                    ${{{}}}/build_script_build-* > $OUT_DIR/build_script_build.out
+                    # the .out file could be empty
+                    cat $OUT_DIR/build_script_build.out | grep -e '^cargo:' > $OUT_DIR/build_script_build.out_filtered || true
+                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered environment-variables > $OUT_DIR/environment-variables
+                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-arguments > $OUT_DIR/rustc-arguments  
                 "#},
-                    matches[0].1
-                )
+                program_script_build
+                ).to_string().indentation(6)
             }
         };
 
@@ -594,16 +612,16 @@ impl<'a, 'gctx> NixBuildRunner {
             indoc! {r#"
               unpackPhase = "";
             "#}
-            .to_string()
+            .to_string().indentation(4)
         } else {
             let mut handlebars = Handlebars::new();
             let template_str = indoc! {
             r#"
                 unpackPhase = ''
-                    tar xf $src
-                    cd {{{crate_name}}}-{{{crate_version}}}
+                  tar xf $src
+                  cd {{{crate_name}}}-{{{crate_version}}}
                 '';
-            "#};
+            "#}.to_string().indentation(4);
 
             handlebars.register_template_string("unpack_phase", template_str)?;
             let rendered: String = handlebars.render(
@@ -718,27 +736,22 @@ impl<'a, 'gctx> NixBuildRunner {
                 "#},
                 parent_full_name, parent_full_name
                 )
-                .to_string(),
+                .to_string().indentation(6),
             );
             additional_build_phase_arguments
-                .push(format!("cp ${{{}}}/* $OUT_DIR", parent_full_name).to_string());
+                .push(format!("cp ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
             rustc_inherited_arguments.push(
                 format!(
                     indoc! {r#"
-                    rustc_inherited_arguments=pkgs.lib.replaceString "\n" "" (
-                      if builtins.pathExists "${{{}}}/rustc-arguments" then
-                          builtins.readFile "${{{}}}/rustc-arguments"
-                      else
-                        ""
-                    );
+                    rustc_inherited_arguments = fn.rustc_inherited_arguments {};
                 "#},
-                parent_full_name, parent_full_name).to_string());
+                parent_full_name).to_string().indentation(2));
         } else {
             rustc_inherited_arguments.push(
                 format!(
                     indoc! {r#"
                     rustc_inherited_arguments="";
-                "#}).to_string());
+                "#}).to_string().indentation(2));
         };
 
         let rendered = handlebars.render(
