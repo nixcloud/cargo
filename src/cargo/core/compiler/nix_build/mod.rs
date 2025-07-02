@@ -4,8 +4,8 @@ pub mod build_rs_parser;
 use download::download_git_for_metadata;
 mod asserts;
 use asserts::{assert_valid_nix_attr_name, assert_valid_nix_file_name, assert_escapes};
-use crate::sources::source::{MaybePackage, SourceMap};
-use crate::sources::{GitSource, PathSource, RegistrySource};
+use crate::sources::source::SourceMap;
+// use crate::sources::{GitSource, PathSource, RegistrySource};
 
 use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
@@ -262,7 +262,7 @@ fn generate_manifest_environment_variables<'gctx>(
     unit: &Unit,
     process_builder: &ProcessBuilder,
     workspace: &Workspace<'gctx>,
-    source_map: &SourceMap<'gctx>,
+    _source_map: &SourceMap<'gctx>,
 ) -> CargoResult<String> {
     let source_id = unit.pkg.package_id().source_id();
     let ret: String = match source_id.kind() {
@@ -280,6 +280,8 @@ fn generate_manifest_environment_variables<'gctx>(
             //let path: PathBuf = PathBuf::from(env_value);
             // println!("  path: {:?}", path);
             // println!("  pkg.root(): {:?}", unit.pkg.root()); // "/home/nixos/.cargo/git/checkouts/utbw-9a768fae0576fac1/06ba56a/crates/units"
+            // FIXME this is an ugly hack but after hours of not understanding where this string is assembled and if the parts are
+            // still accessible at this stage i ended up with this temporary hack
             let strip = strip_path_after_checkouts(unit.pkg.root()).unwrap();
             //println!("  strip: {:?}", strip);
             // println!("  pkg.manifest_path(): {:?}", unit.pkg.manifest_path());
@@ -338,6 +340,7 @@ fn generate_manifest_environment_variables<'gctx>(
 }
 
 fn generate_src<'gctx>(
+    workspace: &Workspace<'gctx>,
     unit: &Unit,
     crate_name: &String,
     crate_version: &String,
@@ -345,16 +348,7 @@ fn generate_src<'gctx>(
     let source_id = unit.pkg.package_id().source_id();
     match source_id.kind() {
         SourceKind::Path => {
-            let src: PathBuf = source_id
-                .url()
-                .to_file_path()
-                .map_err(|_| {
-                    format!(
-                        "Failed to convert URL '{}' into a file path",
-                        source_id.url()
-                    )
-                })
-                .unwrap();
+            let src = workspace.root().display().to_string();
             let mut handlebars = Handlebars::new();
             let template_str = indoc! {
             r#"
@@ -374,11 +368,8 @@ fn generate_src<'gctx>(
             return Ok(rendered.indentation(4));
         }
         SourceKind::Git(_git_ref) => {
-            // println!("Source: Git");
             if let Some(precise_rev) = source_id.precise_git_fragment() {
-                // println!("  Commit hash: {}", precise_rev);
                 let url: String = source_id.url().to_string();
-
                 let meta_data =
                     download_git_for_metadata(&url, &precise_rev.to_string(), &"".to_string())?;
 
@@ -405,10 +396,8 @@ fn generate_src<'gctx>(
                 println!("Source GIT but commit hash not given!");
             }
         }
-
         SourceKind::Registry => {
             if source_id.is_crates_io() {
-                //println!("Source is crates.io");
                 let mut handlebars = Handlebars::new();
                 let template_str = indoc! {
                 r#"
@@ -560,7 +549,7 @@ impl<'a, 'gctx> NixBuildRunner {
     ) -> CargoResult<()> {
         let deps: Dependencies = process_deps(&unit, unit_graph, build_runner);
 
-        let src: String = generate_src(&unit, &crate_name, &crate_version)?;
+        let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version)?;
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
 
         let mut handlebars = Handlebars::new();
@@ -721,7 +710,7 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let deps: Dependencies = process_deps(&unit, unit_graph, build_runner);
 
-        let src: String = generate_src(&unit, &crate_name, &crate_version)?;
+        let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version)?;
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
 
         let mut handlebars = Handlebars::new();
