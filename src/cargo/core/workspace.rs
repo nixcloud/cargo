@@ -740,7 +740,6 @@ impl<'gctx> Workspace<'gctx> {
             .get_ws_root(manifest_path, manifest_path)
         {
             Some(root_path) => {
-                debug!("find_root - is root {}", manifest_path.display());
                 Ok(Some(root_path))
             }
             None => find_workspace_root_with_loader(manifest_path, self.gctx, |self_path| {

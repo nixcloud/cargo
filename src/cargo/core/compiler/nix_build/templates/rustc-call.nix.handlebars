@@ -10,7 +10,6 @@ in
     phases = "unpackPhase buildPhase installPhase";
 
 {{{src}}}
-
 {{{unpack_phase}}}
 
     RUSTC = "${rustc}/bin/rustc";
@@ -26,9 +25,8 @@ in
       export INC_DIR=$(mktemp -d)
 
       echo -e "\e[92mCompiling\e[0m {{{fullname}}}"
-
-      (set -x 
 {{{additional_build_phase_arguments}}}
+      (set -x 
 {{{command_line}}}
       )
     '';
