@@ -1,13 +1,13 @@
 # generated from rustc-call.nix.handlebars
 { {{{function_arguments}}} }:
 let
-{{{rustc_inherited_arguments}}}
+{{{rustc_arguments}}}
 in
   pkgs.stdenv.mkDerivation rec {
     name = "{{{fullname}}}";
     buildInputs = [{{{build_inputs}}}];
     passthru.requiredInputs = [{{{required_inputs}}}];
-    phases = "unpackPhase buildPhase installPhase";
+    phases = "unpackPhase buildPhase";
 
 {{{src}}}
 {{{unpack_phase}}}
@@ -21,7 +21,8 @@ in
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
 
-      export OUT_DIR=$(mktemp -d)
+      mkdir -p $out
+      export OUT_DIR=$out
       export INC_DIR=$(mktemp -d)
 
       echo -e "\e[92mCompiling\e[0m {{{fullname}}}"
@@ -29,10 +30,5 @@ in
       (set -x 
 {{{command_line}}}
       )
-    '';
-
-    installPhase = ''
-      mkdir -p $out
-      cp -R $OUT_DIR/* $out
     '';
 }

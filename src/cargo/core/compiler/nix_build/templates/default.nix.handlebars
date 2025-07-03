@@ -8,11 +8,17 @@ let
       builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.requiredInputs)) [] a
     );
     rustc_linker_arguments = requiredInputs: builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs requiredInputs));
-    rustc_inherited_arguments = crate: pkgs.lib.replaceString "\n" "" (
+    rustc_arguments = crate: pkgs.lib.replaceString "\n" "" (
       if builtins.pathExists "${crate}/rustc-arguments" then
           builtins.readFile "${crate}/rustc-arguments"
       else
         "");
+    rustc_propagated_arguments = requiredInputs: pkgs.lib.replaceString "\n" "" (builtins.concatStringsSep " " (map (crate: 
+      if builtins.pathExists "${crate}/rustc-propagated-arguments" then
+          builtins.readFile "${crate}/rustc-propagated-arguments"
+      else
+        ""
+      ) (allCollectedInputs requiredInputs)));
   };
   self = {
 {{{default_nix_packages}}}

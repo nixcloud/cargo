@@ -1177,7 +1177,7 @@ fn build_base_args(
     let is_nix_build: bool = bcx.gctx.nix()?.is_some();
 
     if is_nix_build {
-        cmd.arg("\\\n        ${rustc_inherited_arguments}");
+        cmd.arg("\\\n        ${rustc_arguments}");
     }
 
     cmd.args(&features_args(unit, is_nix_build));
@@ -1516,6 +1516,7 @@ fn build_deps_args(
     } else {
         //println!("WARNING HACK: dependency= removed");
         cmd.arg("\\\n        ${fn.rustc_linker_arguments passthru.requiredInputs}");
+        cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.requiredInputs}");
     }
 
     // Be sure that the host path is also listed. This'll ensure that proc macro

@@ -583,12 +583,12 @@ impl<'a, 'gctx> NixBuildRunner {
             .collect::<Vec<String>>()
             .join("\n");
 
-            let mut rustc_inherited_arguments: Vec<String> = vec![];
-            rustc_inherited_arguments.push(
+            let mut rustc_arguments: Vec<String> = vec![];
+            rustc_arguments.push(
                 format!(
                     indoc! {
                 r#"
-                    rustc_inherited_arguments="";
+                    rustc_arguments="";
                 "#}).to_string().indentation(2));
 
         let command_line: String = {
@@ -632,7 +632,8 @@ impl<'a, 'gctx> NixBuildRunner {
                     # the .out file could be empty
                     cat $OUT_DIR/build_script_build.out | grep -e '^cargo:' > $OUT_DIR/build_script_build.out_filtered || true
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered environment-variables > $OUT_DIR/environment-variables
-                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-arguments > $OUT_DIR/rustc-arguments  
+                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-arguments > $OUT_DIR/rustc-arguments
+                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-propagated-arguments > $OUT_DIR/rustc-propagated-arguments
                 "#},
                 program_script_build
                 ).to_string().indentation(6)
@@ -661,7 +662,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": "",
                 "command_line": assert_escapes(&command_line),
-                "rustc_inherited_arguments": rustc_inherited_arguments.join("\n"),
+                "rustc_arguments": rustc_arguments.join("\n"),
             }),
         )?;
 
@@ -771,7 +772,7 @@ impl<'a, 'gctx> NixBuildRunner {
 
 
         let mut additional_build_phase_arguments: Vec<String> = vec![];
-        let mut rustc_inherited_arguments: Vec<String> = vec![];
+        let mut rustc_arguments: Vec<String> = vec![];
 
         let name_and_version: String = create_nix_name(unit, build_runner, NixNameMode::AttributeName, true);
         // we search for something like 'rustversion-1_0_19-script_build-4138656a97af0b01'
@@ -790,30 +791,40 @@ impl<'a, 'gctx> NixBuildRunner {
         let parent_output: Option<String> = find_unique_match(deps.build_inputs.clone(), format!("{}-script_build_run-[a-z0-9]+", name_and_version));
 
         if let Some(parent_full_name) = parent_output {
+            additional_build_phase_arguments
+                .push(format!("cp ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
+            additional_build_phase_arguments
+                .push(format!(indoc! {r#"
+                for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
+                  if [ -f "$file" ]; then
+                    sed -i "s|${{{}}}|$out|g" "$file"
+                  fi
+                done
+              "#}, parent_full_name).to_string().indentation(6));
             additional_build_phase_arguments.push(
                 format!(
                     indoc! {r#"
-                  if [ -f ${{{}}}/environment-variables ]; then 
+                  if [ -f ${{{}}}/environment-variables ]; then
+                    set -a
                     source ${{{}}}/environment-variables; 
+                    set +a
                   fi
                 "#},
                 parent_full_name, parent_full_name
                 )
                 .to_string().indentation(6),
             );
-            additional_build_phase_arguments
-                .push(format!("cp ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
-            rustc_inherited_arguments.push(
+            rustc_arguments.push(
                 format!(
                     indoc! {r#"
-                    rustc_inherited_arguments = fn.rustc_inherited_arguments {};
+                    rustc_arguments = fn.rustc_arguments {};
                 "#},
                 parent_full_name).to_string().indentation(2));
         } else {
-            rustc_inherited_arguments.push(
+            rustc_arguments.push(
                 format!(
                     indoc! {r#"
-                    rustc_inherited_arguments="";
+                    rustc_arguments="";
                 "#}).to_string().indentation(2));
         };
 
@@ -831,7 +842,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": assert_escapes(&command_line),
-                "rustc_inherited_arguments": rustc_inherited_arguments.join("\n"),
+                "rustc_arguments": rustc_arguments.join("\n"),
             }),
         )?;
 
