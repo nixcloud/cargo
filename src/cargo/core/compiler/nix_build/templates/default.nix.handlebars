@@ -19,6 +19,12 @@ let
       else
         ""
       ) (allCollectedInputs requiredInputs)));
+      environment_propagated_variables = requiredInputs: builtins.concatStringsSep " " (map (crate: 
+      if builtins.pathExists "${crate}/environment_propagated_variables" then
+          builtins.readFile "${crate}/environment_propagated_variables"
+      else
+        ""
+      ) (allCollectedInputs requiredInputs));      
   };
   self = {
 {{{default_nix_packages}}}

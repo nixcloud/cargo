@@ -4,8 +4,6 @@ pub mod build_rs_parser;
 use download::download_git_for_metadata;
 mod asserts;
 use asserts::{assert_valid_nix_attr_name, assert_valid_nix_file_name, assert_escapes};
-use crate::sources::source::SourceMap;
-// use crate::sources::{GitSource, PathSource, RegistrySource};
 
 use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
@@ -159,6 +157,31 @@ pub fn create_nix_name<'a, 'gctx>(
     };
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+enum CrateBuildType {
+    LibBuild,
+    ScriptBuild,
+    ScriptBuildRun,
+    Other
+}
+
+fn crate_build_type(
+    unit: &Unit,
+) -> CrateBuildType {
+    let target_kind: &TargetKind = unit.target.kind();
+    let compile_mode: CompileMode = unit.mode;
+
+    if compile_mode == CompileMode::Build && matches!(*target_kind, TargetKind::Lib(_)) {
+        CrateBuildType::LibBuild
+    } else if compile_mode == CompileMode::Build && *target_kind == TargetKind::CustomBuild {
+        CrateBuildType::ScriptBuild
+    } else if compile_mode == CompileMode::RunCustomBuild && *target_kind == TargetKind::CustomBuild {
+        CrateBuildType::ScriptBuildRun
+    } else {
+        CrateBuildType::Other
+    }
+}
+
 struct Dependencies {
     build_inputs: Vec<String>,
     required_inputs: Vec<String>, // FIXME refactor this into crate_inputs (also in the nix-abstraction with passthru)
@@ -262,7 +285,6 @@ fn generate_manifest_environment_variables<'gctx>(
     unit: &Unit,
     process_builder: &ProcessBuilder,
     workspace: &Workspace<'gctx>,
-    _source_map: &SourceMap<'gctx>,
 ) -> CargoResult<String> {
     let source_id = unit.pkg.package_id().source_id();
     let ret: String = match source_id.kind() {
@@ -295,20 +317,6 @@ fn generate_manifest_environment_variables<'gctx>(
             //println!("  unit.target.src_path(): {:#?}", unit.target.src_path());
             //println!("  source_id(): {:#?}", source_id);
 
-            //source_map.load()
-
-            // if let Some(source) = source_map.get(source_id) {
-                //println!("{:#?}", source.);
-                // let s = source
-                //     .as_any_mut()
-                //     .downcast_mut::<GitSource>();
-                //let s: Source = source.into();
-                // match s.downcast_ref::<GitSource>() {
-                //     Some(git_source) => println!("{:?}", git_source),
-                //     None => eprintln!("Failed to downcast to GitSource"),
-                // }
-            // };
-            
             // FIXME want: crates/value-spec or crates/presenter (from the two examples above)
             match env_key.as_str() {
                 "CARGO_MANIFEST_DIR" => format!("./{}", strip.display().to_string()),
@@ -446,8 +454,6 @@ impl<'a, 'gctx> NixBuildRunner {
         let mut visited = BTreeSet::new();
         let mut all_nodes: Vec<DefaultNixEntry> = Vec::new();
 
-        let source_map: &SourceMap<'gctx> = &bcx.packages.sources();
-
         let dir = PathBuf::from("/tmp/nix");
         create_dir_all(&dir)?;
 
@@ -472,7 +478,7 @@ impl<'a, 'gctx> NixBuildRunner {
             println!("Generating {}", fullname);
 
             if is_run_custom_build {
-                Self::process_build_runner(
+                Self::process_script_build_run(
                     &workspace,
                     &unit,
                     crate_name,
@@ -482,7 +488,6 @@ impl<'a, 'gctx> NixBuildRunner {
                     is_root,
                     &mut all_nodes,
                     build_runner,
-                    source_map,
                 )?
             } else {
                 Self::process_unit(
@@ -495,7 +500,6 @@ impl<'a, 'gctx> NixBuildRunner {
                     is_root,
                     &mut all_nodes,
                     build_runner,
-                    source_map,
                 )?
             }
         }
@@ -534,8 +538,7 @@ impl<'a, 'gctx> NixBuildRunner {
         Ok(())
     }
 
-    /// custom-build-run_custom-build
-    fn process_build_runner(
+    fn process_script_build_run(
         workspace: &Workspace<'gctx>,
         unit: &Unit,
         crate_name: String,
@@ -545,7 +548,6 @@ impl<'a, 'gctx> NixBuildRunner {
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
         build_runner: &BuildRunner<'a, 'gctx>,
-        source_map: &SourceMap<'gctx>,
     ) -> CargoResult<()> {
         let deps: Dependencies = process_deps(&unit, unit_graph, build_runner);
 
@@ -572,7 +574,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     let res: String = match key.as_str() {
                         // we make these into relative paths, as in the builder there is no fs access to ~/ anyways
                         "CARGO_MANIFEST_DIR" | "CARGO_MANIFEST_PATH" => {
-                            generate_manifest_environment_variables(key.clone(), env_value, unit, process_builder, workspace, source_map).unwrap()
+                            generate_manifest_environment_variables(key.clone(), env_value, unit, process_builder, workspace).unwrap()
                         }
                         _ => env_value,
                     };
@@ -622,16 +624,20 @@ impl<'a, 'gctx> NixBuildRunner {
                 std::process::abort(); // FIXME rewrite with proper error
             } else {
                 let program_script_build = matches[0].1;
-                //${{{}}}/build_script_build-* > $OUT_DIR/build_script_build.out
+                //${{{}}}/build_script_build > $OUT_DIR/build_script_build.out
                 //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out rustc_arguments > $OUT_DIR/rustc-arguments
                 //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/environment-variables
+                //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-propagated-variables > $OUT_DIR/environment-propagated-variables
+                //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out_filtered rustc-propagated-arguments > $OUT_DIR/rustc-propagated-arguments
+
                 format!(
                     indoc! {
                     r#"
-                    ${{{}}}/build_script_build-* > $OUT_DIR/build_script_build.out
+                    ${{{}}}/build_script_build > $OUT_DIR/build_script_build.out
                     # the .out file could be empty
                     cat $OUT_DIR/build_script_build.out | grep -e '^cargo:' > $OUT_DIR/build_script_build.out_filtered || true
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered environment-variables > $OUT_DIR/environment-variables
+                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered environment-propagated-variables > $OUT_DIR/environment-propagated-variables
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-arguments > $OUT_DIR/rustc-arguments
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-propagated-arguments > $OUT_DIR/rustc-propagated-arguments
                 "#},
@@ -641,7 +647,7 @@ impl<'a, 'gctx> NixBuildRunner {
         };
 
         let default_function_arguments: Vec<String> =
-            vec!["fn", "pkgs", "stdenv", "rustc", "cargo"]
+            vec!["fn", "pkgs", "rustc", "cargo"]
                 .iter()
                 .map(|m| m.to_string())
                 .collect();
@@ -696,7 +702,6 @@ impl<'a, 'gctx> NixBuildRunner {
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
         build_runner: &BuildRunner<'a, 'gctx>,
-        source_map: &SourceMap<'gctx>,
     ) -> CargoResult<()> {
         // println!("unit.target: {:?}", unit.target);
         // println!(
@@ -735,7 +740,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     let res: String = match key.as_str() {
                         // we make these into relative paths, as in the builder there is no fs access to ~/ anyways
                         "CARGO_MANIFEST_DIR" | "CARGO_MANIFEST_PATH" => {
-                            generate_manifest_environment_variables(key.clone(), env_value, unit, process_builder, workspace, source_map).unwrap()
+                            generate_manifest_environment_variables(key.clone(), env_value, unit, process_builder, workspace).unwrap()
                         }
                         _ => env_value,
                     };
@@ -763,7 +768,7 @@ impl<'a, 'gctx> NixBuildRunner {
         );
 
         let default_function_arguments: Vec<String> =
-            vec!["fn", "pkgs", "stdenv", "rustc", "cargo"]
+            vec!["fn", "pkgs", "rustc", "cargo"]
                 .iter()
                 .map(|m| m.to_string())
                 .collect();
@@ -789,13 +794,12 @@ impl<'a, 'gctx> NixBuildRunner {
             }
         }
         let parent_output: Option<String> = find_unique_match(deps.build_inputs.clone(), format!("{}-script_build_run-[a-z0-9]+", name_and_version));
-
         if let Some(parent_full_name) = parent_output {
             additional_build_phase_arguments
                 .push(format!("cp ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
             additional_build_phase_arguments
                 .push(format!(indoc! {r#"
-                for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
+                for file in $out/environment-variables $out/environment-propagated-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
                   if [ -f "$file" ]; then
                     sed -i "s|${{{}}}|$out|g" "$file"
                   fi
@@ -807,10 +811,11 @@ impl<'a, 'gctx> NixBuildRunner {
                   if [ -f ${{{}}}/environment-variables ]; then
                     set -a
                     source ${{{}}}/environment-variables; 
+                    source ${{{}}}/environment-propagated-variables; 
                     set +a
                   fi
                 "#},
-                parent_full_name, parent_full_name
+                parent_full_name, parent_full_name, parent_full_name
                 )
                 .to_string().indentation(6),
             );
@@ -828,10 +833,23 @@ impl<'a, 'gctx> NixBuildRunner {
                 "#}).to_string().indentation(2));
         };
 
+        let mut additional_command_lines: Vec<String> = vec![];
+        if crate_build_type(&unit) == CrateBuildType::ScriptBuild {
+            let meta = build_runner.files().metadata(&unit);
+            let hash: String = meta.c_extra_filename().unwrap().to_string();
+            additional_command_lines.push(
+                format!(
+                    indoc! {r#"
+                    ln -s $OUT_DIR/"$CARGO_CRATE_NAME"-{} $OUT_DIR/build_script_build
+                "#},
+                hash).to_string().indentation(6));
+        };
+
         let rendered = handlebars.render(
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
+                "rustc_arguments": rustc_arguments.join("\n"),
                 "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
                 "crate_name": crate_name,
                 "crate_version": crate_version,
@@ -842,7 +860,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": assert_escapes(&command_line),
-                "rustc_arguments": rustc_arguments.join("\n"),
+                "additional_command_lines": assert_escapes(&additional_command_lines.join("\n")),
             }),
         )?;
 
