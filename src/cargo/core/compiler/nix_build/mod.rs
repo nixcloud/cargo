@@ -883,6 +883,8 @@ impl<'a, 'gctx> NixBuildRunner {
         let function_arguments: Vec<String> =
             [default_function_arguments, deps.all_deps.clone()].concat();
 
+        let build_inputs: Vec<String> = vec![];
+
         let (additional_build_phase_arguments, rustc_arguments) = handle_dynamic_crate_aspects(
             unit, 
             &deps,
@@ -910,7 +912,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "crate_version": crate_version,
                 "src": src,
                 "unpack_phase": unpack_phase,
-                "build_inputs": deps.build_inputs.join(" "),
+                "build_inputs": build_inputs.join(" "),
                 "rust_crate_libraries": deps.rust_crate_libraries.join(" "),
                 "rust_crate_parent": deps.rust_crate_parent.join(" "),
                 "rust_script_build_run": deps.rust_script_build_run.join(" "),
