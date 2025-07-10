@@ -183,20 +183,98 @@ fn crate_build_type(
 }
 
 struct Dependencies {
-    build_inputs: Vec<String>,
-    required_inputs: Vec<String>, // FIXME refactor this into crate_inputs (also in the nix-abstraction with passthru)
+    /// all inputs, not sorted, not filtered
+    all_deps: Vec<String>,
+    /// contains only libraries used for -L
+    rust_crate_libraries: Vec<String>,
+    /// should contain at max one parent: CrateBuildType hierarchy basically
+    rust_crate_parent: Vec<String>,
+    /// contains all script_build_run inputs to this unit
+    rust_script_build_run: Vec<String>,
+}
+
+/// environment-variables / environment-propagated-variables / rustc-arguments / rustc-propagated-arguments
+/// require special care between different crate build steps: ScriptBuild / ScriptBuildRun / LibBuild
+fn handle_dynamic_crate_aspects (
+    unit: &Unit,
+    deps: &Dependencies,
+) -> (Vec<String>, Vec<String>) {
+    let mut additional_build_phase_arguments: Vec<String> = vec![];
+    let mut rustc_arguments: Vec<String> = vec![];
+
+    match crate_build_type(unit) {
+        CrateBuildType::LibBuild |
+        CrateBuildType::ScriptBuild |
+        CrateBuildType::ScriptBuildRun => {
+            match deps.rust_crate_parent.len() {
+                0 => {
+                    rustc_arguments.push(
+                        format!(
+                            indoc! {r#"
+                            rustc_arguments="";
+                        "#}).to_string().indentation(2));
+                },
+                1 => {
+                    let parent_full_name: String = deps.rust_crate_parent[0].clone();
+                //if let Some(parent_full_name) = parent_output {
+                    additional_build_phase_arguments
+                        .push(format!("cp -r ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
+                    additional_build_phase_arguments
+                        .push(format!(indoc! {r#"
+                        for file in $out/environment-variables $out/environment-propagated-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
+                        if [ -f "$file" ]; then
+                            sed -i "s|${{{}}}|$out|g" "$file"
+                        fi
+                        done
+                    "#}, parent_full_name).to_string().indentation(6));
+                    additional_build_phase_arguments.push(
+                        format!(
+                            indoc! {r#"
+                        if [ -f ${{{}}}/environment-variables ]; then
+                            set -a
+                            source ${{{}}}/environment-variables; 
+                            source ${{{}}}/environment-propagated-variables; 
+                            set +a
+                        fi
+                        "#},
+                        parent_full_name, parent_full_name, parent_full_name
+                        )
+                        .to_string().indentation(6),
+                    );
+                    rustc_arguments.push(
+                        format!(
+                            indoc! {r#"
+                            rustc_arguments = fn.rustc_arguments {};
+                        "#},
+                        parent_full_name).to_string().indentation(2));
+                },
+                _ => {
+                    println!("For buildInputs found these matches: {}", deps.rust_crate_parent.len());
+                    println!("  buildInputs: {:?}", deps.rust_crate_parent);
+                    std::process::abort(); // FIXME rewrite with proper error
+                }
+            };
+        },
+        _ => {}
+    }
+    (additional_build_phase_arguments, rustc_arguments)
 }
 
 fn process_deps<'a, 'gctx>(
     unit: &Unit,
+    crate_name: &String,
+    crate_version: &String,
     unit_graph: &UnitGraph,
     build_runner: &BuildRunner<'a, 'gctx>,
 ) -> Dependencies {
-    let mut build_inputs = vec![];
-    let mut required_inputs = vec![];
+    let mut all_deps = vec![];
+    let mut rust_crate_libraries = vec![];
+    let mut rust_crate_parent = vec![];
+    let mut rust_script_build_run = vec![];
+
     if let Some(deps) = unit_graph.get(unit) {
         for dep in deps {
-            build_inputs.push(create_nix_name(
+            all_deps.push(create_nix_name(
                 &dep.unit,
                 &build_runner,
                 NixNameMode::AttributeName,
@@ -211,7 +289,7 @@ fn process_deps<'a, 'gctx>(
                     if dep.unit.mode != CompileMode::Build {
                         continue;
                     }
-                    required_inputs.push(create_nix_name(
+                    rust_crate_libraries.push(create_nix_name(
                         &dep.unit,
                         &build_runner,
                         NixNameMode::AttributeName,
@@ -220,9 +298,56 @@ fn process_deps<'a, 'gctx>(
                 }
                 _ => {}
             }
+            // script_build_run
+            match dep.unit.target.kind() {
+                TargetKind::CustomBuild => {
+                    if dep.unit.mode == CompileMode::RunCustomBuild {
+                        rust_script_build_run.push(create_nix_name(
+                            &dep.unit,
+                            &build_runner,
+                            NixNameMode::AttributeName,
+                            false,
+                        ));
+                    }
+                },
+                _ => {}
+            }
+            
+        }
+        //println!("{}: {:#?}", build_inputs.len(), build_inputs);
+
+        // when building cargo 'rustls-0_23_23-script_build_run' actually has two inputs
+        // Generating rustls-0_23_23-script_build_run
+        // 2: [
+        //     "ring-0_17_11-script_build_run",
+        //     "rustls-0_23_23-script_build",
+        // ]
+        let search: String =
+        match crate_build_type(unit) {
+          CrateBuildType::LibBuild => {
+            format!("{}-{}-script_build_run", crate_name, crate_version).nix_attr_replace()
+          },
+          CrateBuildType::ScriptBuildRun => {
+            format!("{}-{}-script_build", crate_name, crate_version).nix_attr_replace()
+          },
+          _ => "".to_string() // FIXME
+        };
+        let mut matches: Vec<(usize, &String)> = Vec::new();
+        for (index, input) in all_deps.iter().enumerate() {
+            //println!("input: {:?}", input);
+            //println!("search: {:?}", search);
+            let pattern = format!(r"^{}-[a-zA-Z0-9]+$", search);
+            let re = Regex::new(&pattern).unwrap();
+            if re.is_match(input) {
+                matches.push((index, input));
+            }
+        }
+        //println!("matches.len() {:?}", matches.len());
+        for (_, name) in matches {
+            rust_crate_parent.push(name.clone());
         }
     }
-    Dependencies{ build_inputs, required_inputs }
+    Dependencies { all_deps, rust_crate_libraries, rust_crate_parent, rust_script_build_run }
 }
 
 fn generate_unpack_phase<'gctx>(
@@ -549,10 +674,11 @@ impl<'a, 'gctx> NixBuildRunner {
         all_nodes: &mut Vec<DefaultNixEntry>,
         build_runner: &BuildRunner<'a, 'gctx>,
     ) -> CargoResult<()> {
-        let deps: Dependencies = process_deps(&unit, unit_graph, build_runner);
+        let deps: Dependencies = process_deps(&unit, &crate_name, &crate_version, unit_graph, build_runner);
 
         let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version)?;
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
+        let build_inputs: Vec<String> = vec![];
 
         let mut handlebars = Handlebars::new();
         let template_str = include_str!("templates/rustc-call.nix.handlebars");
@@ -594,36 +720,12 @@ impl<'a, 'gctx> NixBuildRunner {
                 "#}).to_string().indentation(2));
 
         let command_line: String = {
-            //println!("{}: {:#?}", build_inputs.len(), build_inputs);
-            assert!(deps.build_inputs.len() >= 1); // FIXME rewrite with proper error
-
-            // when building cargo 'rustls-0_23_23-script_build_run' actually has two inputs
-            // Generating rustls-0_23_23-script_build_run
-            // 2: [
-            //     "ring-0_17_11-script_build_run",
-            //     "rustls-0_23_23-script_build",
-            // ]
-
-            let search: String =
-                format!("{}-{}-script_build", crate_name, crate_version).nix_attr_replace();
-
-            let mut matches: Vec<(usize, &String)> = Vec::new();
-            for (index, input) in deps.build_inputs.iter().enumerate() {
-                //println!("input: {:?}", input);
-                //println!("search: {:?}", search);
-                let pattern = format!(r"^{}-[a-zA-Z0-9]+$", search); // FIXME generalize this for the regexp
-                let re = Regex::new(&pattern).unwrap();
-                if re.is_match(input) {
-                    matches.push((index, input));
-                }
-            }
-            //println!("matches.len() {:?}", matches.len());
-
-            if matches.len() < 1 {
-                println!("For buildInputs found these matches: {}", matches.len());
+            if deps.rust_crate_parent.len() != 1 {
+                println!("For buildInputs found these matches: {}", deps.rust_crate_parent.len());
+                println!("  buildInputs: {:?}", deps.rust_crate_parent);
                 std::process::abort(); // FIXME rewrite with proper error
             } else {
-                let program_script_build = matches[0].1;
+                let program_script_build = deps.rust_crate_parent[0].clone();
                 //${{{}}}/build_script_build > $OUT_DIR/build_script_build.out
                 //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out rustc_arguments > $OUT_DIR/rustc-arguments
                 //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/environment-variables
@@ -652,28 +754,34 @@ impl<'a, 'gctx> NixBuildRunner {
                 .map(|m| m.to_string())
                 .collect();
         let function_arguments: Vec<String> =
-            [default_function_arguments, deps.build_inputs.clone()].concat();
+            [default_function_arguments, deps.all_deps.clone()].concat();
+
+        let (additional_build_phase_arguments, rustc_arguments) = handle_dynamic_crate_aspects(
+            unit, 
+            &deps,
+        );
 
         let rendered = handlebars.render(
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
+                "rustc_arguments": rustc_arguments.join("\n"),
                 "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
                 "crate_name": crate_name,
                 "crate_version": crate_version,
                 "src": src,
                 "unpack_phase": unpack_phase,
-                "build_inputs": deps.build_inputs.join(" "),
-                "required_inputs": deps.required_inputs.join(" "),
+                "build_inputs": build_inputs.join(" "),
+                "rust_crate_libraries": deps.rust_crate_libraries.join(" "),
+                "rust_crate_parent": deps.rust_crate_parent.join(" "),
+                "rust_script_build_run": deps.rust_script_build_run.join(" "),
                 "environment_variables": environment_variables,
-                "additional_build_phase_arguments": "",
+                "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": assert_escapes(&command_line),
-                "rustc_arguments": rustc_arguments.join("\n"),
             }),
         )?;
 
         // FIXME generalize this code below since it is also used by process_unit
-
         let dir = if is_root {
             PathBuf::from("/tmp/nix")
         } else {
@@ -712,9 +820,9 @@ impl<'a, 'gctx> NixBuildRunner {
         // println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
 
         // let mut build_inputs: Vec<String> = vec![];
-        // let mut required_inputs: Vec<String> = vec![];
+        // let mut rust_crate_libraries: Vec<String> = vec![];
 
-        let deps: Dependencies = process_deps(&unit, unit_graph, build_runner);
+        let deps: Dependencies = process_deps(&unit, &crate_name, &crate_version, unit_graph, build_runner);
 
         let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version)?;
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
@@ -773,65 +881,12 @@ impl<'a, 'gctx> NixBuildRunner {
                 .map(|m| m.to_string())
                 .collect();
         let function_arguments: Vec<String> =
-            [default_function_arguments, deps.build_inputs.clone()].concat();
+            [default_function_arguments, deps.all_deps.clone()].concat();
 
-
-        let mut additional_build_phase_arguments: Vec<String> = vec![];
-        let mut rustc_arguments: Vec<String> = vec![];
-
-        let name_and_version: String = create_nix_name(unit, build_runner, NixNameMode::AttributeName, true);
-        // we search for something like 'rustversion-1_0_19-script_build-4138656a97af0b01'
-        fn find_unique_match(input: Vec<String>, pattern: String) -> Option<String> {
-            let re = Regex::new(pattern.as_str()).ok()?;
-        
-            let mut matches = input.into_iter().filter(|s| re.is_match(s));
-        
-            let first = matches.next()?;
-            if matches.next().is_none() {
-                Some(first)
-            } else {
-                None
-            }
-        }
-        let parent_output: Option<String> = find_unique_match(deps.build_inputs.clone(), format!("{}-script_build_run-[a-z0-9]+", name_and_version));
-        if let Some(parent_full_name) = parent_output {
-            additional_build_phase_arguments
-                .push(format!("cp ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
-            additional_build_phase_arguments
-                .push(format!(indoc! {r#"
-                for file in $out/environment-variables $out/environment-propagated-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
-                  if [ -f "$file" ]; then
-                    sed -i "s|${{{}}}|$out|g" "$file"
-                  fi
-                done
-              "#}, parent_full_name).to_string().indentation(6));
-            additional_build_phase_arguments.push(
-                format!(
-                    indoc! {r#"
-                  if [ -f ${{{}}}/environment-variables ]; then
-                    set -a
-                    source ${{{}}}/environment-variables; 
-                    source ${{{}}}/environment-propagated-variables; 
-                    set +a
-                  fi
-                "#},
-                parent_full_name, parent_full_name, parent_full_name
-                )
-                .to_string().indentation(6),
-            );
-            rustc_arguments.push(
-                format!(
-                    indoc! {r#"
-                    rustc_arguments = fn.rustc_arguments {};
-                "#},
-                parent_full_name).to_string().indentation(2));
-        } else {
-            rustc_arguments.push(
-                format!(
-                    indoc! {r#"
-                    rustc_arguments="";
-                "#}).to_string().indentation(2));
-        };
+        let (additional_build_phase_arguments, rustc_arguments) = handle_dynamic_crate_aspects(
+            unit, 
+            &deps,
+        );
 
         let mut additional_command_lines: Vec<String> = vec![];
         if crate_build_type(&unit) == CrateBuildType::ScriptBuild {
@@ -856,7 +911,9 @@ impl<'a, 'gctx> NixBuildRunner {
                 "src": src,
                 "unpack_phase": unpack_phase,
                 "build_inputs": deps.build_inputs.join(" "),
-                "required_inputs": deps.required_inputs.join(" "),
+                "rust_crate_libraries": deps.rust_crate_libraries.join(" "),
+                "rust_crate_parent": deps.rust_crate_parent.join(" "),
+                "rust_script_build_run": deps.rust_script_build_run.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": assert_escapes(&command_line),

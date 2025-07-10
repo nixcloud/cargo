@@ -5,26 +5,26 @@ let
   callPackage' = pkgs.lib.callPackageWith (pkgs // self);
   fn = rec {
     allCollectedInputs = a: pkgs.lib.unique (
-      builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.requiredInputs)) [] a
+      builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.rust_crate_libraries)) [] a
     );
-    rustc_linker_arguments = requiredInputs: builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs requiredInputs));
+    rustc_linker_arguments = rust_crate_libraries: builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs rust_crate_libraries));
     rustc_arguments = crate: pkgs.lib.replaceString "\n" "" (
       if builtins.pathExists "${crate}/rustc-arguments" then
           builtins.readFile "${crate}/rustc-arguments"
       else
         "");
-    rustc_propagated_arguments = requiredInputs: pkgs.lib.replaceString "\n" "" (builtins.concatStringsSep " " (map (crate: 
+    rustc_propagated_arguments = rust_crate_libraries: pkgs.lib.replaceString "\n" "" (builtins.concatStringsSep " " (map (crate: 
       if builtins.pathExists "${crate}/rustc-propagated-arguments" then
           builtins.readFile "${crate}/rustc-propagated-arguments"
       else
         ""
-      ) (allCollectedInputs requiredInputs)));
-      environment_propagated_variables = requiredInputs: builtins.concatStringsSep " " (map (crate: 
+      ) (allCollectedInputs rust_crate_libraries)));
+    environment_propagated_variables = rust_script_build_run: builtins.concatStringsSep " " (map (crate: 
       if builtins.pathExists "${crate}/environment_propagated_variables" then
           builtins.readFile "${crate}/environment_propagated_variables"
       else
         ""
-      ) (allCollectedInputs requiredInputs));      
+      ) (allCollectedInputs rust_script_build_run));      
   };
   self = {
 {{{default_nix_packages}}}

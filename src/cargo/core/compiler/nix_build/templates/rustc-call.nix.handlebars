@@ -6,7 +6,9 @@ in
   pkgs.stdenv.mkDerivation rec {
     name = "{{{fullname}}}";
     buildInputs = [{{{build_inputs}}}];
-    passthru.requiredInputs = [{{{required_inputs}}}];
+    passthru.rust_crate_libraries = [{{{rust_crate_libraries}}}];
+    passthru.rust_crate_parent = [{{{rust_crate_parent}}}];
+    passthru.rust_script_build_run = [{{{rust_script_build_run}}}];
     phases = "unpackPhase buildPhase";
 
 {{{src}}}
