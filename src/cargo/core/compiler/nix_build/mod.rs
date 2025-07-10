@@ -126,6 +126,24 @@ pub fn strip_path_after_checkouts(path: &Path) -> Option<PathBuf> {
     None
 }
 
+fn escape_environment_variable(input: String) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '"' {
+            // Check if the previous char was NOT a backslash
+            if !result.ends_with('\\') {
+                result.push('\\');
+            }
+            result.push('"');
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 pub fn create_nix_name<'a, 'gctx>(
     unit: &Unit,
     build_runner: &BuildRunner<'a, 'gctx>,
@@ -258,6 +276,24 @@ fn handle_dynamic_crate_aspects (
         _ => {}
     }
     (additional_build_phase_arguments, rustc_arguments)
+}
+
+fn write_nix_file(
+    file_name: &String,
+    content: &String,
+    is_root: bool,
+) -> CargoResult<PathBuf> {
+    let dir = if is_root {
+        PathBuf::from("/tmp/nix")
+    } else {
+        PathBuf::from("/tmp/nix/deps")
+    };
+    create_dir_all(&dir)?;
+    let file_path = dir.join(file_name);
+
+    let mut file = File::create(&file_path)?;
+    writeln!(file, "{}", content)?;
+    Ok(file_path)
 }
 
 fn process_deps<'a, 'gctx>(
@@ -702,7 +738,7 @@ impl<'a, 'gctx> NixBuildRunner {
                         "CARGO_MANIFEST_DIR" | "CARGO_MANIFEST_PATH" => {
                             generate_manifest_environment_variables(key.clone(), env_value, unit, process_builder, workspace).unwrap()
                         }
-                        _ => env_value,
+                        _ => escape_environment_variable(env_value),
                     };
                     format!("    {} = \"{}\";", key, res)
                 }
@@ -781,17 +817,8 @@ impl<'a, 'gctx> NixBuildRunner {
             }),
         )?;
 
-        // FIXME generalize this code below since it is also used by process_unit
-        let dir = if is_root {
-            PathBuf::from("/tmp/nix")
-        } else {
-            PathBuf::from("/tmp/nix/deps")
-        };
-        create_dir_all(&dir)?;
-        let file_path = dir.join(create_nix_name(unit, build_runner, NixNameMode::FileName, false));
-        let mut file = File::create(&file_path)?;
-        writeln!(file, "{}", rendered)?;
-
+        let file_name: String = create_nix_name(unit, build_runner, NixNameMode::FileName, false);
+        let file_path = write_nix_file(&file_name, &rendered, is_root)?;
         all_nodes.push(DefaultNixEntry {
             name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
             filename: file_path.to_string_lossy().to_string(),
@@ -922,22 +949,12 @@ impl<'a, 'gctx> NixBuildRunner {
                 "additional_command_lines": assert_escapes(&additional_command_lines.join("\n")),
             }),
         )?;
-
-        let dir = if is_root {
-            PathBuf::from("/tmp/nix")
-        } else {
-            PathBuf::from("/tmp/nix/deps")
-        };
-        create_dir_all(&dir)?;
-        let file_path = dir.join(create_nix_name(unit, build_runner, NixNameMode::FileName, false));
-        let mut file = File::create(&file_path)?;
-        writeln!(file, "{}", rendered)?;
-
+        let file_name: String = create_nix_name(unit, build_runner, NixNameMode::FileName, false);
+        let file_path = write_nix_file(&file_name, &rendered, is_root)?;
         all_nodes.push(DefaultNixEntry {
             name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
             filename: file_path.to_string_lossy().to_string(),
         });
-
         Ok(())
     }
 }
