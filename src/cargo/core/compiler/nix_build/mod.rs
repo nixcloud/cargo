@@ -211,6 +211,40 @@ struct Dependencies {
     rust_script_build_run: Vec<String>,
 }
 
+fn generate_environment_variables<'gctx>(
+    workspace: &Workspace<'gctx>,
+    unit: &Unit,
+    process_builder: &ProcessBuilder,
+) -> CargoResult<String> {
+    let ret = process_builder
+    .get_envs()
+    .iter()
+    .filter(|(key, _)| {
+        *key != "CARGO"
+            && *key != "RUSTC"
+            && *key != "LD_LIBRARY_PATH"
+            && *key != "OUT_DIR"
+            && *key != "CARGO_RUSTC_CURRENT_DIR"
+    })
+    .map(|(key, value)| match value {
+        Some(os_str) => {
+            let env_value: String = os_str.to_string_lossy().to_string();
+            let res: String = match key.as_str() {
+                // we make these into relative paths, as in the builder there is no fs access to ~/ anyways
+                "CARGO_MANIFEST_DIR" | "CARGO_MANIFEST_PATH" => {
+                    generate_manifest_environment_variables(key.clone(), env_value, unit, process_builder, workspace).unwrap()
+                }
+                _ => escape_environment_variable(env_value),
+            };
+            format!("    {} = \"{}\";", key, res)
+        }
+        None => format!("    {} = \"\";", key),
+    })
+    .collect::<Vec<String>>()
+    .join("\n");
+    Ok(ret)
+}
+
 /// environment-variables / environment-propagated-variables / rustc-arguments / rustc-propagated-arguments
 /// require special care between different crate build steps: ScriptBuild / ScriptBuildRun / LibBuild
 fn handle_dynamic_crate_aspects (
@@ -234,28 +268,39 @@ fn handle_dynamic_crate_aspects (
                 },
                 1 => {
                     let parent_full_name: String = deps.rust_crate_parent[0].clone();
-                //if let Some(parent_full_name) = parent_output {
-                    additional_build_phase_arguments
-                        .push(format!("cp -r ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
-                    additional_build_phase_arguments
-                        .push(format!(indoc! {r#"
-                        for file in $out/environment-variables $out/environment-propagated-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
-                        if [ -f "$file" ]; then
-                            sed -i "s|${{{}}}|$out|g" "$file"
-                        fi
-                        done
-                    "#}, parent_full_name).to_string().indentation(6));
+                    if crate_build_type(unit) == CrateBuildType::LibBuild {
+                        additional_build_phase_arguments
+                            .push(format!("cp -r ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
+                        additional_build_phase_arguments
+                            .push(format!(indoc! {r#"
+                            for file in $out/environment-variables $out/environment-propagated-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
+                                if [ -f "$file" ]; then
+                                    sed -i "s|${{{}}}|$out|g" "$file"
+                                fi
+                            done
+                        "#}, parent_full_name).to_string().indentation(6));
+                    }
                     additional_build_phase_arguments.push(
                         format!(
                             indoc! {r#"
                         if [ -f ${{{}}}/environment-variables ]; then
                             set -a
                             source ${{{}}}/environment-variables; 
+                            set +a
+                        fi
+                        if [ -f ${{{}}}/environment-propagated-variables ]; then
+                            set -a
                             source ${{{}}}/environment-propagated-variables; 
                             set +a
                         fi
-                        "#},
-                        parent_full_name, parent_full_name, parent_full_name
+                        for file in ${{fn.environment_propagated_variables passthru.rust_script_build_run}}; do
+                            if [ -f $file ]; then
+                                set -a
+                                source $file
+                                set +a
+                            fi  
+                        done
+                        "#}, parent_full_name, parent_full_name, parent_full_name, parent_full_name
                         )
                         .to_string().indentation(6),
                     );
@@ -338,6 +383,7 @@ fn process_deps<'a, 'gctx>(
             match dep.unit.target.kind() {
                 TargetKind::CustomBuild => {
                     if dep.unit.mode == CompileMode::RunCustomBuild {
+                        // FIXME this needs to be the child actually
                         rust_script_build_run.push(create_nix_name(
                             &dep.unit,
                             &build_runner,
@@ -699,6 +745,8 @@ impl<'a, 'gctx> NixBuildRunner {
         Ok(())
     }
 
+
+
     fn process_script_build_run(
         workspace: &Workspace<'gctx>,
         unit: &Unit,
@@ -720,40 +768,15 @@ impl<'a, 'gctx> NixBuildRunner {
         let template_str = include_str!("templates/rustc-call.nix.handlebars");
         handlebars.register_template_string("rustc-call", template_str)?;
 
-        let environment_variables: String = process_builder
-            .get_envs()
-            .iter()
-            .filter(|(key, _)| {
-                *key != "CARGO"
-                    && *key != "RUSTC"
-                    && *key != "LD_LIBRARY_PATH"
-                    && *key != "OUT_DIR"
-                    && *key != "CARGO_RUSTC_CURRENT_DIR"
-            })
-            .map(|(key, value)| match value {
-                Some(os_str) => {
-                    let env_value: String = os_str.to_string_lossy().to_string();
-                    let res: String = match key.as_str() {
-                        // we make these into relative paths, as in the builder there is no fs access to ~/ anyways
-                        "CARGO_MANIFEST_DIR" | "CARGO_MANIFEST_PATH" => {
-                            generate_manifest_environment_variables(key.clone(), env_value, unit, process_builder, workspace).unwrap()
-                        }
-                        _ => escape_environment_variable(env_value),
-                    };
-                    format!("    {} = \"{}\";", key, res)
-                }
-                None => format!("    {} = \"\";", key),
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
+        let environment_variables: String = generate_environment_variables(workspace, unit, process_builder)?;
 
-            let mut rustc_arguments: Vec<String> = vec![];
-            rustc_arguments.push(
-                format!(
-                    indoc! {
-                r#"
-                    rustc_arguments="";
-                "#}).to_string().indentation(2));
+        let mut rustc_arguments: Vec<String> = vec![];
+        rustc_arguments.push(
+            format!(
+                indoc! {
+            r#"
+                rustc_arguments="";
+            "#}).to_string().indentation(2));
 
         let command_line: String = {
             if deps.rust_crate_parent.len() != 1 {
@@ -773,7 +796,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     r#"
                     ${{{}}}/build_script_build > $OUT_DIR/build_script_build.out
                     # the .out file could be empty
-                    cat $OUT_DIR/build_script_build.out | grep -e '^cargo:' > $OUT_DIR/build_script_build.out_filtered || true
+                    cat $OUT_DIR/build_script_build.out | sort | uniq | grep -e '^cargo:' > $OUT_DIR/build_script_build.out_filtered || true
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered environment-variables > $OUT_DIR/environment-variables
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered environment-propagated-variables > $OUT_DIR/environment-propagated-variables
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-arguments > $OUT_DIR/rustc-arguments
@@ -858,34 +881,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let template_str = include_str!("templates/rustc-call.nix.handlebars");
         handlebars.register_template_string("rustc-call", template_str)?;
 
-        let environment_variables: String = process_builder
-            .get_envs()
-            .iter()
-            .filter(|(key, _)| {
-                *key != "CARGO"
-                    && *key != "RUSTC"
-                    && *key != "LD_LIBRARY_PATH"
-                    && *key != "OUT_DIR"
-                    && *key != "CARGO_RUSTC_CURRENT_DIR"
-            })
-            .map(|(key, value)| match value {
-                Some(os_str) => {
-                    // FIXME if a crates has the Cargo.toml outside the package root this will fail
-                    let env_value: String = os_str.to_string_lossy().to_string();
-                    let res: String = match key.as_str() {
-                        // we make these into relative paths, as in the builder there is no fs access to ~/ anyways
-                        "CARGO_MANIFEST_DIR" | "CARGO_MANIFEST_PATH" => {
-                            generate_manifest_environment_variables(key.clone(), env_value, unit, process_builder, workspace).unwrap()
-                        }
-                        _ => env_value,
-                    };
-                    // };
-                    format!("    {} = \"{}\";", key, res)
-                }
-                None => format!("    {} = \"\";", key),
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
+        let environment_variables: String = generate_environment_variables(workspace, unit, process_builder)?;
 
         let command_line: String = format!(
             "      ${{rustc}}/bin/rustc{}",

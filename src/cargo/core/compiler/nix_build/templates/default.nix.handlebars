@@ -19,12 +19,7 @@ let
       else
         ""
       ) (allCollectedInputs rust_crate_libraries)));
-    environment_propagated_variables = rust_script_build_run: builtins.concatStringsSep " " (map (crate: 
-      if builtins.pathExists "${crate}/environment_propagated_variables" then
-          builtins.readFile "${crate}/environment_propagated_variables"
-      else
-        ""
-      ) (allCollectedInputs rust_script_build_run));      
+    environment_propagated_variables = rust_script_build_run: builtins.concatStringsSep " " (map (d: "${d}/environment-propagated-variables") rust_script_build_run);
   };
   self = {
 {{{default_nix_packages}}}
