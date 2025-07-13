@@ -20,6 +20,32 @@ let
         ""
       ) (allCollectedInputs rust_crate_libraries)));
     environment_propagated_variables = rust_script_build_run: builtins.concatStringsSep " " (map (d: "${d}/environment-propagated-variables") rust_script_build_run);
+    deps_import =
+      if builtins.pathExists ../Cargo.dependencies.nix
+        then import ../Cargo.dependencies.nix { inherit pkgs; }
+        else { deps = {}; };
+    inject = cargo_crate_info:
+      let
+        deps = deps_import.deps;
+        name = cargo_crate_info.name;
+        version = cargo_crate_info.version;
+        hash= cargo_crate_info.hash;
+        entry = deps.${name} or null;
+      in
+        if builtins.isAttrs entry then
+          let
+            verEntry = entry.${version} or null;
+          in
+            if builtins.isAttrs verEntry then
+              verEntry.${hash} or (throw "No deps found for ${name} version ${version} hash ${hash}")
+            else if builtins.isList verEntry then
+              verEntry
+            else
+              throw "No deps found for '${name}' version ${version}"
+        else if builtins.isList entry then
+          entry
+        else
+          [];
   };
   self = {
 {{{default_nix_packages}}}

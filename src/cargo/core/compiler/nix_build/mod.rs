@@ -144,6 +144,26 @@ fn escape_environment_variable(input: String) -> String {
     result
 }
 
+pub fn cargo_crate_info<'a, 'gctx>(
+    unit: &Unit,
+    build_runner: &BuildRunner<'a, 'gctx>,
+) -> CargoResult<String> {
+    let pkg = unit.pkg.package_id();
+    let crate_name = pkg.name().to_string();
+    let crate_version = pkg.version().to_string();
+
+    let meta = build_runner.files().metadata(&unit);
+    let crate_hash: String = meta.c_extra_filename().unwrap().to_string();
+
+    let cargo_crate_info: String = format!(indoc!{r#"
+    meta.cargo_crate_info = {{
+      name = "{}";
+      version = "{}";
+      crate_hash = "{}";
+    }};"#}, crate_name, crate_version, crate_hash).to_string().indentation(4);
+      Ok(cargo_crate_info)
+}
+
 pub fn create_nix_name<'a, 'gctx>(
     unit: &Unit,
     build_runner: &BuildRunner<'a, 'gctx>,
@@ -157,11 +177,11 @@ pub fn create_nix_name<'a, 'gctx>(
     let mode: &str = mode_string(&unit.mode);
 
     let meta = build_runner.files().metadata(&unit);
-    let hash: String = meta.c_extra_filename().unwrap().to_string();
+    let cargo_hash: String = meta.c_extra_filename().unwrap().to_string();
 
     let nix_name: String = 
     match only_name_and_version {
-        false => format!("{}-{}{}{}-{}", crate_name, crate_version, kind, mode, hash),
+        false => format!("{}-{}{}{}-{}", crate_name, crate_version, kind, mode, cargo_hash),
         true => format!("{}-{}", crate_name, crate_version)
     };
     match nix_name_mode {
@@ -290,17 +310,19 @@ fn handle_dynamic_crate_aspects (
                         fi
                         if [ -f ${{{}}}/environment-propagated-variables ]; then
                             set -a
-                            source ${{{}}}/environment-propagated-variables; 
+                            echo -e "\033[38;5;208m$(cat ${{{}}}/environment-propagated-variables)\033[0m"
+                            source ${{{}}}/environment-propagated-variables;
                             set +a
                         fi
                         for file in ${{fn.environment_propagated_variables passthru.rust_script_build_run}}; do
                             if [ -f $file ]; then
                                 set -a
+                                echo -e "\033[38;5;208m$(cat $file)\033[0m"
                                 source $file
                                 set +a
                             fi  
                         done
-                        "#}, parent_full_name, parent_full_name, parent_full_name, parent_full_name
+                        "#}, parent_full_name, parent_full_name, parent_full_name, parent_full_name, parent_full_name
                         )
                         .to_string().indentation(6),
                     );
@@ -826,6 +848,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "function_arguments": function_arguments.join(", "),
                 "rustc_arguments": rustc_arguments.join("\n"),
                 "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
+                "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
                 "crate_name": crate_name,
                 "crate_version": crate_version,
                 "src": src,
@@ -931,6 +954,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "function_arguments": function_arguments.join(", "),
                 "rustc_arguments": rustc_arguments.join("\n"),
                 "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
+                "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
                 "crate_name": crate_name,
                 "crate_version": crate_version,
                 "src": src,

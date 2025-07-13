@@ -65,6 +65,32 @@ The nix backend currently supports this:
     nix build .#anyhow-1_0_97 -L --impure --print-out-paths
     nix build .#rphtml-0_5_10 -L --impure --print-out-paths
 
+There is an easy way to inject dependencies into the cargo generated nix attributes:
+
+1. create a file `Cargo.dependencies.nix` next to Cargo.lock / Cargo.toml
+
+2. fill it with your desired nix dependencies like `openssl` or `curl`:
+
+        { pkgs }:
+        with pkgs;
+        {
+            deps = {
+                "markup5ever_rcdom" = {
+                    "0.3.0" =
+                        [ openssl ];
+                };
+                "unicode-ident" = [ curl ];
+                "xml5ever" = {
+                    "0.20.0" = [];
+                };
+            };
+        }
+
+Note: The name and version of a crate can be copied from Cargo.lock but keep in mind
+there is no check for unused or wrongly spelled dependencies or out of date versions just yet.
+
+Note: This file is optional and explicitly outside of the generated nix files so it stays in your repository.
+
 ## tests
 
 need to write these tests:
