@@ -308,21 +308,17 @@ fn handle_dynamic_crate_aspects (
                             source ${{{}}}/environment-variables; 
                             set +a
                         fi
-                        if [ -f ${{{}}}/environment-propagated-variables ]; then
-                            set -a
-                            echo -e "\033[38;5;208m$(cat ${{{}}}/environment-propagated-variables)\033[0m"
-                            source ${{{}}}/environment-propagated-variables;
-                            set +a
-                        fi
-                        for file in ${{fn.environment_propagated_variables passthru.rust_script_build_run}}; do
+                        for file in ${{fn.environment_propagated_variables passthru.rust_script_build_run}} ${{{}}}/environment-propagated-variables; do
                             if [ -f $file ]; then
                                 set -a
-                                echo -e "\033[38;5;208m$(cat $file)\033[0m"
+                                while read -r line; do
+                                    echo -e "\033[38;5;208m$line\033[0m"
+                                done < "$file"
                                 source $file
                                 set +a
                             fi  
                         done
-                        "#}, parent_full_name, parent_full_name, parent_full_name, parent_full_name, parent_full_name
+                        "#}, parent_full_name, parent_full_name, parent_full_name
                         )
                         .to_string().indentation(6),
                     );
@@ -363,12 +359,88 @@ fn write_nix_file(
     Ok(file_path)
 }
 
+
+fn crate_name_and_version(
+    unit: &Unit,
+) -> (String, String) {
+    let pkg = unit.pkg.package_id();
+    let crate_name = pkg.name().to_string();
+    let crate_version = pkg.version().to_string();
+    (crate_name, crate_version)
+}
+
+/// in the terminology of CrateBuildType we need to find LibBuild and we come from ScriptBuildRun
+/// in other words: find the unit which makes use of this build.rs execution
+/// why? in vanilla cargo all 3 share the same directory and in the nix build system they don't
+/// 
+/// Generating curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-2bd25bf7f874b161
+// base unit: curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-2bd25bf7f874b161
+//
+// input: libnghttp2-sys-0_1_11_plus_1_64_0-script_build_run-a7a473a2bc3c4265
+// input: libz-sys-1_1_21-script_build_run-9964415cd6446950
+// input: openssl-sys-0_9_106-script_build_run-bf6c2c38618f44c9
+
+// Generating curl-0_4_47-script_build_run-7162e6f0e51e3a28
+// base unit: curl-0_4_47-script_build_run-7162e6f0e51e3a28
+//
+// input: curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-2bd25bf7f874b161
+// input: openssl-sys-0_9_106-script_build_run-bf6c2c38618f44c9
+
+fn find_lib_build_target<'a, 'gctx>(
+    unit: &Unit,
+    passthru_rust_script_build_run: &Unit,
+    unit_graph: &UnitGraph,
+    build_runner: &BuildRunner<'a, 'gctx>,
+    all_units_with_process_builder: &Vec<(ProcessBuilder, Unit)>
+) -> CargoResult<Unit> {
+
+    let (unit_name, _) = crate_name_and_version(unit);
+    let (passthru_rust_script_build_run_name, _) = crate_name_and_version(passthru_rust_script_build_run);
+
+    if unit_name == passthru_rust_script_build_run_name {
+        return Ok(passthru_rust_script_build_run.clone())
+    } else {
+        for (_, loop_unit) in all_units_with_process_builder.clone() {
+            if let Some(deps) = unit_graph.get(&loop_unit) {
+                for dep in deps {
+                    if dep.unit == *passthru_rust_script_build_run {
+                        if matches!(loop_unit.target.kind(), TargetKind::Lib(_)) || matches!(loop_unit.target.kind(), TargetKind::ExampleLib(_)) {
+                            if matches!(&loop_unit.mode, CompileMode::Build) {
+                                return Ok(loop_unit.clone())
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    println!("-----------------------------");
+    println!("base unit: {}",
+        create_nix_name(
+            &unit,
+            &build_runner,
+            NixNameMode::AttributeName,
+            false,
+        ));
+    println!("input: {}",
+    create_nix_name(
+        &passthru_rust_script_build_run,
+        &build_runner,
+        NixNameMode::AttributeName,
+        false,
+    ));        
+    println!("-----------------------------");
+    return Err(anyhow!("find_lib_build_target could not find the parent of the unit"))
+}
+
 fn process_deps<'a, 'gctx>(
     unit: &Unit,
     crate_name: &String,
     crate_version: &String,
     unit_graph: &UnitGraph,
     build_runner: &BuildRunner<'a, 'gctx>,
+    all_units_with_process_builder: &Vec<(ProcessBuilder, Unit)>
 ) -> Dependencies {
     let mut all_deps = vec![];
     let mut rust_crate_libraries = vec![];
@@ -405,13 +477,23 @@ fn process_deps<'a, 'gctx>(
             match dep.unit.target.kind() {
                 TargetKind::CustomBuild => {
                     if dep.unit.mode == CompileMode::RunCustomBuild {
-                        // FIXME this needs to be the child actually
-                        rust_script_build_run.push(create_nix_name(
+                        let c = &find_lib_build_target(
+                            &unit,
                             &dep.unit,
+                            &unit_graph,
+                            &build_runner,
+                            &all_units_with_process_builder,
+                        ).unwrap();
+                        let c_name = create_nix_name(
+                            c,
                             &build_runner,
                             NixNameMode::AttributeName,
                             false,
-                        ));
+                        );
+                        if !all_deps.contains(&c_name) {
+                            all_deps.push(c_name.clone());
+                        }
+                        rust_script_build_run.push(c_name);
                     }
                 },
                 _ => {}
@@ -683,16 +765,12 @@ impl<'a, 'gctx> NixBuildRunner {
         let mut visited = BTreeSet::new();
         let mut all_nodes: Vec<DefaultNixEntry> = Vec::new();
 
-        let dir = PathBuf::from("/tmp/nix");
-        create_dir_all(&dir)?;
-
-        let r: Vec<(ProcessBuilder, Unit)> =
+        let all_units_with_process_builder: Vec<(ProcessBuilder, Unit)> =
             build_runner.raw_process_builder.lock().unwrap().clone();
-        let l = r.len();
 
-        println!("Need to generate: {l} units.");
+        println!("Need to generate: {} units.", all_units_with_process_builder.len());
 
-        for (process_builder, unit) in r {
+        for (process_builder, unit) in all_units_with_process_builder.clone() {
             if visited.contains(&unit) {
                 continue;
             }
@@ -705,6 +783,7 @@ impl<'a, 'gctx> NixBuildRunner {
             let fullname: String = create_nix_name(&unit, build_runner, NixNameMode::AttributeName, false);
 
             println!("Generating {}", fullname);
+            let deps: Dependencies = process_deps(&unit, &crate_name, &crate_version, unit_graph, build_runner, &all_units_with_process_builder);
 
             if is_run_custom_build {
                 Self::process_script_build_run(
@@ -713,10 +792,10 @@ impl<'a, 'gctx> NixBuildRunner {
                     crate_name,
                     crate_version,
                     &process_builder,
-                    unit_graph,
                     is_root,
                     &mut all_nodes,
                     build_runner,
+                    &deps,
                 )?
             } else {
                 Self::process_unit(
@@ -725,10 +804,10 @@ impl<'a, 'gctx> NixBuildRunner {
                     crate_name,
                     crate_version,
                     &process_builder,
-                    unit_graph,
                     is_root,
                     &mut all_nodes,
                     build_runner,
+                    &deps,
                 )?
             }
         }
@@ -767,20 +846,17 @@ impl<'a, 'gctx> NixBuildRunner {
         Ok(())
     }
 
-
-
     fn process_script_build_run(
         workspace: &Workspace<'gctx>,
         unit: &Unit,
         crate_name: String,
         crate_version: String,
         process_builder: &ProcessBuilder,
-        unit_graph: &UnitGraph,
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
         build_runner: &BuildRunner<'a, 'gctx>,
+        deps: &Dependencies,
     ) -> CargoResult<()> {
-        let deps: Dependencies = process_deps(&unit, &crate_name, &crate_version, unit_graph, build_runner);
 
         let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version)?;
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
@@ -855,7 +931,6 @@ impl<'a, 'gctx> NixBuildRunner {
                 "unpack_phase": unpack_phase,
                 "build_inputs": build_inputs.join(" "),
                 "rust_crate_libraries": deps.rust_crate_libraries.join(" "),
-                "rust_crate_parent": deps.rust_crate_parent.join(" "),
                 "rust_script_build_run": deps.rust_script_build_run.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
@@ -879,11 +954,11 @@ impl<'a, 'gctx> NixBuildRunner {
         crate_name: String,
         crate_version: String,
         process_builder: &ProcessBuilder,
-        unit_graph: &UnitGraph,
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
         build_runner: &BuildRunner<'a, 'gctx>,
-    ) -> CargoResult<()> {
+        deps: &Dependencies,
+        ) -> CargoResult<()> {
         // println!("unit.target: {:?}", unit.target);
         // println!(
         //     "<<<<<<<<<<<<<<<<<<<<<< rustc {fullname} <<<<<<<<<<<<<<<<<<<<<<",
@@ -894,8 +969,6 @@ impl<'a, 'gctx> NixBuildRunner {
 
         // let mut build_inputs: Vec<String> = vec![];
         // let mut rust_crate_libraries: Vec<String> = vec![];
-
-        let deps: Dependencies = process_deps(&unit, &crate_name, &crate_version, unit_graph, build_runner);
 
         let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version)?;
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
@@ -961,7 +1034,6 @@ impl<'a, 'gctx> NixBuildRunner {
                 "unpack_phase": unpack_phase,
                 "build_inputs": build_inputs.join(" "),
                 "rust_crate_libraries": deps.rust_crate_libraries.join(" "),
-                "rust_crate_parent": deps.rust_crate_parent.join(" "),
                 "rust_script_build_run": deps.rust_script_build_run.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
