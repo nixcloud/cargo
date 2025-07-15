@@ -200,6 +200,7 @@ enum CrateBuildType {
     LibBuild,
     ScriptBuild,
     ScriptBuildRun,
+    BinBuild,
     Other
 }
 
@@ -215,6 +216,8 @@ fn crate_build_type(
         CrateBuildType::ScriptBuild
     } else if compile_mode == CompileMode::RunCustomBuild && *target_kind == TargetKind::CustomBuild {
         CrateBuildType::ScriptBuildRun
+    } else if compile_mode == CompileMode::Build && *target_kind == TargetKind::Bin {
+        CrateBuildType::BinBuild
     } else {
         CrateBuildType::Other
     }
@@ -275,6 +278,7 @@ fn handle_dynamic_crate_aspects (
     let mut rustc_arguments: Vec<String> = vec![];
 
     match crate_build_type(unit) {
+        CrateBuildType::BinBuild |
         CrateBuildType::LibBuild |
         CrateBuildType::ScriptBuild |
         CrateBuildType::ScriptBuildRun => {
@@ -931,6 +935,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "unpack_phase": unpack_phase,
                 "build_inputs": build_inputs.join(" "),
                 "rust_crate_libraries": deps.rust_crate_libraries.join(" "),
+                "rust_crate_parent": deps.rust_crate_parent.join(" "),
                 "rust_script_build_run": deps.rust_script_build_run.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
@@ -1034,6 +1039,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "unpack_phase": unpack_phase,
                 "build_inputs": build_inputs.join(" "),
                 "rust_crate_libraries": deps.rust_crate_libraries.join(" "),
+                "rust_crate_parent": deps.rust_crate_parent.join(" "),
                 "rust_script_build_run": deps.rust_script_build_run.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),

@@ -2,10 +2,6 @@
 
 For now it is just an experiment how to generate a nix based build system directly from cargo.
 
-This particular commit is in the process of getting rid of https://github.com/nixcloud/cargo-nix-build-test-environment-declarative as a standalone and moving the code into cargo itself. As a result one has to use 'this' particular cargo version from nix and I haven't figured out how to do this yet.
-
-When I have figured that out, it will be added to the example flake blow so that it becomes easy.
-
 # How to use
 
 Call with: `CARGO_NIX_BUILDER=fast cargo build` to generate files in /tmp/nix and use the output from a flake to build.
@@ -21,9 +17,9 @@ Alternative calls for using the nix backend in cargo:
     cargo -Znix --config build.nix=\"sandbox\" build
 
 The nix backend currently supports this:
-* generates a nix build system whcih needs to be evaluated outside of cargo (for now)
-* builds simple projects as rphtml, html5ever but fails with complexer ones like cargo or klick
-* supports build-script-build aka build.rs execution with an external tool (for now external)
+* generates a nix build system which needs to be evaluated outside of cargo (for now)
+* builds rphtml, html5ever, klick and cargo so far
+* supports build-script-build aka build.rs execution using build-parser 
 * supports crates residing in: local fs, crates.io and using git (all but local is in /nix/store)
 * build dependencies inside a nix-build isolated environment
 * integrates well with the flake concept
@@ -35,13 +31,14 @@ The nix backend currently supports this:
       inputs = {
         nixpkgs.url      = "github:NixOS/nixpkgs/nixos-25.05";
         rust-overlay.url = "github:oxalica/rust-overlay";
+        build-parser.url = "github:nixcloud/cargo-build_script_build-parser";
       };
       outputs =
-      { self, nixpkgs, flake-utils, rust-overlay }:
+      { self, nixpkgs, flake-utils, rust-overlay, build-parser }:
         flake-utils.lib.eachDefaultSystem
           (system:
             let
-              overlays = [ (import rust-overlay) ];
+              overlays = [ (import rust-overlay) build-parser.overlay ];
               pkgs = import nixpkgs {
                 inherit system overlays;
               };
@@ -77,9 +74,9 @@ There is an easy way to inject dependencies into the cargo generated nix attribu
             deps = {
                 "markup5ever_rcdom" = {
                     "0.3.0" =
-                        [ openssl ];
+                        [ pkg-config openssl ];
                 };
-                "unicode-ident" = [ curl ];
+                "unicode-ident" = [ pkg-config curl ];
                 "xml5ever" = {
                     "0.20.0" = [];
                 };

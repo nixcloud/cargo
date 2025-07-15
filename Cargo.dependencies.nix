@@ -3,6 +3,6 @@ with pkgs;
 {
     deps = {
         "openssl-sys" = [ pkg-config openssl ];
-        "curl-sys" = [ pkg-config curl ]; # this is a hack, it should use the bundled version
+        #"curl-sys" = [ pkg-config curl ]; # optional, but works with bundled version also
     };
 }
