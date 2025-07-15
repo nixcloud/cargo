@@ -278,7 +278,14 @@ fn handle_dynamic_crate_aspects (
     let mut rustc_arguments: Vec<String> = vec![];
 
     match crate_build_type(unit) {
-        CrateBuildType::BinBuild |
+        CrateBuildType::BinBuild => {
+            rustc_arguments.push(
+                format!(
+                    indoc! {r#"
+                    rustc_arguments="";
+                "#}).to_string().indentation(2));
+                
+        },
         CrateBuildType::LibBuild |
         CrateBuildType::ScriptBuild |
         CrateBuildType::ScriptBuildRun => {
@@ -364,78 +371,53 @@ fn write_nix_file(
 }
 
 
-fn crate_name_and_version(
-    unit: &Unit,
-) -> (String, String) {
-    let pkg = unit.pkg.package_id();
-    let crate_name = pkg.name().to_string();
-    let crate_version = pkg.version().to_string();
-    (crate_name, crate_version)
-}
-
 /// in the terminology of CrateBuildType we need to find LibBuild and we come from ScriptBuildRun
 /// in other words: find the unit which makes use of this build.rs execution
 /// why? in vanilla cargo all 3 share the same directory and in the nix build system they don't
-/// 
-/// Generating curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-2bd25bf7f874b161
-// base unit: curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-2bd25bf7f874b161
-//
-// input: libnghttp2-sys-0_1_11_plus_1_64_0-script_build_run-a7a473a2bc3c4265
-// input: libz-sys-1_1_21-script_build_run-9964415cd6446950
-// input: openssl-sys-0_9_106-script_build_run-bf6c2c38618f44c9
 
-// Generating curl-0_4_47-script_build_run-7162e6f0e51e3a28
-// base unit: curl-0_4_47-script_build_run-7162e6f0e51e3a28
-//
-// input: curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-2bd25bf7f874b161
-// input: openssl-sys-0_9_106-script_build_run-bf6c2c38618f44c9
+// base: curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-2bd25bf7f874b161
+//   rust_script_build_run: libnghttp2-sys-0_1_11_plus_1_64_0-script_build_run-a7a473a2bc3c4265
+//   rust_script_build_run: libz-sys-1_1_21-script_build_run-9964415cd6446950
+//   rust_script_build_run: openssl-sys-0_9_106-script_build_run-bf6c2c38618f44c9
+// -> rewrite each
 
+// base: curl-0_4_47-script_build_run-7162e6f0e51e3a28
+//   rust_script_build_run: curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-2bd25bf7f874b161
+//   rust_script_build_run: openssl-sys-0_9_106-script_build_run-bf6c2c38618f44c9
+// -> rewrite each
+
+// base: cargo-0_88_0-bin-fafc14832178210d
+//   rust_script_build_run: cargo-0_88_0-script_build_run-dc81d07243ae70b8
+// -> rewrite each
+
+// base: cargo-0_88_0-d76731b471aa2da9
+//   rust_script_build_run: cargo-0_88_0-script_build_run-dc81d07243ae70b8
+// -> no rewrite
 fn find_lib_build_target<'a, 'gctx>(
     unit: &Unit,
     passthru_rust_script_build_run: &Unit,
     unit_graph: &UnitGraph,
-    build_runner: &BuildRunner<'a, 'gctx>,
     all_units_with_process_builder: &Vec<(ProcessBuilder, Unit)>
-) -> CargoResult<Unit> {
-
-    let (unit_name, _) = crate_name_and_version(unit);
-    let (passthru_rust_script_build_run_name, _) = crate_name_and_version(passthru_rust_script_build_run);
-
-    if unit_name == passthru_rust_script_build_run_name {
-        return Ok(passthru_rust_script_build_run.clone())
-    } else {
-        for (_, loop_unit) in all_units_with_process_builder.clone() {
-            if let Some(deps) = unit_graph.get(&loop_unit) {
-                for dep in deps {
-                    if dep.unit == *passthru_rust_script_build_run {
-                        if matches!(loop_unit.target.kind(), TargetKind::Lib(_)) || matches!(loop_unit.target.kind(), TargetKind::ExampleLib(_)) {
-                            if matches!(&loop_unit.mode, CompileMode::Build) {
-                                return Ok(loop_unit.clone())
+) -> Unit {
+    for (_, loop_unit) in all_units_with_process_builder.clone() {
+        if let Some(deps) = unit_graph.get(&loop_unit) {
+            for dep in deps {
+                if dep.unit == *passthru_rust_script_build_run {
+                    if matches!(loop_unit.target.kind(), TargetKind::Lib(_)) || matches!(loop_unit.target.kind(), TargetKind::ExampleLib(_)) {
+                        if matches!(&loop_unit.mode, CompileMode::Build) {
+                            let u = loop_unit.clone();
+                            if u == *unit {
+                                return passthru_rust_script_build_run.clone()
+                            } else {
+                                return u.clone()
                             }
                         }
                     }
                 }
             }
         }
-    }
-
-    println!("-----------------------------");
-    println!("base unit: {}",
-        create_nix_name(
-            &unit,
-            &build_runner,
-            NixNameMode::AttributeName,
-            false,
-        ));
-    println!("input: {}",
-    create_nix_name(
-        &passthru_rust_script_build_run,
-        &build_runner,
-        NixNameMode::AttributeName,
-        false,
-    ));        
-    println!("-----------------------------");
-    return Err(anyhow!("find_lib_build_target could not find the parent of the unit"))
+    };
+    return passthru_rust_script_build_run.clone()
 }
 
 fn process_deps<'a, 'gctx>(
@@ -485,9 +467,8 @@ fn process_deps<'a, 'gctx>(
                             &unit,
                             &dep.unit,
                             &unit_graph,
-                            &build_runner,
                             &all_units_with_process_builder,
-                        ).unwrap();
+                        );
                         let c_name = create_nix_name(
                             c,
                             &build_runner,
