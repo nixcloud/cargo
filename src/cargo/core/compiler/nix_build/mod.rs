@@ -195,6 +195,7 @@ pub fn create_nix_name<'a, 'gctx>(
     };
 }
 
+// FIXME refactor this, we probably can use CompileMode::Build instead now
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum CrateBuildType {
     LibBuild,
@@ -268,7 +269,7 @@ fn generate_environment_variables<'gctx>(
     Ok(ret)
 }
 
-/// environment-variables / environment-propagated-variables / rustc-arguments / rustc-propagated-arguments
+/// environment-variables / rustc-arguments / rustc-propagated-arguments
 /// require special care between different crate build steps: ScriptBuild / ScriptBuildRun / LibBuild
 fn handle_dynamic_crate_aspects (
     unit: &Unit,
@@ -284,7 +285,22 @@ fn handle_dynamic_crate_aspects (
                     indoc! {r#"
                     rustc_arguments="";
                 "#}).to_string().indentation(2));
-                
+            additional_build_phase_arguments.push(
+                format!(
+                    indoc! {r#"
+                for file in ${{fn.environment_variables passthru.rust_script_build_run}}; do
+                    if [ -f $file ]; then
+                        set -a
+                        while read -r line; do
+                            echo -e "\033[38;5;208m$line\033[0m"
+                        done < "$file"
+                        source $file
+                        set +a
+                    fi  
+                done
+                "#})
+                .to_string().indentation(6),
+            );
         },
         CrateBuildType::LibBuild |
         CrateBuildType::ScriptBuild |
@@ -304,7 +320,7 @@ fn handle_dynamic_crate_aspects (
                             .push(format!("cp -r ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
                         additional_build_phase_arguments
                             .push(format!(indoc! {r#"
-                            for file in $out/environment-variables $out/environment-propagated-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
+                            for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
                                 if [ -f "$file" ]; then
                                     sed -i "s|${{{}}}|$out|g" "$file"
                                 fi
@@ -314,12 +330,7 @@ fn handle_dynamic_crate_aspects (
                     additional_build_phase_arguments.push(
                         format!(
                             indoc! {r#"
-                        if [ -f ${{{}}}/environment-variables ]; then
-                            set -a
-                            source ${{{}}}/environment-variables; 
-                            set +a
-                        fi
-                        for file in ${{fn.environment_propagated_variables passthru.rust_script_build_run}} ${{{}}}/environment-propagated-variables; do
+                        for file in ${{fn.environment_variables passthru.rust_script_build_run}}; do
                             if [ -f $file ]; then
                                 set -a
                                 while read -r line; do
@@ -329,8 +340,7 @@ fn handle_dynamic_crate_aspects (
                                 set +a
                             fi  
                         done
-                        "#}, parent_full_name, parent_full_name, parent_full_name
-                        )
+                        "#})
                         .to_string().indentation(6),
                     );
                     rustc_arguments.push(
@@ -871,7 +881,6 @@ impl<'a, 'gctx> NixBuildRunner {
                 //${{{}}}/build_script_build > $OUT_DIR/build_script_build.out
                 //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out rustc_arguments > $OUT_DIR/rustc-arguments
                 //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/environment-variables
-                //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-propagated-variables > $OUT_DIR/environment-propagated-variables
                 //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out_filtered rustc-propagated-arguments > $OUT_DIR/rustc-propagated-arguments
 
                 format!(
@@ -881,7 +890,6 @@ impl<'a, 'gctx> NixBuildRunner {
                     # the .out file could be empty
                     cat $OUT_DIR/build_script_build.out | sort | uniq | grep -e '^cargo:' > $OUT_DIR/build_script_build.out_filtered || true
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered environment-variables > $OUT_DIR/environment-variables
-                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered environment-propagated-variables > $OUT_DIR/environment-propagated-variables
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-arguments > $OUT_DIR/rustc-arguments
                     ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-propagated-arguments > $OUT_DIR/rustc-propagated-arguments
                 "#},
