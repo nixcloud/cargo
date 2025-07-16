@@ -1177,7 +1177,7 @@ fn build_base_args(
     let is_nix_build: bool = bcx.gctx.nix()?.is_some();
 
     if is_nix_build {
-        cmd.arg("\\\n        ${rustc_arguments}");
+        cmd.arg("\\\n        ${fn.rustc_arguments passthru.rust_crate_parent}");
     }
 
     cmd.args(&features_args(unit, is_nix_build));

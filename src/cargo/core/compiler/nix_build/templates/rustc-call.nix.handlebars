@@ -1,8 +1,5 @@
 # generated from rustc-call.nix.handlebars
 { {{{function_arguments}}} }:
-let
-{{{rustc_arguments}}}
-in
   pkgs.stdenv.mkDerivation rec {
     name = "{{{fullname}}}";
 {{{cargo_crate_info}}}

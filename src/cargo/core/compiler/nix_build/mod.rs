@@ -274,17 +274,11 @@ fn generate_environment_variables<'gctx>(
 fn handle_dynamic_crate_aspects (
     unit: &Unit,
     deps: &Dependencies,
-) -> (Vec<String>, Vec<String>) {
+) -> Vec<String> {
     let mut additional_build_phase_arguments: Vec<String> = vec![];
-    let mut rustc_arguments: Vec<String> = vec![];
 
     match crate_build_type(unit) {
         CrateBuildType::BinBuild => {
-            rustc_arguments.push(
-                format!(
-                    indoc! {r#"
-                    rustc_arguments="";
-                "#}).to_string().indentation(2));
             additional_build_phase_arguments.push(
                 format!(
                     indoc! {r#"
@@ -306,13 +300,7 @@ fn handle_dynamic_crate_aspects (
         CrateBuildType::ScriptBuild |
         CrateBuildType::ScriptBuildRun => {
             match deps.rust_crate_parent.len() {
-                0 => {
-                    rustc_arguments.push(
-                        format!(
-                            indoc! {r#"
-                            rustc_arguments="";
-                        "#}).to_string().indentation(2));
-                },
+                0 => {}
                 1 => {
                     let parent_full_name: String = deps.rust_crate_parent[0].clone();
                     if crate_build_type(unit) == CrateBuildType::LibBuild {
@@ -343,12 +331,6 @@ fn handle_dynamic_crate_aspects (
                         "#})
                         .to_string().indentation(6),
                     );
-                    rustc_arguments.push(
-                        format!(
-                            indoc! {r#"
-                            rustc_arguments = fn.rustc_arguments {};
-                        "#},
-                        parent_full_name).to_string().indentation(2));
                 },
                 _ => {
                     println!("For buildInputs found these matches: {}", deps.rust_crate_parent.len());
@@ -359,7 +341,7 @@ fn handle_dynamic_crate_aspects (
         },
         _ => {}
     }
-    (additional_build_phase_arguments, rustc_arguments)
+    additional_build_phase_arguments
 }
 
 fn write_nix_file(
@@ -430,7 +412,10 @@ fn find_lib_build_target<'a, 'gctx>(
     return passthru_rust_script_build_run.clone()
 }
 
-fn process_deps<'a, 'gctx>(
+/// a unit in cargo has several dependencies like build.rs but also crates used for linking (rlib)
+/// this function splits these dependencies into said groups so that the nix scripts have an
+/// easy time working with the filtered subsets
+fn process_unit_deps<'a, 'gctx>(
     unit: &Unit,
     crate_name: &String,
     crate_version: &String,
@@ -778,7 +763,7 @@ impl<'a, 'gctx> NixBuildRunner {
             let fullname: String = create_nix_name(&unit, build_runner, NixNameMode::AttributeName, false);
 
             println!("Generating {}", fullname);
-            let deps: Dependencies = process_deps(&unit, &crate_name, &crate_version, unit_graph, build_runner, &all_units_with_process_builder);
+            let deps: Dependencies = process_unit_deps(&unit, &crate_name, &crate_version, unit_graph, build_runner, &all_units_with_process_builder);
 
             if is_run_custom_build {
                 Self::process_script_build_run(
@@ -906,7 +891,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let function_arguments: Vec<String> =
             [default_function_arguments, deps.all_deps.clone()].concat();
 
-        let (additional_build_phase_arguments, rustc_arguments) = handle_dynamic_crate_aspects(
+        let additional_build_phase_arguments = handle_dynamic_crate_aspects(
             unit, 
             &deps,
         );
@@ -915,7 +900,6 @@ impl<'a, 'gctx> NixBuildRunner {
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
-                "rustc_arguments": rustc_arguments.join("\n"),
                 "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
                 "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
                 "crate_name": crate_name,
@@ -998,7 +982,7 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let build_inputs: Vec<String> = vec![];
 
-        let (additional_build_phase_arguments, rustc_arguments) = handle_dynamic_crate_aspects(
+        let additional_build_phase_arguments = handle_dynamic_crate_aspects(
             unit, 
             &deps,
         );
@@ -1019,7 +1003,6 @@ impl<'a, 'gctx> NixBuildRunner {
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
-                "rustc_arguments": rustc_arguments.join("\n"),
                 "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
                 "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
                 "crate_name": crate_name,
