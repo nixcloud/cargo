@@ -276,24 +276,23 @@ fn handle_dynamic_crate_aspects (
     deps: &Dependencies,
 ) -> Vec<String> {
     let mut additional_build_phase_arguments: Vec<String> = vec![];
+    let source_environment_variables: String = indoc! {r#"
+    for file in ${fn.environment_variables passthru.rust_script_build_run}; do
+      if [ -f $file ]; then
+        set -a
+          while read -r line; do
+            echo -e "\033[38;5;208m$line\033[0m"
+          done < "$file"
+          source $file
+          set +a
+      fi
+    done
+    "#}.to_string();
 
     match crate_build_type(unit) {
         CrateBuildType::BinBuild => {
             additional_build_phase_arguments.push(
-                format!(
-                    indoc! {r#"
-                for file in ${{fn.environment_variables passthru.rust_script_build_run}}; do
-                    if [ -f $file ]; then
-                        set -a
-                        while read -r line; do
-                            echo -e "\033[38;5;208m$line\033[0m"
-                        done < "$file"
-                        source $file
-                        set +a
-                    fi  
-                done
-                "#})
-                .to_string().indentation(6),
+                source_environment_variables.indentation(6),
             );
         },
         CrateBuildType::LibBuild |
@@ -309,27 +308,14 @@ fn handle_dynamic_crate_aspects (
                         additional_build_phase_arguments
                             .push(format!(indoc! {r#"
                             for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
-                                if [ -f "$file" ]; then
-                                    sed -i "s|${{{}}}|$out|g" "$file"
-                                fi
+                              if [ -f "$file" ]; then
+                                sed -i "s|${{{}}}|$out|g" "$file"
+                              fi
                             done
                         "#}, parent_full_name).to_string().indentation(6));
                     }
                     additional_build_phase_arguments.push(
-                        format!(
-                            indoc! {r#"
-                        for file in ${{fn.environment_variables passthru.rust_script_build_run}}; do
-                            if [ -f $file ]; then
-                                set -a
-                                while read -r line; do
-                                    echo -e "\033[38;5;208m$line\033[0m"
-                                done < "$file"
-                                source $file
-                                set +a
-                            fi  
-                        done
-                        "#})
-                        .to_string().indentation(6),
+                        source_environment_variables.indentation(6),
                     );
                 },
                 _ => {

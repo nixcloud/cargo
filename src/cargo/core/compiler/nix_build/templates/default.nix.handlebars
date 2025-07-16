@@ -10,13 +10,13 @@ let
     rustc_arguments = rust_crate_parent: assert pkgs.lib.assertMsg (builtins.length rust_crate_parent <= 1) "passthru.rust_crate_parent must have 0 or 1 element at maxium" ;
       pkgs.lib.replaceString "\n" "" (builtins.concatStringsSep " " (map (crate: 
         if builtins.pathExists "${crate}/rustc-arguments" then
-            builtins.readFile "${crate}/rustc-arguments"
+          builtins.readFile "${crate}/rustc-arguments"
         else
           ""
         ) rust_crate_parent));
     rustc_propagated_arguments = rust_crate_libraries: pkgs.lib.replaceString "\n" "" (builtins.concatStringsSep " " (map (crate: 
       if builtins.pathExists "${crate}/rustc-propagated-arguments" then
-          builtins.readFile "${crate}/rustc-propagated-arguments"
+        builtins.readFile "${crate}/rustc-propagated-arguments"
       else
         ""
       ) (allCollectedInputs rust_crate_libraries)));
