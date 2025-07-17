@@ -21,7 +21,7 @@
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
 
-      mkdir -p $out
+      mkdir -p $out/nix
       export OUT_DIR=$out
       export INC_DIR=$(mktemp -d)
 
@@ -29,7 +29,6 @@
 {{{additional_build_phase_arguments}}}
       (set -x 
 {{{command_line}}}
-{{{additional_command_lines}}}
       )
     '';
 }

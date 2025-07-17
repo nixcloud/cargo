@@ -824,6 +824,12 @@ impl<'a, 'gctx> NixBuildRunner {
         deps: &Dependencies,
     ) -> CargoResult<()> {
 
+        if deps.rust_crate_parent.len() != 1 {
+            println!("For buildInputs found these matches: {}", deps.rust_crate_parent.len());
+            println!("  buildInputs: {:?}", deps.rust_crate_parent);
+            std::process::abort(); // FIXME rewrite with proper error
+        }
+
         let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version)?;
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
         let build_inputs: Vec<String> = vec![];
@@ -842,32 +848,19 @@ impl<'a, 'gctx> NixBuildRunner {
                 rustc_arguments="";
             "#}).to_string().indentation(2));
 
-        let command_line: String = {
-            if deps.rust_crate_parent.len() != 1 {
-                println!("For buildInputs found these matches: {}", deps.rust_crate_parent.len());
-                println!("  buildInputs: {:?}", deps.rust_crate_parent);
-                std::process::abort(); // FIXME rewrite with proper error
-            } else {
-                let program_script_build = deps.rust_crate_parent[0].clone();
-                //${{{}}}/build_script_build > $OUT_DIR/build_script_build.out
-                //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out rustc_arguments > $OUT_DIR/rustc-arguments
-                //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out environment-variables > $OUT_DIR/environment-variables
-                //${{cargo}}/bin/cargo nix parse-build-script-build --path $OUT_DIR/build_script_build.out_filtered rustc-propagated-arguments > $OUT_DIR/rustc-propagated-arguments
+            let program_script_build = deps.rust_crate_parent[0].clone();
 
-                format!(
-                    indoc! {
-                    r#"
-                    ${{{}}}/build_script_build > $OUT_DIR/build_script_build.out
-                    # the .out file could be empty
-                    cat $OUT_DIR/build_script_build.out | sort | uniq | grep -e '^cargo:' > $OUT_DIR/build_script_build.out_filtered || true
-                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered environment-variables > $OUT_DIR/environment-variables
-                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-arguments > $OUT_DIR/rustc-arguments
-                    ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/build_script_build.out_filtered rustc-propagated-arguments > $OUT_DIR/rustc-propagated-arguments
-                "#},
-                program_script_build
-                ).to_string().indentation(6)
-            }
-        };
+            let mut command_line: Vec<String> = vec![];
+        command_line.push(
+            format!(
+                indoc! {
+                r#"
+                ${{{}}}/build_script_build > $OUT_DIR/nix/build_script_build.out
+                ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results
+            "#},
+            program_script_build
+            ).to_string().indentation(6)
+            );
 
         let default_function_arguments: Vec<String> =
             vec!["fn", "pkgs", "rustc", "cargo"]
@@ -898,7 +891,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "rust_script_build_run": deps.rust_script_build_run.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
-                "command_line": assert_escapes(&command_line),
+                "command_line": assert_escapes(&command_line.join("\n")),
             }),
         )?;
 
@@ -943,7 +936,8 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let environment_variables: String = generate_environment_variables(workspace, unit, process_builder)?;
 
-        let command_line: String = format!(
+        let mut command_line: Vec<String> = vec![];
+        command_line.push(format!(
             "      ${{rustc}}/bin/rustc{}",
             process_builder
                 .get_args()
@@ -956,7 +950,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     }
                 })
                 .collect::<String>()
-        );
+        ));
 
         let default_function_arguments: Vec<String> =
             vec!["fn", "pkgs", "rustc", "cargo"]
@@ -973,11 +967,10 @@ impl<'a, 'gctx> NixBuildRunner {
             &deps,
         );
 
-        let mut additional_command_lines: Vec<String> = vec![];
         if crate_build_type(&unit) == CrateBuildType::ScriptBuild {
             let meta = build_runner.files().metadata(&unit);
             let hash: String = meta.c_extra_filename().unwrap().to_string();
-            additional_command_lines.push(
+            command_line.push(
                 format!(
                     indoc! {r#"
                     ln -s $OUT_DIR/"$CARGO_CRATE_NAME"-{} $OUT_DIR/build_script_build
@@ -1001,8 +994,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "rust_script_build_run": deps.rust_script_build_run.join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
-                "command_line": assert_escapes(&command_line),
-                "additional_command_lines": assert_escapes(&additional_command_lines.join("\n")),
+                "command_line": assert_escapes(&command_line.join("\n")),
             }),
         )?;
         let file_name: String = create_nix_name(unit, build_runner, NixNameMode::FileName, false);

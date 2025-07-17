@@ -7,11 +7,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1752606167,
-        "narHash": "sha256-9PhFOgI5pSiqsk5ojgx8Pob8vN+IAcI0A2rY2uxhMHQ=",
+        "lastModified": 1752746988,
+        "narHash": "sha256-D6xca0fw11Auygn2PX+4JugokmzMBljdQiXlr/y7tXg=",
         "owner": "nixcloud",
         "repo": "cargo-build_script_build-parser",
-        "rev": "c1bf9e809529553b1d2bdfa9887e9a1fd72a20b0",
+        "rev": "a14c0dd2ef33cb80b16fe75a80c6fa901fd2c220",
         "type": "github"
       },
       "original": {
