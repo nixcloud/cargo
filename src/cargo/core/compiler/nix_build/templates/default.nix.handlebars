@@ -50,7 +50,10 @@ let
           [];
   };
   self = {
-{{{default_nix_packages}}}
+{{{nix_packages_root}}}
+    deps = {
+{{{nix_packages_deps}}}
+    };
   };
 in
 self

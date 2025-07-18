@@ -27,7 +27,8 @@ use std::path::{Path, PathBuf, Component};
 #[derive(Debug)]
 struct DefaultNixEntry {
     name: String,
-    filename: String,
+    file_path: PathBuf,
+    is_root: bool,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -224,15 +225,23 @@ fn crate_build_type(
     }
 }
 
+#[derive(Debug, Clone)]
+struct Dependency {
+    nix_attribute_name: String,
+    is_root: bool,
+    unit: Unit,
+}
+
+#[derive(Debug)]
 struct Dependencies {
-    /// all inputs, not sorted, not filtered
-    all_deps: Vec<String>,
+    /// all units, not sorted, not filtered
+    all_deps: Vec<Dependency>,
     /// contains only libraries used for -L
-    rust_crate_libraries: Vec<String>,
+    rust_crate_libraries: Vec<Dependency>,
     /// should contain at max one parent: CrateBuildType hierarchy basically
-    rust_crate_parent: Vec<String>,
+    rust_crate_parent: Option<Dependency>,
     /// contains all script_build_run inputs to this unit
-    rust_script_build_run: Vec<String>,
+    rust_script_build_run: Vec<Dependency>,
 }
 
 fn generate_environment_variables<'gctx>(
@@ -298,19 +307,18 @@ fn handle_dynamic_crate_aspects (
         CrateBuildType::LibBuild |
         CrateBuildType::ScriptBuild |
         CrateBuildType::ScriptBuildRun => {
-            match deps.rust_crate_parent.len() {
-                0 => {}
-                1 => {
-                    let parent_full_name: String = deps.rust_crate_parent[0].clone();
+            match &deps.rust_crate_parent {
+                Some(parent) => {
+                    let parent_full_name: String = parent.nix_attribute_name.clone();
                     if crate_build_type(unit) == CrateBuildType::LibBuild {
                         additional_build_phase_arguments
                             .push(format!("cp -r ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
                         additional_build_phase_arguments
                             .push(format!(indoc! {r#"
                             for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
-                              if [ -f "$file" ]; then
+                                if [ -f "$file" ]; then
                                 sed -i "s|${{{}}}|$out|g" "$file"
-                              fi
+                                fi
                             done
                         "#}, parent_full_name).to_string().indentation(6));
                     }
@@ -318,11 +326,7 @@ fn handle_dynamic_crate_aspects (
                         source_environment_variables.indentation(6),
                     );
                 },
-                _ => {
-                    println!("For buildInputs found these matches: {}", deps.rust_crate_parent.len());
-                    println!("  buildInputs: {:?}", deps.rust_crate_parent);
-                    std::process::abort(); // FIXME rewrite with proper error
-                }
+                None => {},
             };
         },
         _ => {}
@@ -401,27 +405,43 @@ fn find_lib_build_target<'a, 'gctx>(
 /// a unit in cargo has several dependencies like build.rs but also crates used for linking (rlib)
 /// this function splits these dependencies into said groups so that the nix scripts have an
 /// easy time working with the filtered subsets
-fn process_unit_deps<'a, 'gctx>(
+fn create_unit_dependencies<'a, 'gctx>(
     unit: &Unit,
     crate_name: &String,
     crate_version: &String,
     unit_graph: &UnitGraph,
     build_runner: &BuildRunner<'a, 'gctx>,
-    all_units_with_process_builder: &Vec<(ProcessBuilder, Unit)>
+    all_units_with_process_builder: &Vec<(ProcessBuilder, Unit)>,
+    workspace: &Workspace<'gctx>,
 ) -> Dependencies {
-    let mut all_deps = vec![];
-    let mut rust_crate_libraries = vec![];
-    let mut rust_crate_parent = vec![];
-    let mut rust_script_build_run = vec![];
+
+    fn is_root<'a, 'gctx>(
+        unit: &Unit,
+        workspace: &Workspace<'gctx>,
+    ) -> bool {
+        let pkg = unit.pkg.package_id();
+        workspace.members().any(|member| member.package_id() == pkg)
+    }
+
+    let mut all_deps: Vec<Dependency> = vec![];
+    let mut rust_crate_libraries: Vec<Dependency> = vec![];
+    let mut rust_script_build_run: Vec<Dependency> = vec![];
 
     if let Some(deps) = unit_graph.get(unit) {
         for dep in deps {
-            all_deps.push(create_nix_name(
-                &dep.unit,
-                &build_runner,
-                NixNameMode::AttributeName,
-                false,
-            ));
+            all_deps.push(
+                Dependency {
+                    nix_attribute_name: 
+                        create_nix_name(
+                        &dep.unit,
+                        &build_runner,
+                        NixNameMode::AttributeName,
+                        false,
+                    ),
+                    unit: dep.unit.clone(),
+                    is_root: is_root(&dep.unit, workspace),
+                }
+            );
             // all except -custom-build and -custom-build_run dependencies
             match dep.unit.target.kind() {
                 TargetKind::Lib(_)
@@ -431,12 +451,19 @@ fn process_unit_deps<'a, 'gctx>(
                     if dep.unit.mode != CompileMode::Build {
                         continue;
                     }
-                    rust_crate_libraries.push(create_nix_name(
-                        &dep.unit,
-                        &build_runner,
-                        NixNameMode::AttributeName,
-                        false,
-                    ));
+                    rust_crate_libraries.push(
+                        Dependency {
+                            nix_attribute_name: 
+                            create_nix_name(
+                                &dep.unit,
+                                &build_runner,
+                                NixNameMode::AttributeName,
+                                false,
+                            ),
+                            unit: dep.unit.clone(),
+                            is_root: is_root(&dep.unit, workspace),
+                        }
+                    );
                 }
                 _ => {}
             }
@@ -444,7 +471,7 @@ fn process_unit_deps<'a, 'gctx>(
             match dep.unit.target.kind() {
                 TargetKind::CustomBuild => {
                     if dep.unit.mode == CompileMode::RunCustomBuild {
-                        let c = &find_lib_build_target(
+                        let c: &Unit = &find_lib_build_target(
                             &unit,
                             &dep.unit,
                             &unit_graph,
@@ -456,49 +483,53 @@ fn process_unit_deps<'a, 'gctx>(
                             NixNameMode::AttributeName,
                             false,
                         );
-                        if !all_deps.contains(&c_name) {
-                            all_deps.push(c_name.clone());
+                        let d = Dependency{ 
+                            nix_attribute_name: c_name.clone(), 
+                            is_root: is_root(c, workspace),
+                            unit: c.clone(),
+                        };
+                        if !all_deps.iter().any(|dep| dep.nix_attribute_name == c_name) {
+                            all_deps.push(d.clone());
                         }
-                        rust_script_build_run.push(c_name);
+                        rust_script_build_run.push(d);
                     }
                 },
                 _ => {}
             }
-            
-        }
-        //println!("{}: {:#?}", build_inputs.len(), build_inputs);
-
-        // when building cargo 'rustls-0_23_23-script_build_run' actually has two inputs
-        // Generating rustls-0_23_23-script_build_run
-        // 2: [
-        //     "ring-0_17_11-script_build_run",
-        //     "rustls-0_23_23-script_build",
-        // ]
-        let search: String =
-        match crate_build_type(unit) {
-          CrateBuildType::LibBuild => {
-            format!("{}-{}-script_build_run", crate_name, crate_version).nix_attr_replace()
-          },
-          CrateBuildType::ScriptBuildRun => {
-            format!("{}-{}-script_build", crate_name, crate_version).nix_attr_replace()
-          },
-          _ => "".to_string() // FIXME
-        };
-        let mut matches: Vec<(usize, &String)> = Vec::new();
-        for (index, input) in all_deps.iter().enumerate() {
-            //println!("input: {:?}", input);
-            //println!("search: {:?}", search);
-            let pattern = format!(r"^{}-[a-zA-Z0-9]+$", search);
-            let re = Regex::new(&pattern).unwrap();
-            if re.is_match(input) {
-                matches.push((index, input));
-            }
-        }
-        //println!("matches.len() {:?}", matches.len());
-        for (_, name) in matches {
-            rust_crate_parent.push(name.clone());
         }
     }
+    // when building cargo the 'rustls-0_23_23-script_build_run' has two inputs
+    // Generating rustls-0_23_23-script_build_run
+    // 2: [
+    //     "ring-0_17_11-script_build_run",
+    //     "rustls-0_23_23-script_build",
+    // ]
+    let search: String =
+    match crate_build_type(unit) {
+        CrateBuildType::LibBuild => {
+        format!("{}-{}-script_build_run", crate_name, crate_version).nix_attr_replace()
+        },
+        CrateBuildType::ScriptBuildRun => {
+        format!("{}-{}-script_build", crate_name, crate_version).nix_attr_replace()
+        },
+        _ => "".to_string() // FIXME
+    };
+
+    let pattern = format!(r"^{}-[a-zA-Z0-9]+$", search);
+    let re = Regex::new(&pattern).unwrap();
+    let found_elements: Vec<Dependency> = all_deps.clone().into_iter().filter(|f| { 
+        re.is_match(f.nix_attribute_name.as_str())
+    }).collect();
+    let rust_crate_parent: Option<Dependency> =
+    match found_elements.len() {
+        0 => None,
+        1 => Some(found_elements[0].clone()),
+        _ => {
+            println!("unit: '{}' claims to have more than one parent", search);
+            std::process::abort(); // FIXME rewrite with proper error
+        }
+    };
+
     Dependencies { all_deps, rust_crate_libraries, rust_crate_parent, rust_script_build_run }
 }
 
@@ -749,7 +780,7 @@ impl<'a, 'gctx> NixBuildRunner {
             let fullname: String = create_nix_name(&unit, build_runner, NixNameMode::AttributeName, false);
 
             println!("Generating {}", fullname);
-            let deps: Dependencies = process_unit_deps(&unit, &crate_name, &crate_version, unit_graph, build_runner, &all_units_with_process_builder);
+            let deps: Dependencies = create_unit_dependencies(&unit, &crate_name, &crate_version, unit_graph, build_runner, &all_units_with_process_builder, &workspace);
 
             if is_run_custom_build {
                 Self::process_script_build_run(
@@ -783,11 +814,26 @@ impl<'a, 'gctx> NixBuildRunner {
         handlebars.register_template_string("default", template_str)?;
 
         all_nodes.sort_by(|a, b| a.name.cmp(&b.name));
-        // Render default_nix_packages as `name = callPackage' ./relative_path {};`
-        let default_nix_packages = all_nodes
+        let nix_packages_deps = all_nodes
             .iter()
+            .filter(|entry|{!entry.is_root})
             .map(|entry| {
-                let path = PathBuf::from(&entry.filename);
+                let path = &entry.file_path;
+                let rel_path = path.strip_prefix("/tmp/nix").unwrap_or(&path);
+                format!(
+                    "      {} = callPackage' ./{} {{ inherit fn; }};",
+                    entry.name,
+                    rel_path.display()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        // Render default_nix_packages as `name = callPackage' ./relative_path {};`
+        let nix_packages_root = all_nodes
+            .iter()
+            .filter(|entry|{entry.is_root})
+            .map(|entry| {
+                let path = &entry.file_path;
                 let rel_path = path.strip_prefix("/tmp/nix").unwrap_or(&path);
                 format!(
                     "    {} = callPackage' ./{} {{ inherit fn; }};",
@@ -797,11 +843,11 @@ impl<'a, 'gctx> NixBuildRunner {
             })
             .collect::<Vec<_>>()
             .join("\n");
-
         let rendered = handlebars.render(
             "default",
             &serde_json::json!({
-                "default_nix_packages": default_nix_packages
+                "nix_packages_root": nix_packages_root,
+                "nix_packages_deps": nix_packages_deps,
             }),
         )?;
 
@@ -823,16 +869,16 @@ impl<'a, 'gctx> NixBuildRunner {
         build_runner: &BuildRunner<'a, 'gctx>,
         deps: &Dependencies,
     ) -> CargoResult<()> {
-
-        if deps.rust_crate_parent.len() != 1 {
-            println!("For buildInputs found these matches: {}", deps.rust_crate_parent.len());
-            println!("  buildInputs: {:?}", deps.rust_crate_parent);
-            std::process::abort(); // FIXME rewrite with proper error
-        }
+        let parent_full_name = match &deps.rust_crate_parent {
+            Some(val) => val.nix_attribute_name.clone(),
+            None => {
+                println!("deps.rust_crate_parent must not be empty as we are in process_script_build_run!");
+                std::process::abort(); // FIXME rewrite with proper error
+            }
+        };
 
         let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version)?;
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
-        let build_inputs: Vec<String> = vec![];
 
         let mut handlebars = Handlebars::new();
         let template_str = include_str!("templates/rustc-call.nix.handlebars");
@@ -848,8 +894,6 @@ impl<'a, 'gctx> NixBuildRunner {
                 rustc_arguments="";
             "#}).to_string().indentation(2));
 
-            let program_script_build = deps.rust_crate_parent[0].clone();
-
             let mut command_line: Vec<String> = vec![];
         command_line.push(
             format!(
@@ -858,17 +902,18 @@ impl<'a, 'gctx> NixBuildRunner {
                 ${{{}}}/build_script_build > $OUT_DIR/nix/build_script_build.out
                 ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results
             "#},
-            program_script_build
+            parent_full_name
             ).to_string().indentation(6)
             );
 
         let default_function_arguments: Vec<String> =
-            vec!["fn", "pkgs", "rustc", "cargo"]
+            vec!["fn", "pkgs", "rustc", "cargo", "deps"]
                 .iter()
                 .map(|m| m.to_string())
                 .collect();
+        let root_deps: Vec<String> = deps.all_deps.iter().filter(|dep|{dep.is_root}).map(|m|m.nix_attribute_name.clone()).collect();
         let function_arguments: Vec<String> =
-            [default_function_arguments, deps.all_deps.clone()].concat();
+            [default_function_arguments, root_deps].concat();
 
         let additional_build_phase_arguments = handle_dynamic_crate_aspects(
             unit, 
@@ -885,10 +930,9 @@ impl<'a, 'gctx> NixBuildRunner {
                 "crate_version": crate_version,
                 "src": src,
                 "unpack_phase": unpack_phase,
-                "build_inputs": build_inputs.join(" "),
-                "rust_crate_libraries": deps.rust_crate_libraries.join(" "),
-                "rust_crate_parent": deps.rust_crate_parent.join(" "),
-                "rust_script_build_run": deps.rust_script_build_run.join(" "),
+                "rust_crate_libraries": deps.rust_crate_libraries.iter().map(|m|m.nix_attribute_name.clone()).collect::<Vec<String>>().join(" "),
+                "rust_crate_parent": deps.rust_crate_parent.iter().map(|m|m.nix_attribute_name.clone()).collect::<Vec<String>>().join(" "),
+                "rust_script_build_run": deps.rust_script_build_run.iter().map(|m|m.nix_attribute_name.clone()).collect::<Vec<String>>().join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": assert_escapes(&command_line.join("\n")),
@@ -899,7 +943,8 @@ impl<'a, 'gctx> NixBuildRunner {
         let file_path = write_nix_file(&file_name, &rendered, is_root)?;
         all_nodes.push(DefaultNixEntry {
             name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
-            filename: file_path.to_string_lossy().to_string(),
+            file_path,
+            is_root,
         });
 
         Ok(())
@@ -924,7 +969,6 @@ impl<'a, 'gctx> NixBuildRunner {
         // println!("{:#?}", unit);
         // println!(">>>>>>>>>>>>>>>>>>>>>> /rustc >>>>>>>>>>>>>>>>>>>>>>\n");
 
-        // let mut build_inputs: Vec<String> = vec![];
         // let mut rust_crate_libraries: Vec<String> = vec![];
 
         let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version)?;
@@ -953,14 +997,13 @@ impl<'a, 'gctx> NixBuildRunner {
         ));
 
         let default_function_arguments: Vec<String> =
-            vec!["fn", "pkgs", "rustc", "cargo"]
+            vec!["fn", "pkgs", "rustc", "cargo", "deps"]
                 .iter()
                 .map(|m| m.to_string())
                 .collect();
+        let root_deps: Vec<String> = deps.all_deps.iter().filter(|dep|{dep.is_root}).map(|m|m.nix_attribute_name.clone()).collect();
         let function_arguments: Vec<String> =
-            [default_function_arguments, deps.all_deps.clone()].concat();
-
-        let build_inputs: Vec<String> = vec![];
+            [default_function_arguments, root_deps].concat(); // joshi
 
         let additional_build_phase_arguments = handle_dynamic_crate_aspects(
             unit, 
@@ -988,10 +1031,9 @@ impl<'a, 'gctx> NixBuildRunner {
                 "crate_version": crate_version,
                 "src": src,
                 "unpack_phase": unpack_phase,
-                "build_inputs": build_inputs.join(" "),
-                "rust_crate_libraries": deps.rust_crate_libraries.join(" "),
-                "rust_crate_parent": deps.rust_crate_parent.join(" "),
-                "rust_script_build_run": deps.rust_script_build_run.join(" "),
+                "rust_crate_libraries": deps.rust_crate_libraries.iter().map(|m|m.nix_attribute_name.clone()).collect::<Vec<String>>().join(" "),
+                "rust_crate_parent": deps.rust_crate_parent.iter().map(|m|m.nix_attribute_name.clone()).collect::<Vec<String>>().join(" "),
+                "rust_script_build_run": deps.rust_script_build_run.iter().map(|m|m.nix_attribute_name.clone()).collect::<Vec<String>>().join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": assert_escapes(&command_line.join("\n")),
@@ -1001,7 +1043,8 @@ impl<'a, 'gctx> NixBuildRunner {
         let file_path = write_nix_file(&file_name, &rendered, is_root)?;
         all_nodes.push(DefaultNixEntry {
             name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
-            filename: file_path.to_string_lossy().to_string(),
+            file_path,
+            is_root,
         });
         Ok(())
     }

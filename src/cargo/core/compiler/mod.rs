@@ -507,7 +507,7 @@ fn rustc(
         current_id: PackageId,
         mode: CompileMode,
     ) -> CargoResult<()> {
-        println!("add_native_deps");
+        //println!("add_native_deps");
         for key in build_scripts.to_link.iter() {
             let output = build_script_outputs.get(key.1).ok_or_else(|| {
                 internal(format!(
@@ -516,7 +516,7 @@ fn rustc(
                 ))
             })?;
             for path in output.library_paths.iter() {
-                println!("add_native_deps: -L {:#?}", path);
+                //println!("add_native_deps: -L {:#?}", path);
                 rustc.arg("-L").arg(path);
             }
 
@@ -524,7 +524,7 @@ fn rustc(
                 if pass_l_flag {
                     for name in output.library_links.iter() {
                         rustc.arg("-l").arg(name);
-                        println!("add_native_deps: -l {}", name);
+                        //println!("add_native_deps: -l {}", name);
                     }
                 }
             }

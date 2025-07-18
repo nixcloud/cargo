@@ -1,9 +1,9 @@
 # generated from rustc-call.nix.handlebars
-{ {{{function_arguments}}} }:
+{ {{{function_arguments}}} }: with deps;
   pkgs.stdenv.mkDerivation rec {
     name = "{{{fullname}}}";
 {{{cargo_crate_info}}}
-    buildInputs = [{{{build_inputs}}}] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
     passthru.rust_crate_libraries = [{{{rust_crate_libraries}}}];
     passthru.rust_crate_parent = [{{{rust_crate_parent}}}];
     passthru.rust_script_build_run = [{{{rust_script_build_run}}}];
