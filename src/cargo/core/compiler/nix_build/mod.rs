@@ -308,19 +308,18 @@ fn handle_dynamic_crate_aspects (
         CrateBuildType::ScriptBuild |
         CrateBuildType::ScriptBuildRun => {
             match &deps.rust_crate_parent {
-                Some(parent) => {
-                    let parent_full_name: String = parent.nix_attribute_name.clone();
+                Some(_) => {
                     if crate_build_type(unit) == CrateBuildType::LibBuild {
                         additional_build_phase_arguments
-                            .push(format!("cp -r ${{{}}}/* $OUT_DIR", parent_full_name).to_string().indentation(6));
+                            .push(format!("cp -r ${{fn.get_rust_crate_parent passthru.rust_crate_parent}}/* $OUT_DIR").to_string().indentation(6));
                         additional_build_phase_arguments
                             .push(format!(indoc! {r#"
                             for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
                                 if [ -f "$file" ]; then
-                                sed -i "s|${{{}}}|$out|g" "$file"
+                                sed -i "s|${{fn.get_rust_crate_parent passthru.rust_crate_parent}}|$out|g" "$file"
                                 fi
                             done
-                        "#}, parent_full_name).to_string().indentation(6));
+                        "#}).to_string().indentation(6));
                     }
                     additional_build_phase_arguments.push(
                         source_environment_variables.indentation(6),
