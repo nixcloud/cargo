@@ -1,57 +1,21 @@
 # WARNING
 
-For now it is just an experiment!
+This is the libnix concept integrated into cargo using a 'nix build backend', see discussion at https://lastlog.de/blog/libnix_rust_abstractions.html
 
-This cargo extension wants to be a 'nix based build system' directly used from cargo.
+# What it can do
 
-* This code can generate nix files to build 'cargo' itself and generate a working binary!
-* Each dependency crate is its own nix store path so you will never have to recompile them again unless changes are in place
-* It does not use the .fingerprint mechanism to have 'faster' (impure) compiles which means you probably stil want
-to stick to the normal 'cargo build' workflow but when you want to try it with nix it is as simple as
-changing an environment variable and compile.
+* extended 'cargo build' so it uses 'nix build' internally by generating nix files on the fly and then build it using 'nix build'!
+* each dependency crate is its own nix store path so you will never have to recompile them again unless their input changes (rustc, cargo, env vars)
 
-State of development:
-* Currently only 'fast' is implemented, 'sandbox' was never used
-* `cargo build` only generates nix files which have to be run manually through 'nix build'
+# What it can't do
 
-Here is the todo list:
+* sadly it does not support cargo's .fingerprint mechanism to have 'faster' compiles
 
-* [ ] add `cargo nix generate --path /tmp/nix` support to cargo
-  * [ ] check if the --path belongs to the root of a workspace, if not don't delete anything. writing new files should be allowed, but deleting not.
-  * [ ] maintain a list of files in use and only update (delte/chage ones which are known)
-  * [ ] add a reference to the Cargo.toml file
-  * [ ] on successful build (cargo nix generate), add the generated nix files into target/nix (aka the result)
+## State of development
 
-
-* [ ] using cargo nix extension from nix:
-  * [x] add flake.nix which compiles this custom cargo so it can be used in nix
-  * [ ] integrate https://github.com/nixcloud/cargo-nix-build-test-environment-declarative into cargo subcommand or standalone binary
-
-* [ ] smooth drop-in integration of the nix backend into cargo
-  * [ ] call nix build from cargo and also link resulting binaries to `target/debug/binaryname` after compile using `link_targets()` into target/debug/XXX
-  * [ ] check that `cargo run foo` works
-  * [ ] cargo build
-  * [ ] support `cargo dry run` with nix-backend
-  * [ ] cargo test
-  * [ ] cargo doc
-  * [ ] cargo install
-  * [ ] cargo clean
-      * [ ] 'rm result link' aka target/debug/nix/source target/debug/${references}, propose nix-collect-garbage
-
-* [ ] consider a 'installPhase' equivalent to 'cargo install' when doing a nix build .#something-0.88-bin
-
-* [ ] update the build queue output of nix, similar to cargo build output
-  * [ ] see the json streaming
-
-* [ ] extend https://github.com/nixcloud/cargo-nix-build-test-environment-declarative
-    
-    see cargo-build_script_build-parser source code
-
-* [ ] give instructions how to use my custom `cargo` from nix/nixos
-* [ ] major refactor, one commit & cleanup of code base; rebase on most recent cargo?
-* [ ] create tests to ensure most 'edge' cases can be built properly with the nix backend
-* [ ] publish work, ask for feedback and plan PR for cargo contribution
-* [ ] create video
+* it builds cargo and klick using nix
+* proper project setup to use it is still a lot of work
+* there is no 'install_phase' so it generates binaries but they are not in ./bin nor do they have useful names yet
 
 # How to use
 
@@ -77,50 +41,23 @@ Alternative calls for using the nix backend in cargo:
     cargo -Znix --config build.nix=\"sandbox\" build
 
 The nix backend currently supports this:
-* generates a nix build system which needs to be evaluated outside of cargo (for now)
-* builds rphtml, html5ever, klick and cargo so far
+* generates a nix build system
+* builds rphtml, html5ever, klick and cargo
 * supports build-script-build aka build.rs execution using build-parser 
 * supports crates residing in: local fs, crates.io and using git (all but local is in /nix/store)
 * build dependencies inside a nix-build isolated environment
 * integrates well with the flake concept
 
-## flake
+### flakes
 
-    {
-      description = "The cargo-nix using example project flake";
-      inputs = {
-        nixpkgs.url      = "github:NixOS/nixpkgs/nixos-25.05";
-        rust-overlay.url = "github:oxalica/rust-overlay";
-        build-parser.url = "github:nixcloud/cargo-build_script_build-parser";
-      };
-      outputs =
-      { self, nixpkgs, flake-utils, rust-overlay, build-parser }:
-        flake-utils.lib.eachDefaultSystem
-          (system:
-            let
-              overlays = [ (import rust-overlay) build-parser.overlay ];
-              pkgs = import nixpkgs {
-                inherit system overlays;
-              };
-              allPackages = import /tmp/nix/default.nix { inherit pkgs; };
-            in
-            with pkgs;
-            rec {
-              packages = allPackages // {
-                inherit defaultPackage;
-              };
-              devShells.default = mkShell {
-                buildInputs = [
-                  rust-bin.stable."1.86.0".default
-                  nix-prefetch-scripts
-                ];
-              };
-            }
-          );
-    }
+It creates a folder ./nix which contains the build system including a flake.nix which can be evaluated manually:
+
+cd ./nix
 
     nix build .#anyhow-1_0_97 -L --impure --print-out-paths
     nix build .#rphtml-0_5_10 -L --impure --print-out-paths
+
+### injecting dependencies (pkg-config, openssl, ...)
 
 There is an easy way to inject dependencies into the cargo generated nix attributes:
 

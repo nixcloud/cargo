@@ -11,23 +11,22 @@ use crate::core::compiler::{BuildContext, BuildRunner, CompileMode};
 use crate::core::workspace::Workspace;
 use crate::core::SourceKind;
 use crate::core::TargetKind;
-use crate::util::CargoResult;
+use crate::util::{CargoResult, Filesystem};
 use anyhow::anyhow;
 use cargo_util::ProcessBuilder;
 use handlebars::Handlebars;
 use regex::Regex;
 
 use indoc::indoc;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs::{create_dir_all, File};
 use std::io::Write;
 use std::path::{Path, PathBuf, Component};
 
-
 #[derive(Debug)]
 struct DefaultNixEntry {
     name: String,
-    file_path: PathBuf,
+    rel_file_path: PathBuf,
     is_root: bool,
 }
 
@@ -334,21 +333,23 @@ fn handle_dynamic_crate_aspects (
 }
 
 fn write_nix_file(
+    out_directory: &Filesystem,
     file_name: &String,
-    content: &String,
+    content: &String, 
     is_root: bool,
 ) -> CargoResult<PathBuf> {
-    let dir = if is_root {
-        PathBuf::from("/tmp/nix")
+    let rel_dir: PathBuf = 
+    if is_root {
+        PathBuf::new()
     } else {
-        PathBuf::from("/tmp/nix/deps")
+        PathBuf::from("deps")
     };
-    create_dir_all(&dir)?;
-    let file_path = dir.join(file_name);
-
+    let base_dir = out_directory.clone().join(rel_dir.clone());
+    base_dir.create_dir()?;
+    let file_path = base_dir.join(file_name).into_path_unlocked();
     let mut file = File::create(&file_path)?;
     writeln!(file, "{}", content)?;
-    Ok(file_path)
+    Ok(rel_dir.join(file_name))
 }
 
 
@@ -755,22 +756,38 @@ pub struct NixBuildRunner {}
 impl<'a, 'gctx> NixBuildRunner {
     pub fn new(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<()> {
         let bcx: &BuildContext<'a, 'gctx> = &build_runner.bcx;
-
         let workspace: &Workspace<'gctx> = build_runner.bcx.ws;
         let unit_graph: &UnitGraph = &bcx.unit_graph;
-        let mut visited = BTreeSet::new();
+        let requested_profile = if build_runner.bcx.build_config.requested_profile == "release" {
+          "release"
+        } else {
+          "debug"
+        };
+        let mut visited_units = BTreeSet::new();
         let mut all_nodes: Vec<DefaultNixEntry> = Vec::new();
-
         let all_units_with_process_builder: Vec<(ProcessBuilder, Unit)> =
             build_runner.raw_process_builder.lock().unwrap().clone();
+
+        // files in target/nix should created if new, update if existent and deleted if not used anymore
+        let target_dir: Filesystem = workspace.target_dir();
+        let nix_base_dir = target_dir.join(requested_profile).join("nix");
+        assert_ne!("~".to_string(), nix_base_dir.display().to_string());
+        assert_ne!(".".to_string(), nix_base_dir.display().to_string());
+        assert_ne!("/".to_string(), nix_base_dir.display().to_string());
+        nix_base_dir.create_dir()?;
+        // println!("target_dir: {}", nix_base_dir.display());
+        let nix_derivations_dir = nix_base_dir.join("derivations");
+        // paths::remove_dir_all(&nix_derivations_dir)?;
+        nix_derivations_dir.create_dir()?;
+        // println!("nix_derivations_dir: {}", nix_derivations_dir.display());
 
         println!("Need to generate: {} units.", all_units_with_process_builder.len());
 
         for (process_builder, unit) in all_units_with_process_builder.clone() {
-            if visited.contains(&unit) {
+            if visited_units.contains(&unit) {
                 continue;
             }
-            visited.insert(unit.clone());
+            visited_units.insert(unit.clone());
             let pkg = unit.pkg.package_id();
             let is_root: bool = workspace.members().any(|member| member.package_id() == pkg);
             let is_run_custom_build: bool = unit.mode == CompileMode::RunCustomBuild;
@@ -792,6 +809,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     &mut all_nodes,
                     build_runner,
                     &deps,
+                    &nix_derivations_dir,
                 )?
             } else {
                 Self::process_unit(
@@ -804,10 +822,28 @@ impl<'a, 'gctx> NixBuildRunner {
                     &mut all_nodes,
                     build_runner,
                     &deps,
+                    &nix_derivations_dir,
                 )?
             }
         }
 
+        println!("Creating flake.nix");
+        // flake.nix creation
+        let mut handlebars = Handlebars::new();
+        let template_str = include_str!("templates/flake.nix.handlebars");
+        handlebars.register_template_string("flake", template_str)?;
+        let rendered = handlebars.render(
+            "flake",
+            &serde_json::json!({
+                "project_flake_description": "flake generated and managed by cargo (do not modify)",
+            }),
+        )?;
+
+        let flake_nix_path = PathBuf::from("flake.nix");
+        let mut file = File::create(flake_nix_path)?;
+        write!(file, "{}", rendered)?;
+
+        // default.nix creation
         let mut handlebars = Handlebars::new();
         let template_str = include_str!("templates/default.nix.handlebars");
         handlebars.register_template_string("default", template_str)?;
@@ -817,12 +853,10 @@ impl<'a, 'gctx> NixBuildRunner {
             .iter()
             .filter(|entry|{!entry.is_root})
             .map(|entry| {
-                let path = &entry.file_path;
-                let rel_path = path.strip_prefix("/tmp/nix").unwrap_or(&path);
                 format!(
-                    "      {} = callPackage' ./{} {{ inherit fn; }};",
+                    "      {} = callPackage' ./{} {{ }};",
                     entry.name,
-                    rel_path.display()
+                    &entry.rel_file_path.display()
                 )
             })
             .collect::<Vec<_>>()
@@ -832,12 +866,10 @@ impl<'a, 'gctx> NixBuildRunner {
             .iter()
             .filter(|entry|{entry.is_root})
             .map(|entry| {
-                let path = &entry.file_path;
-                let rel_path = path.strip_prefix("/tmp/nix").unwrap_or(&path);
                 format!(
-                    "    {} = callPackage' ./{} {{ inherit fn; }};",
+                    "    {} = callPackage' ./{} {{ }};",
                     entry.name,
-                    rel_path.display()
+                    &entry.rel_file_path.display()
                 )
             })
             .collect::<Vec<_>>()
@@ -850,10 +882,11 @@ impl<'a, 'gctx> NixBuildRunner {
             }),
         )?;
 
-        // Write to /tmp/nix/default.nix
-        let default_nix_path = PathBuf::from("/tmp/nix/default.nix");
+        println!("Creating default.nix");
+        let default_nix_path = nix_derivations_dir.clone().join("default.nix").into_path_unlocked();
         let mut file = File::create(default_nix_path)?;
         write!(file, "{}", rendered)?;
+
         Ok(())
     }
 
@@ -867,6 +900,7 @@ impl<'a, 'gctx> NixBuildRunner {
         all_nodes: &mut Vec<DefaultNixEntry>,
         build_runner: &BuildRunner<'a, 'gctx>,
         deps: &Dependencies,
+        nix_derivations_dir: &Filesystem,
     ) -> CargoResult<()> {
         let parent_full_name = match &deps.rust_crate_parent {
             Some(val) => val.nix_attribute_name.clone(),
@@ -899,14 +933,14 @@ impl<'a, 'gctx> NixBuildRunner {
                 indoc! {
                 r#"
                 ${{{}}}/build_script_build > $OUT_DIR/nix/build_script_build.out
-                ${{pkgs.parse-build}}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results
+                ${{build_parser}}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results
             "#},
             parent_full_name
             ).to_string().indentation(6)
             );
 
         let default_function_arguments: Vec<String> =
-            vec!["fn", "pkgs", "rustc", "cargo", "deps"]
+            vec!["pkgs", "fn", "cargo", "rustc", "deps", "build_parser"]
                 .iter()
                 .map(|m| m.to_string())
                 .collect();
@@ -939,10 +973,10 @@ impl<'a, 'gctx> NixBuildRunner {
         )?;
 
         let file_name: String = create_nix_name(unit, build_runner, NixNameMode::FileName, false);
-        let file_path = write_nix_file(&file_name, &rendered, is_root)?;
+        let rel_file_path = write_nix_file(&nix_derivations_dir, &file_name, &rendered, is_root)?;
         all_nodes.push(DefaultNixEntry {
             name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
-            file_path,
+            rel_file_path,
             is_root,
         });
 
@@ -959,7 +993,8 @@ impl<'a, 'gctx> NixBuildRunner {
         all_nodes: &mut Vec<DefaultNixEntry>,
         build_runner: &BuildRunner<'a, 'gctx>,
         deps: &Dependencies,
-        ) -> CargoResult<()> {
+        nix_derivations_dir: &Filesystem
+    ) -> CargoResult<()> {
         // println!("unit.target: {:?}", unit.target);
         // println!(
         //     "<<<<<<<<<<<<<<<<<<<<<< rustc {fullname} <<<<<<<<<<<<<<<<<<<<<<",
@@ -1002,7 +1037,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 .collect();
         let root_deps: Vec<String> = deps.all_deps.iter().filter(|dep|{dep.is_root}).map(|m|m.nix_attribute_name.clone()).collect();
         let function_arguments: Vec<String> =
-            [default_function_arguments, root_deps].concat(); // joshi
+            [default_function_arguments, root_deps].concat();
 
         let additional_build_phase_arguments = handle_dynamic_crate_aspects(
             unit, 
@@ -1020,12 +1055,27 @@ impl<'a, 'gctx> NixBuildRunner {
                 hash).to_string().indentation(6));
         };
 
+        let mut phases: Vec<&str> = vec!["unpackPhase", "buildPhase"];
+        let mut append: Vec<String> = vec![];
+        if crate_build_type(&unit) == CrateBuildType::BinBuild {
+            phases.push("installPhase");
+            append.push(
+                format!(
+                    indoc! {r#"
+                      installPhase = ''
+                        mkdir $out/bin
+                        ln -s $out/cargo-fafc14832178210d $out/bin/cargo
+                      '';
+                "#}).to_string().indentation(6));
+        }
+
         let rendered = handlebars.render(
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
                 "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
                 "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
+                "nix_phases": phases.join(" "),
                 "crate_name": crate_name,
                 "crate_version": crate_version,
                 "src": src,
@@ -1036,13 +1086,14 @@ impl<'a, 'gctx> NixBuildRunner {
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": assert_escapes(&command_line.join("\n")),
+                "append": append.join("\n"),
             }),
         )?;
         let file_name: String = create_nix_name(unit, build_runner, NixNameMode::FileName, false);
-        let file_path = write_nix_file(&file_name, &rendered, is_root)?;
+        let rel_file_path = write_nix_file(&nix_derivations_dir, &file_name, &rendered, is_root)?;
         all_nodes.push(DefaultNixEntry {
             name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
-            file_path,
+            rel_file_path,
             is_root,
         });
         Ok(())

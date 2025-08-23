@@ -211,8 +211,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
             fingerprint.clear_memoized();
         }
 
-        if self.bcx.gctx.nix()?.is_none() {
-        } else {
+        if self.bcx.gctx.nix()?.is_some() {
             let _nix_build_runner = NixBuildRunner::new(&self)?;
             // call nix-build here
             NixBuild::build().unwrap();

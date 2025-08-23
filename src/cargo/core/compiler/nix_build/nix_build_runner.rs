@@ -2,21 +2,73 @@ pub struct NixBuild {}
 
 impl NixBuild {
     pub fn build() -> Result<(), String> {
-        let output = std::process::Command::new("nix-build")
-            .arg("--version")
-            .output();
+        use std::io::{BufRead, BufReader, Write};
+        use std::process::{Command, Stdio};
 
-        match output {
-            Ok(o) => {
-                if o.status.success() {
-                    println!("{}", String::from_utf8_lossy(&o.stdout));
-                } else {
-                    //Err(String::from_utf8_lossy(&o.stderr).into_owned())
+        println!("Starting nix build...");
+        std::io::stdout().flush().map_err(|e| format!("Failed to flush stdout: {}", e))?;
+
+        let mut command = Command::new("nix")
+            .arg("build")
+            .arg("path:.#cargo-0_88_0-bin-9448b8bba6ed4f6b")
+            .arg("-L")
+            .arg("--impure")
+            .arg("--no-link")
+            .arg("--print-out-paths")
+            .arg("--override-input")
+            .arg("project_root")
+            .arg("./")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to execute nix-build: {}", e))?;
+
+        println!("Command spawned successfully"); // Debug: Confirm spawn
+        std::io::stdout().flush().map_err(|e| format!("Failed to flush stdout: {}", e))?;
+
+        // Handle stdout in a separate thread to prevent blocking
+        let stdout = command.stdout.take().ok_or("Failed to capture stdout")?;
+        let stdout_reader = BufReader::new(stdout);
+        let stdout_handle = std::thread::spawn(move || {
+            for line in stdout_reader.lines() {
+                match line {
+                    Ok(line) => {
+                        println!("stdout: {}", line);
+                        let _ = std::io::stdout().flush(); // Ensure immediate output
+                    }
+                    Err(e) => println!("Error reading stdout: {}", e),
                 }
-                //    return Err(format!("Failed to execute nix-build"))
             }
-            Err(e) => println!("Failed to execute nix-build: {}", e),
+        });
+
+        // Handle stderr in a separate thread to prevent blocking
+        let stderr = command.stderr.take().ok_or("Failed to capture stderr")?;
+        let stderr_reader = BufReader::new(stderr);
+        let stderr_handle = std::thread::spawn(move || {
+            for line in stderr_reader.lines() {
+                match line {
+                    Ok(line) => {
+                        println!("stderr: {}", line);
+                        let _ = std::io::stdout().flush(); // Ensure immediate output
+                    }
+                    Err(e) => println!("Error reading stderr: {}", e),
+                }
+            }
+        });
+
+        // Wait for the command to complete
+        let status = command.wait().map_err(|e| format!("Failed to wait for process: {}", e))?;
+        println!("Command finished with status: {}", status); // Debug: Confirm completion
+        std::io::stdout().flush().map_err(|e| format!("Failed to flush stdout: {}", e))?;
+
+        // Ensure threads complete
+        stdout_handle.join().map_err(|e| format!("Failed to join stdout thread: {:?}", e))?;
+        stderr_handle.join().map_err(|e| format!("Failed to join stderr thread: {:?}", e))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err("nix-build command failed".to_string())
         }
-        Ok(())
     }
 }

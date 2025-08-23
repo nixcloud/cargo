@@ -1,4 +1,4 @@
-# generated from rustc-call.nix.handlebars
+# generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
 { {{{function_arguments}}} }: with deps;
   pkgs.stdenv.mkDerivation rec {
     name = "{{{fullname}}}";
@@ -7,7 +7,7 @@
     passthru.rust_crate_libraries = [{{{rust_crate_libraries}}}];
     passthru.rust_crate_parent = [{{{rust_crate_parent}}}];
     passthru.rust_script_build_run = [{{{rust_script_build_run}}}];
-    phases = "unpackPhase buildPhase";
+    phases = "{{{nix_phases}}}";
 
 {{{src}}}
 {{{unpack_phase}}}
@@ -31,4 +31,5 @@
 {{{command_line}}}
       )
     '';
+{{{append}}}
 }
