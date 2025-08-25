@@ -1,0 +1,76 @@
+# generated from rustc-call.nix.handlebars
+{ fn, pkgs, rustc, cargo, deps }: with deps;
+  pkgs.stdenv.mkDerivation rec {
+    name = "nu-ansi-term-0_46_0-6e21f79c22ab38a6";
+    meta.cargo_crate_info = {
+      name = "nu-ansi-term";
+      version = "0.46.0";
+      crate_hash = "6e21f79c22ab38a6";
+    };
+    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    passthru.rust_crate_libraries = [overload-0_1_1-4adf788bf038356f];
+    passthru.rust_crate_parent = [];
+    passthru.rust_script_build_run = [];
+    phases = "unpackPhase buildPhase";
+
+    src = pkgs.fetchurl {
+      url = "https://crates.io/api/v1/crates/nu-ansi-term/0.46.0/download";
+      sha256 = "77a8165726e8236064dbb45459242600304b42a5ea24ee2948e18e023bf7ba84";
+    };
+    unpackPhase = ''
+      tar xf $src
+      cd nu-ansi-term-0.46.0
+    '';
+
+    RUSTC = "${rustc}/bin/rustc";
+    CARGO = "${rustc}/bin/rustc";
+
+    CARGO_CRATE_NAME = "nu_ansi_term";
+    CARGO_MANIFEST_DIR = "./";
+    CARGO_MANIFEST_PATH = "./Cargo.toml";
+    CARGO_PKG_AUTHORS = "ogham@bsago.me:Ryan Scheel (Havvy) <ryan.havvy@gmail.com>:Josh Triplett <josh@joshtriplett.org>:The Nushell Project Developers";
+    CARGO_PKG_DESCRIPTION = "Library for ANSI terminal colors and styles (bold, underline)";
+    CARGO_PKG_HOMEPAGE = "";
+    CARGO_PKG_LICENSE = "MIT";
+    CARGO_PKG_LICENSE_FILE = "";
+    CARGO_PKG_NAME = "nu-ansi-term";
+    CARGO_PKG_README = "README.md";
+    CARGO_PKG_REPOSITORY = "https://github.com/nushell/nu-ansi-term";
+    CARGO_PKG_RUST_VERSION = "";
+    CARGO_PKG_VERSION = "0.46.0";
+    CARGO_PKG_VERSION_MAJOR = "0";
+    CARGO_PKG_VERSION_MINOR = "46";
+    CARGO_PKG_VERSION_PATCH = "0";
+    CARGO_PKG_VERSION_PRE = "";
+
+    buildPhase = ''
+      export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
+      export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
+
+      mkdir -p $out/nix
+      export OUT_DIR=$out
+      export INC_DIR=$(mktemp -d)
+
+      echo -e "\e[92mCompiling\e[0m nu-ansi-term-0_46_0-6e21f79c22ab38a6"
+
+      (set -x 
+      ${rustc}/bin/rustc \
+        --crate-name nu_ansi_term \
+        --edition=2018 src/lib.rs \
+        --crate-type lib \
+        --emit=dep-info,metadata,link \
+        -C embed-bitcode=no \
+        -C debuginfo=2 \
+        ${fn.rustc_arguments passthru.rust_crate_parent} \
+        --check-cfg 'cfg(docsrs,test)' \
+        --check-cfg 'cfg(feature, values("derive_serde_style", "serde"))' \
+        -C metadata=5fb14aea23d0b19b \
+        -C extra-filename=-6e21f79c22ab38a6 \
+        --out-dir $OUT_DIR \
+        ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+        ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+        --extern overload=${overload-0_1_1-4adf788bf038356f}/liboverload-4adf788bf038356f.rmeta \
+        --cap-lints allow
+      )
+    '';
+}

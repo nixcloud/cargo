@@ -25,10 +25,10 @@
           rustc = fenix.packages.${system}.stable.rustc;
           cargo = fenix.packages.${system}.stable.cargo;
           build_parser = build-parser.packages.${system}.default;
-          project_root = inputs.project_root or builtins.toPath "../../../..";
+          project_root = inputs.project_root or builtins.toPath "./.";
 
           cargo_packages =
-            import target/debug/nix/derivations/default.nix {
+            import nix/default.nix {
               inherit pkgs rustc cargo external_crate_dependencies build_parser project_root;
             };
         in
