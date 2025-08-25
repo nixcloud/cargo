@@ -28,7 +28,7 @@
           project_root = inputs.project_root or builtins.toPath "./.";
 
           cargo_packages =
-            import nix/default.nix {
+            import nix/derivations/default.nix {
               inherit pkgs rustc cargo external_crate_dependencies build_parser project_root;
             };
         in

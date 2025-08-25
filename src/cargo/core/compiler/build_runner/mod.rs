@@ -25,7 +25,6 @@ use super::{
     BuildContext, Compilation, CompileKind, CompileMode, Executor, FileFlavor, RustDocFingerprint,
 };
 
-use crate::core::compiler::nix_build::nix_build_runner::NixBuild;
 use crate::core::compiler::nix_build::NixBuildRunner;
 use cargo_util::ProcessBuilder;
 
@@ -212,9 +211,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         }
 
         if self.bcx.gctx.nix()?.is_some() {
-            let _nix_build_runner = NixBuildRunner::new(&self)?;
-            // call nix-build here
-            NixBuild::build().unwrap();
+            let _nix_build_runner = NixBuildRunner::build(&self)?;
             //println!("WARNING HACK: we just quit before jobs.enqueue");
             return Ok(self.compilation);
         }

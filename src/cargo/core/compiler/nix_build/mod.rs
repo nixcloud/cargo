@@ -4,6 +4,7 @@ pub mod build_rs_parser;
 use download::download_git_for_metadata;
 mod asserts;
 use asserts::{assert_valid_nix_attr_name, assert_valid_nix_file_name, assert_escapes};
+use crate::core::compiler::nix_build::nix_build_runner::NixBuild;
 
 use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
@@ -754,7 +755,7 @@ fn generate_src<'gctx>(
 pub struct NixBuildRunner {}
 
 impl<'a, 'gctx> NixBuildRunner {
-    pub fn new(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<()> {
+    pub fn build(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<()> {
         let bcx: &BuildContext<'a, 'gctx> = &build_runner.bcx;
         let workspace: &Workspace<'gctx> = build_runner.bcx.ws;
         let unit_graph: &UnitGraph = &bcx.unit_graph;
@@ -827,23 +828,22 @@ impl<'a, 'gctx> NixBuildRunner {
             }
         }
 
-        println!("Creating flake.nix");
-        // flake.nix creation
+        println!("Creating cargo_build_caller.nix");
         let mut handlebars = Handlebars::new();
-        let template_str = include_str!("templates/flake.nix.handlebars");
-        handlebars.register_template_string("flake", template_str)?;
+        let template_str = include_str!("templates/cargo_build_caller.nix.handlebars");
+        handlebars.register_template_string("caller", template_str)?;
         let rendered = handlebars.render(
-            "flake",
+            "caller",
             &serde_json::json!({
-                "project_flake_description": "flake generated and managed by cargo (do not modify)",
+                "project_flake_description": "caller generated and managed by cargo (do not modify)",
             }),
         )?;
 
-        let flake_nix_path = PathBuf::from("flake.nix");
+        let flake_nix_path = PathBuf::from("cargo_build_caller.nix");
         let mut file = File::create(flake_nix_path)?;
         write!(file, "{}", rendered)?;
 
-        // default.nix creation
+        println!("Creating default.nix");
         let mut handlebars = Handlebars::new();
         let template_str = include_str!("templates/default.nix.handlebars");
         handlebars.register_template_string("default", template_str)?;
@@ -882,10 +882,12 @@ impl<'a, 'gctx> NixBuildRunner {
             }),
         )?;
 
-        println!("Creating default.nix");
+        println!("Creating nix/default.nix");
         let default_nix_path = nix_derivations_dir.clone().join("default.nix").into_path_unlocked();
         let mut file = File::create(default_nix_path)?;
         write!(file, "{}", rendered)?;
+
+        NixBuild::build(requested_profile).unwrap();
 
         Ok(())
     }
@@ -1016,7 +1018,7 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let mut command_line: Vec<String> = vec![];
         command_line.push(format!(
-            "      ${{rustc}}/bin/rustc{}",
+            "      ${{RUSTC}}{}",
             process_builder
                 .get_args()
                 .map(|arg| {

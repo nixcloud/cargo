@@ -48,14 +48,9 @@ The nix backend currently supports this:
 * build dependencies inside a nix-build isolated environment
 * integrates well with the flake concept
 
-### flakes
+### nix build system
 
-It creates a folder ./nix which contains the build system including a flake.nix which can be evaluated manually:
-
-cd ./nix
-
-    nix build .#anyhow-1_0_97 -L --impure --print-out-paths
-    nix build .#rphtml-0_5_10 -L --impure --print-out-paths
+    time nix build --file target/debug/nix/default.nix --impure -L --no-link --print-out-paths cargo-0_88_0-bin-9448b8bba6ed4f6b --json --log-format internal-json
 
 ### injecting dependencies (pkg-config, openssl, ...)
 

@@ -1,23 +1,22 @@
 pub struct NixBuild {}
 
 impl NixBuild {
-    pub fn build() -> Result<(), String> {
+    pub fn build(build_type: &str) -> Result<(), String> {
         use std::io::{BufRead, BufReader, Write};
         use std::process::{Command, Stdio};
 
-        println!("Starting nix build...");
+        println!("Starting nix '{}' build ...", build_type);
         std::io::stdout().flush().map_err(|e| format!("Failed to flush stdout: {}", e))?;
 
         let mut command = Command::new("nix")
             .arg("build")
-            .arg("path:.#cargo-0_88_0-bin-9448b8bba6ed4f6b")
-            .arg("-L")
-            .arg("--impure")
+            .arg("--file")
+            .arg(format!("target/{}/nix/cargo_build_caller.nix", build_type))
             .arg("--no-link")
+            .arg("-L")
             .arg("--print-out-paths")
-            .arg("--override-input")
-            .arg("project_root")
-            .arg("./")
+            .arg("cargo-0_88_0-bin-9448b8bba6ed4f6b")
+            .arg("--json")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

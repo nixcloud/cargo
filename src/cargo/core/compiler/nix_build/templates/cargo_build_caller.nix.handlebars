@@ -1,0 +1,37 @@
+# generated from cargo_build_caller.nix.handlebars using cargo (manual edits won't be persistent)
+{ system ? builtins.currentSystem }:
+let
+  nixpkgsSrc = builtins.fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/25.05.tar.gz";
+    sha256 = "sha256:1915r28xc4znrh2vf4rrjnxldw2imysz819gzhk9qlrkqanmfsxd";
+  };
+  pkgs = import (nixpkgsSrc + "/pkgs/top-level/default.nix") {
+    localSystem = { inherit system; };
+  };
+  build_parser_sources = pkgs.fetchFromGitHub {
+    owner = "nixcloud";
+    repo = "cargo-build_script_build-parser";
+    rev = "master";
+    sha256 = "sha256-yTyM76vXjl5bzlvIaJHjoJvDn1i8v3ZA9mq3kWLalnM=";
+  };
+  build_parser = pkgs.callPackage build_parser_sources {};
+  fenixSrc = pkgs.fetchFromGitHub {
+    owner = "nix-community";
+    repo = "fenix";
+    rev = "6ed03ef4c8ec36d193c18e06b9ecddde78fb7e42";
+    sha256 = "sha256-tl/0cnsqB/Yt7DbaGMel2RLa7QG5elA8lkaOXli6VdY=";
+  };
+  fenix = import fenixSrc {};
+  external_crate_dependencies =
+    if builtins.pathExists ./Cargo.dependencies.nix
+    then import ./Cargo.dependencies.nix { inherit pkgs; }
+    else { deps = {}; };
+  toolchain = fenix.stable.toolchain;
+  cargoPackages = import ./derivations/default.nix {
+    inherit pkgs external_crate_dependencies build_parser;
+    rustc = toolchain;
+    cargo = toolchain;
+    project_root = ./.;
+  };
+in
+cargoPackages
