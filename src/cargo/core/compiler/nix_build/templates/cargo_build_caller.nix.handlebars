@@ -23,8 +23,8 @@ let
   };
   fenix = import fenixSrc {};
   external_crate_dependencies =
-    if builtins.pathExists ./Cargo.dependencies.nix
-    then import ./Cargo.dependencies.nix { inherit pkgs; }
+    if builtins.pathExists ../../../Cargo.dependencies.nix
+    then import ../../../Cargo.dependencies.nix { inherit pkgs; }
     else { deps = {}; };
   toolchain = fenix.stable.toolchain;
   cargoPackages = import ./derivations/default.nix {

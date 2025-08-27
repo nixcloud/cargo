@@ -49,6 +49,7 @@ let
           [];
   };
   self = {
+    target = callPackage' ./target.nix {};
 {{{nix_packages_root}}}
     deps = {
 {{{nix_packages_deps}}}

@@ -585,7 +585,7 @@ fn link_targets(
             .pkg
             .manifest()
             .metabuild_path(build_runner.bcx.ws.build_dir());
-        println!("TargetSourcePath::Path(path): {:#?}", path);
+        // println!("TargetSourcePath::Path(path): {:#?}", path);
         target.set_src_path(TargetSourcePath::Path(path));
     }
 

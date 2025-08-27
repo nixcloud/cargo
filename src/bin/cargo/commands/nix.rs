@@ -1,6 +1,6 @@
 use crate::command_prelude::*;
+use cargo::core::compiler::nix_build::build_rs_parser::{build_rs_parser, BuildRsParserCommand};
 use std::path::PathBuf;
-use cargo::core::compiler::nix_build::build_rs_parser::{BuildRsParserCommand, build_rs_parser};
 
 pub fn cli() -> Command {
     subcommand("nix")
@@ -50,23 +50,28 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
                 eprintln!("rustc_arguments for path: {:?}", file_path.clone());
                 match build_rs_parser(BuildRsParserCommand::RustcArguments, file_path.clone()) {
                     Ok(res) => println!("{}", res),
-                    Err(e) => {
-                        return Err(CliError::new(anyhow::format_err!("{e}"), 101))
-                    }
+                    Err(e) => return Err(CliError::new(anyhow::format_err!("{e}"), 101)),
                 }
-                return Ok(())
-            } if sub_args.subcommand_matches("environment_variables").is_some() {
+                return Ok(());
+            }
+            if sub_args
+                .subcommand_matches("environment_variables")
+                .is_some()
+            {
                 eprintln!("environment_variables for path: {:?}", file_path.clone());
-                match build_rs_parser(BuildRsParserCommand::EnvironmentVariables, file_path.clone()) {
+                match build_rs_parser(
+                    BuildRsParserCommand::EnvironmentVariables,
+                    file_path.clone(),
+                ) {
                     Ok(res) => println!("{}", res),
-                    Err(e) => {
-                        return Err(CliError::new(anyhow::format_err!("{e}"), 101))
-                    }
+                    Err(e) => return Err(CliError::new(anyhow::format_err!("{e}"), 101)),
                 }
-                return Ok(())
+                return Ok(());
             } else {
                 // Handle other cases or default behavior
-                eprintln!("Parse the output of a build.rs script run to inject it into the nix-build run");
+                eprintln!(
+                    "Parse the output of a build.rs script run to inject it into the nix-build run"
+                );
             }
             Ok(())
         }

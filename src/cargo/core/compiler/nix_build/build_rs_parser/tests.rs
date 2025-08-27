@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use crate::handle_content;
     use crate::Command;
     use std::fs;
     use std::io::Write;
     use tempfile::NamedTempFile;
-    use crate::handle_content;
 
     #[test]
     fn test_rustc_cfg_output() {
@@ -17,10 +17,7 @@ mod tests {
 
         let content = fs::read_to_string(temp.path()).unwrap();
         let output = handle_content(Command::RustcArguments, content).unwrap();
-        assert_eq!(
-            output.trim(),
-            "--cfg=freebsd11 --cfg=libc_const_extern_fn"
-        );
+        assert_eq!(output.trim(), "--cfg=freebsd11 --cfg=libc_const_extern_fn");
     }
 
     // #[test]

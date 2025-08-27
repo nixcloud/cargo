@@ -739,9 +739,7 @@ impl<'gctx> Workspace<'gctx> {
             .workspace_config()
             .get_ws_root(manifest_path, manifest_path)
         {
-            Some(root_path) => {
-                Ok(Some(root_path))
-            }
+            Some(root_path) => Ok(Some(root_path)),
             None => find_workspace_root_with_loader(manifest_path, self.gctx, |self_path| {
                 Ok(self
                     .packages

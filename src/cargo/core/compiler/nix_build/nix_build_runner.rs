@@ -6,7 +6,9 @@ impl NixBuild {
         use std::process::{Command, Stdio};
 
         println!("Starting nix '{}' build ...", build_type);
-        std::io::stdout().flush().map_err(|e| format!("Failed to flush stdout: {}", e))?;
+        std::io::stdout()
+            .flush()
+            .map_err(|e| format!("Failed to flush stdout: {}", e))?;
 
         let mut command = Command::new("nix")
             .arg("build")
@@ -15,7 +17,7 @@ impl NixBuild {
             .arg("--no-link")
             .arg("-L")
             .arg("--print-out-paths")
-            .arg("cargo-0_88_0-bin-9448b8bba6ed4f6b")
+            .arg("target")
             .arg("--json")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -23,7 +25,9 @@ impl NixBuild {
             .map_err(|e| format!("Failed to execute nix-build: {}", e))?;
 
         println!("Command spawned successfully"); // Debug: Confirm spawn
-        std::io::stdout().flush().map_err(|e| format!("Failed to flush stdout: {}", e))?;
+        std::io::stdout()
+            .flush()
+            .map_err(|e| format!("Failed to flush stdout: {}", e))?;
 
         // Handle stdout in a separate thread to prevent blocking
         let stdout = command.stdout.take().ok_or("Failed to capture stdout")?;
@@ -56,13 +60,21 @@ impl NixBuild {
         });
 
         // Wait for the command to complete
-        let status = command.wait().map_err(|e| format!("Failed to wait for process: {}", e))?;
+        let status = command
+            .wait()
+            .map_err(|e| format!("Failed to wait for process: {}", e))?;
         println!("Command finished with status: {}", status); // Debug: Confirm completion
-        std::io::stdout().flush().map_err(|e| format!("Failed to flush stdout: {}", e))?;
+        std::io::stdout()
+            .flush()
+            .map_err(|e| format!("Failed to flush stdout: {}", e))?;
 
         // Ensure threads complete
-        stdout_handle.join().map_err(|e| format!("Failed to join stdout thread: {:?}", e))?;
-        stderr_handle.join().map_err(|e| format!("Failed to join stderr thread: {:?}", e))?;
+        stdout_handle
+            .join()
+            .map_err(|e| format!("Failed to join stdout thread: {:?}", e))?;
+        stderr_handle
+            .join()
+            .map_err(|e| format!("Failed to join stderr thread: {:?}", e))?;
 
         if status.success() {
             Ok(())
