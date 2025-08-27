@@ -46,11 +46,15 @@ The nix backend currently supports this:
 * supports build-script-build aka build.rs execution using build-parser 
 * supports crates residing in: local fs, crates.io and using git (all but local is in /nix/store)
 * build dependencies inside a nix-build isolated environment
-* integrates well with the flake concept
+* can easily be used from a flake
 
 ### nix build system
 
-    time nix build --file target/debug/nix/default.nix --impure -L --no-link --print-out-paths cargo-0_88_0-bin-9448b8bba6ed4f6b --json --log-format internal-json
+    time nix build --file target/debug/nix/default.nix --impure -L --no-link --print-out-paths target --json --log-format internal-json
+
+afterwards install it with running something like:
+
+    /nix/store/5646xcjihqq11icyxyr3s0jc89s8j1hj-cargo-targets-symlinks/bin/cargo-targets-symlinks
 
 ### injecting dependencies (pkg-config, openssl, ...)
 
