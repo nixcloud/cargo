@@ -479,7 +479,6 @@ impl<'gctx> RegistrySource<'gctx> {
         gctx: &'gctx GlobalContext,
     ) -> CargoResult<RegistrySource<'gctx>> {
         assert!(source_id.is_remote_registry());
-        println!("creating aq remote registry");
         let name = short_name(
             source_id,
             gctx.cli_unstable()
@@ -530,8 +529,6 @@ impl<'gctx> RegistrySource<'gctx> {
         ops: Box<dyn RegistryData + 'gctx>,
         yanked_whitelist: &HashSet<PackageId>,
     ) -> RegistrySource<'gctx> {
-        println!("RegistrySource new");
-
         RegistrySource {
             name: name.into(),
             src_path: gctx.registry_source_path().join(name),

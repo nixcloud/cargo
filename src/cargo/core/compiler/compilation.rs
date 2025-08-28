@@ -479,7 +479,7 @@ fn target_runner(
 
 /// Gets the user-specified linker for a particular host or target from the configuration.
 fn target_linker(bcx: &BuildContext<'_, '_>, kind: CompileKind) -> CargoResult<Option<PathBuf>> {
-    println!("target_linker is called");
+    // println!("target_linker is called");
     // Try host.linker and target.{}.linker.
     if let Some(path) = bcx
         .target_data
@@ -488,7 +488,7 @@ fn target_linker(bcx: &BuildContext<'_, '_>, kind: CompileKind) -> CargoResult<O
         .as_ref()
         .map(|l| l.val.clone().resolve_program(bcx.gctx))
     {
-        println!("target_linker path: {:?}", path);
+        // println!("target_linker path: {:?}", path);
         return Ok(Some(path));
     }
 
