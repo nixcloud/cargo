@@ -2,7 +2,7 @@ use crate::core::compiler::Unit;
 use crate::core::manifest::TargetSourcePath;
 use crate::core::{Target, Workspace};
 use crate::ops::CompileOptions;
-use crate::util::CargoResult;
+use crate::util::{BuildBackend, CargoResult};
 use anyhow::bail;
 use cargo_util::paths::normalize_path;
 use cargo_util::ProcessBuilder;
@@ -133,7 +133,7 @@ pub fn path_args(ws: &Workspace<'_>, unit: &Unit) -> (PathBuf, PathBuf) {
 
     let pkg = unit.pkg.package_id();
     let is_root = ws.members().any(|member| member.package_id() == pkg);
-    if ws.gctx().nix().unwrap().is_some() && !is_root {
+    if ws.gctx().backend().unwrap() == BuildBackend::Nix && !is_root {
         //println!("WARNING HACK: hacking src to drop unit.pkg.root() from path");
         let p = src.strip_prefix(unit.pkg.root()).unwrap();
         (PathBuf::from(p), unit.pkg.root().to_path_buf())

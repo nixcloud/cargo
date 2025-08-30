@@ -1,21 +1,27 @@
 # WARNING
 
-This is the libnix concept integrated into cargo using a 'nix build backend', see discussion at https://lastlog.de/blog/libnix_rust_abstractions.html
+This is the libnix concept integrated into cargo using a 'nix build backend', see discussion at https://lastlog.de/blog/timeline.html?filter=tag::libnix
 
 # What it can do
 
 * extended 'cargo build' so it uses 'nix build' internally by generating nix files on the fly and then build it using 'nix build'!
-* each dependency crate is its own nix store path so you will never have to recompile them again unless their input changes (rustc, cargo, env vars)
+* each dependency crate download/build uses its own store path and built in a sandbox so you will never have to recompile them again unless their input changes (rustc, cargo, env vars)
+* the root crate builds are built in a sandbox also
+* build artifacts during build can be reused during deployment (speedup, size reduction)
+* most 'heavy weight' asses like the toolchain and intermediate downloads/build artifacts are in the /nix/store and NOT in target/debug or target/release so now garbage collection is done by nix-collect-garbage
+* the cargo binary generates a nix-based toolchain and spawns the environment used to build (rustc, cargo, ...)
+* supports build-script-build aka build.rs execution using build-parser 
+* can easily be used from a flake
 
 # What it can't do
 
-* sadly it does not support cargo's .fingerprint mechanism to have 'faster' compiles
+* no .fingerprint support yet, so no fast iteration on builds
 
 ## State of development
 
-* it builds cargo and klick using nix
-* proper project setup to use it is still a lot of work
-* there is no 'install_phase' so it generates binaries but they are not in ./bin nor do they have useful names yet
+* experimental backend builds 'cargo' (itself) and klick without any issues
+* project setup to use it is still a lot of work
+* 'cargo build' prints a store path and requires one more manual step
 
 # How to use
 
@@ -28,25 +34,13 @@ Type:
 
     alias cargo=/home/nixos/cargo/target/debug/cargo
 
-Call with: `CARGO_NIX_BUILDER=fast cargo build` to generate files in /tmp/nix and use the output from a flake to build.
+Call with: `CARGO_BACKEND=nix cargo build` to generate files in target/debug/nix
 Call with: `cargo build` to study the traditional build and see /tmp/out but this needs a manual cleanup before each run.
 
 Alternative calls for using the nix backend in cargo:
 
-    CARGO_NIX_BUILDER=fast cargo build
-    CARGO_NIX_BUILDER=sandbox cargo build
-    CARGO_NIX_BUILDER= cargo build
-
-    cargo -Znix --config build.nix=\"fast\" build
-    cargo -Znix --config build.nix=\"sandbox\" build
-
-The nix backend currently supports this:
-* generates a nix build system
-* builds rphtml, html5ever, klick and cargo
-* supports build-script-build aka build.rs execution using build-parser 
-* supports crates residing in: local fs, crates.io and using git (all but local is in /nix/store)
-* build dependencies inside a nix-build isolated environment
-* can easily be used from a flake
+    CARGO_BACKEND=nix cargo build
+    CARGO_BACKEND=legacy cargo build
 
 ### nix build system
 
@@ -80,19 +74,9 @@ There is an easy way to inject dependencies into the cargo generated nix attribu
         }
 
 Note: The name and version of a crate can be copied from Cargo.lock but keep in mind
-there is no check for unused or wrongly spelled dependencies or out of date versions just yet.
+there is no check for unused or wrongly spelled dependencies or out of date versions.
 
 Note: This file is optional and explicitly outside of the generated nix files so it stays in your repository.
-
-## tests
-
-need to write these tests:
-
-* several serde instances of the same version but different features (like klick does)
-* a bundled c library
-* a system c library (with pkg-config usage)
-* different arch to build for
-* usage of zig (WASM)
 
 <hr>
 

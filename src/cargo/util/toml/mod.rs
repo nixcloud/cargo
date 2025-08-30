@@ -22,6 +22,7 @@ use pathdiff::diff_paths;
 use toml_edit::ImDocument;
 use url::Url;
 
+pub use crate::util::context::BuildBackend;
 use crate::core::compiler::{CompileKind, CompileTarget};
 use crate::core::dependency::{Artifact, ArtifactTarget, DepKind};
 use crate::core::manifest::{ManifestMetadata, TargetSourcePath};
@@ -1579,7 +1580,7 @@ pub fn to_real_manifest(
         warnings,
     )?;
     let default = manifest::TomlLints::default();
-    let is_nix_build: bool = gctx.nix()?.is_some();
+    let is_nix_build: bool = gctx.backend()? == BuildBackend::Nix;
     let rustflags = lints_to_rustflags(
         normalized_toml
             .normalized_lints()

@@ -424,17 +424,6 @@ pub trait CommandExt: Sized {
         )
     }
 
-    fn arg_nix_build_opts(self) -> Self {
-        self._arg(
-            opt(
-                "nix-build",
-                "Use nix build backend with 'fast' or 'sandbox' mode.",
-            )
-            .value_name("NIX_BUILD")
-            .value_parser(["fast", "sandbox"]),
-        )
-    }
-
     fn arg_registry(self, help: &'static str) -> Self {
         self._arg(opt("registry", help).value_name("REGISTRY").add(
             clap_complete::ArgValueCandidates::new(|| {

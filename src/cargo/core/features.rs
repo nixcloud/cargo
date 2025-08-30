@@ -757,6 +757,7 @@ unstable_cli_options!(
     advanced_env: bool,
     asymmetric_token: bool = ("Allows authenticating with asymmetric tokens"),
     avoid_dev_deps: bool = ("Avoid installing dev-dependencies if possible"),
+    backend: bool = ("Allows to select the build backend"),
     binary_dep_depinfo: bool = ("Track changes to dependency artifacts"),
     bindeps: bool = ("Allow Cargo packages to depend on bin, cdylib, and staticlib crates, and use the artifacts built by those crates"),
     build_dir: bool = ("Enable the `build.build-dir` option in .cargo/config.toml file"),
@@ -783,7 +784,6 @@ unstable_cli_options!(
     msrv_policy: bool = ("Enable rust-version aware policy within cargo"),
     mtime_on_use: bool = ("Configure Cargo to update the mtime of used files"),
     next_lockfile_bump: bool,
-    nix: bool = ("Allow use of the build.nix config key"),
     no_index_update: bool = ("Do not update the registry index even if the cache is outdated"),
     package_workspace: bool = ("Handle intra-workspace dependencies when packaging"),
     panic_abort_tests: bool = ("Enable support to run tests with -Cpanic=abort"),
@@ -1267,6 +1267,7 @@ impl CliUnstable {
             "avoid-dev-deps" => self.avoid_dev_deps = parse_empty(k, v)?,
             "binary-dep-depinfo" => self.binary_dep_depinfo = parse_empty(k, v)?,
             "bindeps" => self.bindeps = parse_empty(k, v)?,
+            "backend" => self.backend = parse_empty(k, v)?,
             "build-dir" => self.build_dir = parse_empty(k, v)?,
             "build-std" => self.build_std = Some(parse_list(v)),
             "build-std-features" => self.build_std_features = Some(parse_list(v)),
@@ -1314,7 +1315,6 @@ impl CliUnstable {
             "target-applies-to-host" => self.target_applies_to_host = parse_empty(k, v)?,
             "unstable-options" => self.unstable_options = parse_empty(k, v)?,
             "warnings" => self.warnings = parse_empty(k, v)?,
-            "nix" => self.nix = parse_empty(k, v)?,
             _ => bail!("\
             unknown `-Z` flag specified: {k}\n\n\
             For available unstable features, see https://doc.rust-lang.org/nightly/cargo/reference/unstable.html\n\

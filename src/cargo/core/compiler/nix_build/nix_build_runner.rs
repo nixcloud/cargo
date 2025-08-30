@@ -10,22 +10,30 @@ impl NixBuild {
             .flush()
             .map_err(|e| format!("Failed to flush stdout: {}", e))?;
 
-        let mut command = Command::new("nix")
+            let mut binding = Command::new("nix");
+            binding
             .arg("build")
             .arg("--file")
             .arg(format!("target/{}/nix/cargo_build_caller.nix", build_type))
-            .arg("--no-link")
+            .arg("--out-link")
+            .arg(format!("target/{}/nix/result_cargo_build", build_type))
             .arg("-L")
             .arg("--print-out-paths")
             .arg("target")
             .arg("--json")
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+            .stderr(Stdio::piped());
+
+            println!(
+                "Command: {:?} {:?}",
+                binding.get_program(),
+                binding.get_args().collect::<Vec<_>>()
+            );
+
+            let mut command = binding.spawn()
             .map_err(|e| format!("Failed to execute nix-build: {}", e))?;
 
-        println!("Command spawned successfully"); // Debug: Confirm spawn
-        std::io::stdout()
+            std::io::stdout()
             .flush()
             .map_err(|e| format!("Failed to flush stdout: {}", e))?;
 

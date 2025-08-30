@@ -1,6 +1,6 @@
 use crate::command_prelude::*;
 
-use crate::util::NixBuild;
+use crate::util::BuildBackend;
 use cargo::ops;
 
 pub fn cli() -> Command {
@@ -29,7 +29,6 @@ pub fn cli() -> Command {
             "Build all targets",
         )
         .arg_features()
-        .arg_nix_build_opts()
         .arg_release("Build artifacts in release mode, with optimizations")
         .arg_redundant_default_mode("debug", "build", "release")
         .arg_profile("Build artifacts with the specified profile")
@@ -49,15 +48,14 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
-    match gctx.nix()? {
-        None => {}
-        Some(NixBuild::Fast) => {
+    match gctx.backend()? {
+        BuildBackend::Legacy => {
             println!("❄❄❄  snowflake edition ❄❄❄");
-            println!("NixBuild is set to Fast");
+            println!("Using legacy backend to build crates");
         }
-        Some(NixBuild::Sandbox) => {
+        BuildBackend::Nix => {
             println!("❄❄❄  snowflake edition ❄❄❄");
-            println!("NixBuild is set to Sandbox");
+            println!("Using nix backend to build crates");
         }
     };
 

@@ -27,14 +27,14 @@
           build_parser = build-parser.packages.${system}.default;
           project_root = inputs.project_root or builtins.toPath "./.";
 
-          cargo_packages =
-            import nix/derivations/default.nix {
-              inherit pkgs rustc cargo external_crate_dependencies build_parser project_root;
-            };
+          #cargo_packages =
+          #  import nix/derivations/default.nix {
+          #    inherit pkgs rustc cargo external_crate_dependencies build_parser project_root;
+          #  };
         in
         with pkgs;
         rec {
-          packages = cargo_packages;
+          #packages = cargo_packages;
 
           devShells.default = mkShell {
             buildInputs = [

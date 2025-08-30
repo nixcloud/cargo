@@ -56,6 +56,7 @@ mod unit;
 pub mod unit_dependencies;
 pub mod unit_graph;
 
+use crate::util::BuildBackend;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -762,7 +763,7 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
 /// from build scripts.
 fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuilder> {
     let bcx = build_runner.bcx;
-    let is_nix_build: bool = build_runner.bcx.gctx.nix()?.is_some();
+    let is_nix_build: bool = build_runner.bcx.gctx.backend()? == BuildBackend::Nix;
     // script_metadata is not needed here, it is only for tests.
     let mut rustdoc = build_runner.compilation.rustdoc_process(unit, None)?;
     rustdoc.inherit_jobserver(&build_runner.jobserver);
@@ -1059,7 +1060,7 @@ fn build_base_args(
     edition.cmd_edition_arg(cmd);
 
     add_path_args(bcx.ws, unit, cmd);
-    if bcx.gctx.nix()?.is_none() {
+    if bcx.gctx.backend()? == BuildBackend::Legacy {
         add_error_format_and_color(build_runner, cmd);
     }
     add_allow_features(build_runner, cmd);
@@ -1174,7 +1175,7 @@ fn build_base_args(
         cmd.arg("--cfg").arg("test");
     }
 
-    let is_nix_build: bool = bcx.gctx.nix()?.is_some();
+    let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
 
     if is_nix_build {
         cmd.arg("\\\n        ${fn.rustc_arguments passthru.rust_crate_parent}");
@@ -1195,12 +1196,15 @@ fn build_base_args(
         cmd.arg("-C").arg("rpath");
     }
 
-    if bcx.gctx.nix()?.is_none() {
-        cmd.arg("--out-dir")
-            .arg(&build_runner.files().out_dir(unit));
-    } else {
-        //println!("WARNING HACK: --out-dir=$OUT_DIR");
-        cmd.arg("--out-dir $OUT_DIR");
+    match bcx.gctx.backend()? {
+        BuildBackend::Legacy => {
+            cmd.arg("--out-dir")
+                .arg(&build_runner.files().out_dir(unit));
+            },
+        BuildBackend::Nix => {
+            //println!("WARNING HACK: --out-dir=$OUT_DIR");
+            cmd.arg("--out-dir $OUT_DIR");
+        }
     }
 
     fn opt(cmd: &mut ProcessBuilder, key: &str, prefix: &str, val: Option<&OsStr>) {
@@ -1226,16 +1230,19 @@ fn build_base_args(
             .map(|s| s.as_ref()),
     );
     if incremental {
-        if bcx.gctx.nix()?.is_none() {
-            let dir = build_runner
-                .files()
-                .layout(unit.kind)
-                .incremental()
-                .as_os_str();
-            opt(cmd, "-C", "incremental=", Some(dir));
-        } else {
-            //println!("WARNING HACK: incremental=$INC_DIR");
-            opt(cmd, "-C", "incremental=$INC_DIR", None);
+        match bcx.gctx.backend()? {
+            BuildBackend::Legacy => {
+                let dir = build_runner
+                    .files()
+                    .layout(unit.kind)
+                    .incremental()
+                    .as_os_str();
+                opt(cmd, "-C", "incremental=", Some(dir));
+            },
+            BuildBackend::Nix => {
+                //println!("WARNING HACK: incremental=$INC_DIR");
+                opt(cmd, "-C", "incremental=$INC_DIR", None);
+            }
         }
     }
 
@@ -1507,7 +1514,7 @@ fn build_deps_args(
 ) -> CargoResult<()> {
     let bcx = build_runner.bcx;
 
-    if bcx.gctx.nix()?.is_none() {
+    if bcx.gctx.backend()? == BuildBackend::Legacy {
         cmd.arg("-L").arg(&{
             let mut deps = OsString::from("dependency=");
             deps.push(build_runner.files().deps_dir(unit));
@@ -1642,29 +1649,32 @@ pub fn extern_args(
             value.push("=");
 
             let mut pass = |file: &PathBuf| {
-                if build_runner.bcx.gctx.nix().unwrap().is_none() {
-                    let mut value = value.clone();
-                    value.push(file);
-                    result.push(OsString::from("--extern"));
-                    result.push(value);
-                } else {
-                    let binding = OsString::new();
-                    let file = file.file_name().unwrap_or(&binding);
-                    let mut value: OsString = value.clone();
+                match build_runner.bcx.gctx.backend().unwrap() {
+                    BuildBackend::Legacy => {
+                        let mut value = value.clone();
+                        value.push(file);
+                        result.push(OsString::from("--extern"));
+                        result.push(value);
+                    },
+                    BuildBackend::Nix => {
+                        let binding = OsString::new();
+                        let file = file.file_name().unwrap_or(&binding);
+                        let mut value: OsString = value.clone();
 
-                    //println!("WARNING HACK: --extern=${{lib-termcolor-1_4_1}}/...");
-                    // ${lib-termcolor-1_4_1}
-                    let nix_attribute_name = crate::core::compiler::nix_build::create_nix_name(
-                        &dep.unit,
-                        &build_runner,
-                        crate::core::compiler::nix_build::NixNameMode::AttributeName,
-                        false,
-                    );
-                    value.push(format!("${{{}}}/", nix_attribute_name));
+                        //println!("WARNING HACK: --extern=${{lib-termcolor-1_4_1}}/...");
+                        // ${lib-termcolor-1_4_1}
+                        let nix_attribute_name = crate::core::compiler::nix_build::create_nix_name(
+                            &dep.unit,
+                            &build_runner,
+                            crate::core::compiler::nix_build::NixNameMode::AttributeName,
+                            false,
+                        );
+                        value.push(format!("${{{}}}/", nix_attribute_name));
 
-                    value.push(file);
-                    result.push(OsString::from("--extern"));
-                    result.push(value);
+                        value.push(file);
+                        result.push(OsString::from("--extern"));
+                        result.push(value);
+                    }
                 };
             };
 

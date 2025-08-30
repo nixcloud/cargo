@@ -26,6 +26,7 @@ use super::{
 };
 
 use crate::core::compiler::nix_build::NixBuildRunner;
+pub use crate::util::context::BuildBackend;
 use cargo_util::ProcessBuilder;
 
 mod compilation_files;
@@ -210,7 +211,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
             fingerprint.clear_memoized();
         }
 
-        if self.bcx.gctx.nix()?.is_some() {
+        if self.bcx.gctx.backend()? == BuildBackend::Nix {
             let _nix_build_runner = NixBuildRunner::build(&self)?;
             //println!("WARNING HACK: we just quit before jobs.enqueue");
             return Ok(self.compilation);
@@ -256,7 +257,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
             // Collect information for `rustdoc --test`.
             if unit.mode.is_doc_test() {
-                let is_nix_build: bool = self.bcx.gctx.nix()?.is_some();
+                let is_nix_build: bool = self.bcx.gctx.backend()? == BuildBackend::Nix;
                 let mut unstable_opts = false;
                 let mut args = compiler::extern_args(&self, unit, &mut unstable_opts)?;
                 args.extend(compiler::lto_args(&self, unit));

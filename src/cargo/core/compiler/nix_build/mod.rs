@@ -19,8 +19,8 @@ use handlebars::Handlebars;
 use regex::Regex;
 
 use indoc::indoc;
-use std::collections::{BTreeSet, HashSet};
-use std::fs::{create_dir_all, File};
+use std::collections::BTreeSet;
+use std::fs::File;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
@@ -942,7 +942,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     t.binary_name,
                     t.attribute_name,
                     t.binary_name,
-                    requested_profile
+                    requested_profile,
                 )
                 .to_string()
                 .indentation(2)
