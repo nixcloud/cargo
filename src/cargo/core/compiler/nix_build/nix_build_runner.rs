@@ -25,9 +25,9 @@ impl NixBuild {
             .stderr(Stdio::piped());
 
             println!(
-                "Command: {:?} {:?}",
-                binding.get_program(),
-                binding.get_args().collect::<Vec<_>>()
+                "Command: {} {}",
+                binding.get_program().to_string_lossy(),
+                binding.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>().join(" ")
             );
 
             let mut command = binding.spawn()
