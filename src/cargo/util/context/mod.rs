@@ -254,7 +254,7 @@ pub struct GlobalContext {
     /// The build backend used for compiling crates, either:
     ///  - "Legacy" or
     ///  - "Nix"
-    // Note: This should live in build_config but I didn't understand the deserializer and 
+    // Note: This should live in build_config but I didn't understand the deserializer and
     //       did not get it working properly. That why this hack is here now.
     backend: BuildBackend,
 }
@@ -294,9 +294,9 @@ impl GlobalContext {
                     "nix" => BuildBackend::Nix,
                     _ => BuildBackend::Legacy,
                 },
-                None => BuildBackend::Legacy
+                None => BuildBackend::Legacy,
             },
-            None => BuildBackend::Legacy
+            None => BuildBackend::Legacy,
         };
 
         GlobalContext {
@@ -344,7 +344,7 @@ impl GlobalContext {
             ws_roots: RefCell::new(HashMap::new()),
             global_cache_tracker: LazyCell::new(),
             deferred_global_last_use: LazyCell::new(),
-            backend
+            backend,
         }
     }
 

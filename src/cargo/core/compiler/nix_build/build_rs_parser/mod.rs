@@ -9,6 +9,7 @@ pub enum BuildRsParserCommand {
     EnvironmentVariables,
 }
 
+/// exemplary interface (as alternative to what is currently used from https://github.com/nixcloud/cargo-build_script_build-parser)
 pub fn build_rs_parser(
     c: BuildRsParserCommand,
     file_path: Option<PathBuf>,

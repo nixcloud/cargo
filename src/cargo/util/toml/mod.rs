@@ -22,7 +22,6 @@ use pathdiff::diff_paths;
 use toml_edit::ImDocument;
 use url::Url;
 
-pub use crate::util::context::BuildBackend;
 use crate::core::compiler::{CompileKind, CompileTarget};
 use crate::core::dependency::{Artifact, ArtifactTarget, DepKind};
 use crate::core::manifest::{ManifestMetadata, TargetSourcePath};
@@ -32,6 +31,7 @@ use crate::core::{Dependency, Manifest, Package, PackageId, Summary, Target};
 use crate::core::{Edition, EitherManifest, Feature, Features, VirtualManifest, Workspace};
 use crate::core::{GitReference, PackageIdSpec, SourceId, WorkspaceConfig, WorkspaceRootConfig};
 use crate::sources::{CRATES_IO_INDEX, CRATES_IO_REGISTRY};
+pub use crate::util::context::BuildBackend;
 use crate::util::errors::{CargoResult, ManifestError};
 use crate::util::interning::InternedString;
 use crate::util::lints::{get_span, rel_cwd_manifest_path};

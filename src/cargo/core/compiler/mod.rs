@@ -1200,7 +1200,7 @@ fn build_base_args(
         BuildBackend::Legacy => {
             cmd.arg("--out-dir")
                 .arg(&build_runner.files().out_dir(unit));
-            },
+        }
         BuildBackend::Nix => {
             //println!("WARNING HACK: --out-dir=$OUT_DIR");
             cmd.arg("--out-dir $OUT_DIR");
@@ -1238,7 +1238,7 @@ fn build_base_args(
                     .incremental()
                     .as_os_str();
                 opt(cmd, "-C", "incremental=", Some(dir));
-            },
+            }
             BuildBackend::Nix => {
                 //println!("WARNING HACK: incremental=$INC_DIR");
                 opt(cmd, "-C", "incremental=$INC_DIR", None);
@@ -1655,7 +1655,7 @@ pub fn extern_args(
                         value.push(file);
                         result.push(OsString::from("--extern"));
                         result.push(value);
-                    },
+                    }
                     BuildBackend::Nix => {
                         let binding = OsString::new();
                         let file = file.file_name().unwrap_or(&binding);

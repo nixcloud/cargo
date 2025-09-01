@@ -1,10 +1,11 @@
+mod asserts;
 pub mod build_rs_parser;
 mod download;
 pub mod nix_build_runner;
-use download::download_git_for_metadata;
-mod asserts;
+
 use crate::core::compiler::nix_build::nix_build_runner::NixBuild;
 use asserts::{assert_escapes, assert_valid_nix_attr_name, assert_valid_nix_file_name};
+use download::download_git_for_metadata;
 
 use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
