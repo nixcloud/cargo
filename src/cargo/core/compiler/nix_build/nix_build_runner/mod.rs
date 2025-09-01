@@ -6,16 +6,15 @@ pub mod build_runner;
 
 pub use build_runner::NixBuild;
 
-/// Represents a build record from Nix build output
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct BuildRecord {
-    #[serde(rename = "drvPath")]
-    pub drv_path: String,
+    #[serde(rename = "drvPath", default)]
+    pub drv_path: Option<String>,
     pub outputs: HashMap<String, String>,
-    #[serde(rename = "startTime")]
-    pub start_time: u64,
-    #[serde(rename = "stopTime")]
-    pub stop_time: u64,
+    #[serde(rename = "startTime", default)]
+    pub start_time: Option<u64>,
+    #[serde(rename = "stopTime", default)]
+    pub stop_time: Option<u64>,
 }
 
 impl BuildRecord {
