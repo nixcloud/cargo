@@ -12,6 +12,7 @@ This is the libnix concept integrated into cargo using a 'nix build backend', se
 * the cargo binary generates a nix-based toolchain and spawns the environment used to build (rustc, cargo, ...)
 * supports build-script-build aka build.rs execution using build-parser 
 * can easily be used from a flake
+* features the @cargo protocol (similar to the @nix protocol) which mimics `cargo build`'s status output
 
 # What it can't do
 

@@ -23,14 +23,12 @@
 
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(mktemp -d)
+      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
       echo -e "\e[92mCompiling\e[0m {{{fullname}}}"
-      echo "@nix { \"action\":\"msg\",\"level\":0,\"msg\":\"  \u001b[92mCompiling\u001b[0m {{{fullname}}}\" }"
+      echo "@cargo { \"type\":0, \"crate_name\":\"{{{crate_name}}}\", \"id\":\"{{{fullname}}}\" }"
 {{{additional_build_phase_arguments}}}
-      (set -x 
 {{{command_line}}}
-      )
     '';
 {{{append}}}
 }

@@ -834,6 +834,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     &unit,
                     crate_name,
                     crate_version,
+                    fullname,
                     &process_builder,
                     is_root,
                     &mut all_nodes,
@@ -847,6 +848,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     &unit,
                     crate_name,
                     crate_version,
+                    fullname,
                     &process_builder,
                     is_root,
                     &mut all_nodes,
@@ -869,7 +871,7 @@ impl<'a, 'gctx> NixBuildRunner {
             .clone()
             .join("cargo_build_caller.nix")
             .into_path_unlocked();
-        let mut file = File::create(cargo_build_caller_path)?;
+        let mut file = File::create(&cargo_build_caller_path)?;
         write!(file, "{}", rendered)?;
 
         // default.nix //////////////////////////////////////////////////////////////////////////////////
@@ -968,7 +970,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let mut file = File::create(target_path)?;
         write!(file, "{}", rendered)?;
 
-        NixBuild::build(requested_profile).unwrap();
+        NixBuild::build(nix_base_dir).unwrap();
 
         Ok(())
     }
@@ -978,6 +980,7 @@ impl<'a, 'gctx> NixBuildRunner {
         unit: &Unit,
         crate_name: String,
         crate_version: String,
+        fullname: String,
         process_builder: &ProcessBuilder,
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
@@ -1020,8 +1023,11 @@ impl<'a, 'gctx> NixBuildRunner {
                 r#"
                 ${{{}}}/build_script_build > $OUT_DIR/nix/build_script_build.out
                 ${{build_parser}}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results
+                echo "@cargo {{\"type\": 2, \"crate_name\": \"{}\", \"id\": \"{}\", \"rustc_exit_code\": 0, \"rustc_messages\": []}}"
             "#},
-            parent_full_name
+            parent_full_name,
+            crate_name,
+            fullname,
             ).to_string().indentation(6)
             );
 
@@ -1040,11 +1046,25 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let additional_build_phase_arguments = handle_dynamic_crate_aspects(unit, &deps);
 
+        fn embed_command_line_set_x(command_line: &str) -> String {
+            format!(
+                indoc! {r#"
+                (
+                    set -x
+                    {}
+                )
+            "#},
+            command_line,
+            )
+            .to_string()
+            .indentation(4)
+        }
+
         let rendered = handlebars.render(
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
-                "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
+                "fullname": fullname,
                 "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
                 "crate_name": crate_name,
                 "crate_version": crate_version,
@@ -1055,7 +1075,8 @@ impl<'a, 'gctx> NixBuildRunner {
                 "rust_script_build_run": deps.rust_script_build_run.iter().map(|m|m.nix_attribute_name.clone()).collect::<Vec<String>>().join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
-                "command_line": assert_escapes(&command_line.join("\n")),
+                "command_line": embed_command_line_set_x(assert_escapes(&command_line.join("\n").as_str())),
+
             }),
         )?;
 
@@ -1075,6 +1096,7 @@ impl<'a, 'gctx> NixBuildRunner {
         unit: &Unit,
         crate_name: String,
         crate_version: String,
+        fullname: String,
         process_builder: &ProcessBuilder,
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
@@ -1103,21 +1125,73 @@ impl<'a, 'gctx> NixBuildRunner {
         let environment_variables: String =
             generate_environment_variables(workspace, unit, process_builder)?;
 
-        let mut command_line: Vec<String> = vec![];
-        command_line.push(format!(
-            "      ${{RUSTC}}{}",
-            process_builder
-                .get_args()
-                .map(|arg| {
-                    let arg_str = arg.to_string_lossy();
-                    if arg_str.starts_with('-') {
-                        format!(" \\\n        {}", arg_str)
-                    } else {
-                        format!(" {}", arg_str)
-                    }
-                })
-                .collect::<String>()
-        ));
+        let template_str = indoc! {
+        r#"
+        rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
+        set -x +e
+        ${RUSTC}{{{process_builder}}} 2> $rustc_json_output_lines
+        rustc_exit_value=$?
+        set +x -e
+     
+        # print errors
+        while IFS= read -r line
+        do
+            tmpFile=$(${pkgs.mktemp}/bin/mktemp)
+            echo "$line" > $tmpFile
+            ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
+        done < $rustc_json_output_lines
+        {{{create_symlink}}}
+
+        # return structured formatted errors for later processing
+        output=$(${pkgs.jq}/bin/jq -s -r -c \
+            --arg fullname "{{{fullname}}}" \
+            --arg crate_name "{{{crate_name}}}" \
+            --arg exit_code "$rustc_exit_value" \
+            '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
+            "$rustc_json_output_lines")
+        printf '@cargo %s\n' "$output"
+        if [ "$rustc_exit_value" -ne 0 ]; then
+            exit $rustc_exit_value
+        fi
+        "#}
+        .to_string();
+
+        let process_builder = process_builder
+        .get_args()
+        .map(|arg| {
+            let arg_str = arg.to_string_lossy();
+            if arg_str.starts_with('-') {
+                format!(" \\\n        {}", arg_str)
+            } else {
+                format!(" {}", arg_str)
+            }
+        })
+        .collect::<String>();
+
+        let create_symlink = if crate_build_type(&unit) == CrateBuildType::ScriptBuild {
+            let meta = build_runner.files().metadata(&unit);
+            let hash: String = meta.c_extra_filename().unwrap().to_string();
+            
+                format!(
+                    indoc! {r#"
+                    ln -s $OUT_DIR/"$CARGO_CRATE_NAME"-{} $OUT_DIR/build_script_build
+                "#},
+                    hash
+                )
+                .to_string()
+                .indentation(6)
+        } else {"".to_string()};
+
+        handlebars.register_template_string("command_line", template_str)?;
+        let command_line: String = handlebars.render(
+            "command_line",
+            &serde_json::json!({
+                "process_builder": assert_escapes(&process_builder),
+                "fullname": fullname,
+                "create_symlink": create_symlink,
+                "crate_name": crate_name,
+            }),
+        )?;
 
         let default_function_arguments: Vec<String> = vec!["fn", "pkgs", "rustc", "cargo", "deps"]
             .iter()
@@ -1132,21 +1206,6 @@ impl<'a, 'gctx> NixBuildRunner {
         let function_arguments: Vec<String> = [default_function_arguments, root_deps].concat();
 
         let additional_build_phase_arguments = handle_dynamic_crate_aspects(unit, &deps);
-
-        if crate_build_type(&unit) == CrateBuildType::ScriptBuild {
-            let meta = build_runner.files().metadata(&unit);
-            let hash: String = meta.c_extra_filename().unwrap().to_string();
-            command_line.push(
-                format!(
-                    indoc! {r#"
-                    ln -s $OUT_DIR/"$CARGO_CRATE_NAME"-{} $OUT_DIR/build_script_build
-                "#},
-                    hash
-                )
-                .to_string()
-                .indentation(6),
-            );
-        };
 
         let mut phases: Vec<&str> = vec!["unpackPhase", "buildPhase"];
         let mut append: Vec<String> = vec![];
@@ -1197,7 +1256,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "rust_script_build_run": deps.rust_script_build_run.iter().map(|m|m.nix_attribute_name.clone()).collect::<Vec<String>>().join(" "),
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
-                "command_line": assert_escapes(&command_line.join("\n")),
+                "command_line": command_line.indentation(6),
                 "append": append.join("\n"),
             }),
         )?;

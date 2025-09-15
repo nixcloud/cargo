@@ -51,11 +51,11 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
     match gctx.backend()? {
         BuildBackend::Legacy => {
             println!("❄❄❄  snowflake edition ❄❄❄");
-            println!("Using legacy backend to build crates");
+            println!("Using 'legacy' backend to build crates");
         }
         BuildBackend::Nix => {
             println!("❄❄❄  snowflake edition ❄❄❄");
-            println!("Using nix backend to build crates");
+            println!("Using 'nix' backend to build crates");
         }
     };
 

@@ -780,7 +780,8 @@ fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResu
     rustdoc.args(&features_args(unit, is_nix_build));
     rustdoc.args(&check_cfg_args(unit, is_nix_build));
 
-    add_error_format_and_color(build_runner, &mut rustdoc);
+    let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
+    add_error_format_and_color(build_runner, &mut rustdoc, is_nix_build);
     add_allow_features(build_runner, &mut rustdoc);
 
     if let Some(trim_paths) = unit.profile.trim_paths.as_ref() {
@@ -1009,7 +1010,7 @@ fn add_allow_features(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuild
 /// which Cargo will extract and display to the user.
 ///
 /// [`--error-format`]: https://doc.rust-lang.org/nightly/rustc/command-line-arguments.html#--error-format-control-how-errors-are-produced
-fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuilder) {
+fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuilder, is_nix_build: bool) {
     cmd.arg("--error-format=json");
     let mut json = String::from("--json=diagnostic-rendered-ansi,artifacts,future-incompat");
 
@@ -1022,8 +1023,10 @@ fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut Proc
     cmd.arg(json);
 
     let gctx = build_runner.bcx.gctx;
-    if let Some(width) = gctx.shell().err_width().diagnostic_terminal_width() {
-        cmd.arg(format!("--diagnostic-width={width}"));
+    if is_nix_build {
+        if let Some(width) = gctx.shell().err_width().diagnostic_terminal_width() {
+            cmd.arg(format!("--diagnostic-width={width}"));
+        }
     }
 }
 
@@ -1060,9 +1063,8 @@ fn build_base_args(
     edition.cmd_edition_arg(cmd);
 
     add_path_args(bcx.ws, unit, cmd);
-    if bcx.gctx.backend()? == BuildBackend::Legacy {
-        add_error_format_and_color(build_runner, cmd);
-    }
+    let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
+    add_error_format_and_color(build_runner, cmd, is_nix_build);
     add_allow_features(build_runner, cmd);
 
     let mut contains_dy_lib = false;

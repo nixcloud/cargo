@@ -38,6 +38,7 @@
 
           devShells.default = mkShell {
             buildInputs = [
+	      nix-output-monitor
               openssl
               pkg-config
               nushell

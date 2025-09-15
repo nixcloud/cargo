@@ -1,13 +1,14 @@
 use super::build_result_parser::parse_stdout_lines;
+use crate::util::Filesystem;
 
 pub struct NixBuild {}
 
 impl NixBuild {
-    pub fn build(build_type: &str) -> Result<(), String> {
+    pub fn build(nix_base_dir: Filesystem) -> Result<(), String> {
         use std::io::{BufRead, BufReader, Write};
         use std::process::{Command, Stdio};
 
-        println!("Starting nix '{}' build ...", build_type);
+        println!("Starting nix '{}' build ...", nix_base_dir.display().to_string());
         std::io::stdout()
             .flush()
             .map_err(|e| format!("Failed to flush stdout: {}", e))?;
@@ -16,9 +17,9 @@ impl NixBuild {
         binding
             .arg("build")
             .arg("--file")
-            .arg(format!("target/{}/nix/cargo_build_caller.nix", build_type))
+            .arg(format!("{}/cargo_build_caller.nix", nix_base_dir.display().to_string()))
             .arg("--out-link")
-            .arg(format!("target/{}/nix/result_cargo_build", build_type))
+            .arg(format!("{}/result_cargo_build", nix_base_dir.display().to_string()))
             .arg("-L")
             .arg("target")
             .arg("--json")
