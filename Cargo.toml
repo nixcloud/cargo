@@ -69,12 +69,10 @@ memchr = "2.7.4"
 miow = "0.6.0"
 opener = "0.7.2"
 openssl = "0.10.57"
-openssl-sys = "0.9.92"
 os_info = { version = "3.10.0", default-features = false }
 pasetors = { version = "0.7.2", features = ["v3", "paserk", "std", "serde"] }
 pathdiff = "0.2.3"
 percent-encoding = "2.3.1"
-pkg-config = "0.3.31"
 proptest = "1.6.0"
 pulldown-cmark = { version = "0.13.0", default-features = false, features = ["html"] }
 rand = "0.9.0"
@@ -219,6 +217,7 @@ url.workspace = true
 walkdir.workspace = true
 handlebars.workspace = true
 indoc = "2.0.6"
+logone = "0.2.3"
 
 [target.'cfg(target_has_atomic = "64")'.dependencies]
 tracing-chrome.workspace = true

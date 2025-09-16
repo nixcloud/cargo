@@ -1,6 +1,8 @@
 use super::build_result_parser::parse_stdout_lines;
 use crate::util::Filesystem;
 
+use logone::{LogLevel, LogOne};
+
 pub struct NixBuild {}
 
 impl NixBuild {
@@ -23,6 +25,8 @@ impl NixBuild {
             .arg("-L")
             .arg("target")
             .arg("--json")
+            .arg("--log-format")
+            .arg("internal-json")            
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -44,7 +48,7 @@ impl NixBuild {
             .flush()
             .map_err(|e| format!("Failed to flush stdout: {}", e))?;
 
-        // Handle stdout in a separate thread to prevent blocking
+        // Handle stdout in a separate thread → JSON capture only
         let stdout = command.stdout.take().ok_or("Failed to capture stdout")?;
         let stdout_reader = BufReader::new(stdout);
         let stdout_handle = std::thread::spawn(move || {
@@ -53,27 +57,27 @@ impl NixBuild {
             for line in stdout_reader.lines() {
                 match line {
                     Ok(line) => {
-                        println!("stdout: {}", line);
                         json_string.push(line);
-                        let _ = std::io::stdout().flush(); // Ensure immediate output
+                        let _ = std::io::stdout().flush();
                     }
-                    Err(e) => println!("Error reading stdout: {}", e),
+                    Err(e) => eprintln!("Error reading stdout: {}", e),
                 }
             }
             json_string
         });
 
-        // Handle stderr in a separate thread to prevent blocking
+        // Handle stderr in a separate thread → use logone
         let stderr = command.stderr.take().ok_or("Failed to capture stderr")?;
         let stderr_reader = BufReader::new(stderr);
         let stderr_handle = std::thread::spawn(move || {
+            let mut logone = LogOne::new(true, LogLevel::Cargo);
+
             for line in stderr_reader.lines() {
                 match line {
                     Ok(line) => {
-                        println!("stderr: {}", line);
-                        let _ = std::io::stdout().flush(); // Ensure immediate output
+                        let _ = logone::parser::parse_nix_line(&line, &mut logone);
                     }
-                    Err(e) => println!("Error reading stderr: {}", e),
+                    Err(e) => eprintln!("Error reading stderr: {}", e),
                 }
             }
         });
@@ -82,7 +86,7 @@ impl NixBuild {
         let status = command
             .wait()
             .map_err(|e| format!("Failed to wait for process: {}", e))?;
-        //println!("Command finished with status: {}", status); // Debug: Confirm completion
+
         std::io::stdout()
             .flush()
             .map_err(|e| format!("Failed to flush stdout: {}", e))?;
@@ -98,19 +102,16 @@ impl NixBuild {
         if status.success() {
             let build_records = parse_stdout_lines(stdout_lines);
             for record in build_records {
-                match record.outputs.get("out") {
-                    Some(out) => {
-                        let activation_script = format!("{}/bin/create-symlinks", out);
-                        let _ = Command::new(&activation_script).output().expect(
-                            format!(
-                                "failed to execute create-symlinks for: {}",
-                                &activation_script
-                            )
-                            .as_str(),
-                        );
-                        println!("Created symlink for programs using '{}'", activation_script);
-                    }
-                    None => {}
+                if let Some(out) = record.outputs.get("out") {
+                    let activation_script = format!("{}/bin/create-symlinks", out);
+                    let _ = Command::new(&activation_script).output().expect(
+                        format!(
+                            "failed to execute create-symlinks for: {}",
+                            &activation_script
+                        )
+                        .as_str(),
+                    );
+                    println!("Created symlink for programs using '{}'", activation_script);
                 }
             }
             Ok(())
