@@ -1,19 +1,22 @@
 use super::build_result_parser::parse_stdout_lines;
 use crate::util::Filesystem;
+use crate::util::{CargoResult, GlobalContext};
 
 use logone::{LogLevel, LogOne};
 
 pub struct NixBuild {}
 
 impl NixBuild {
-    pub fn build(nix_base_dir: Filesystem) -> Result<(), String> {
+    pub fn build<'gctx>(
+        nix_base_dir: Filesystem,
+        gctx: &'gctx GlobalContext,
+    ) -> CargoResult<()> {
         use std::io::{BufRead, BufReader, Write};
         use std::process::{Command, Stdio};
 
-        println!("Starting nix '{}' build ...", nix_base_dir.display().to_string());
         std::io::stdout()
             .flush()
-            .map_err(|e| format!("Failed to flush stdout: {}", e))?;
+            .map_err(|e| anyhow::format_err!("Failed to flush stdout: {}", e))?;
 
         let mut binding = Command::new("nix");
         binding
@@ -26,12 +29,12 @@ impl NixBuild {
             .arg("target")
             .arg("--json")
             .arg("--log-format")
-            .arg("internal-json")            
+            .arg("internal-json")          
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
         println!(
-            "Command: {} {}",
+        "Starting nix build: '{} {}'", 
             binding.get_program().to_string_lossy(),
             binding
                 .get_args()
@@ -42,14 +45,14 @@ impl NixBuild {
 
         let mut command = binding
             .spawn()
-            .map_err(|e| format!("Failed to execute nix-build: {}", e))?;
+            .map_err(|e| anyhow::format_err!("Failed to execute nix-build: {}", e))?;
 
         std::io::stdout()
             .flush()
-            .map_err(|e| format!("Failed to flush stdout: {}", e))?;
+            .map_err(|e| anyhow::format_err!("Failed to flush stdout: {}", e))?;
 
         // Handle stdout in a separate thread → JSON capture only
-        let stdout = command.stdout.take().ok_or("Failed to capture stdout")?;
+        let stdout = command.stdout.take().ok_or_else(||anyhow::format_err!("Failed to capture stdout"))?;
         let stdout_reader = BufReader::new(stdout);
         let stdout_handle = std::thread::spawn(move || {
             let mut json_string: Vec<String> = vec![];
@@ -67,7 +70,7 @@ impl NixBuild {
         });
 
         // Handle stderr in a separate thread → use logone
-        let stderr = command.stderr.take().ok_or("Failed to capture stderr")?;
+        let stderr = command.stderr.take().ok_or_else(|| anyhow::format_err!("Failed to capture stderr"))?;
         let stderr_reader = BufReader::new(stderr);
         let stderr_handle = std::thread::spawn(move || {
             let mut logone = LogOne::new(true, LogLevel::Cargo);
@@ -77,7 +80,10 @@ impl NixBuild {
                     Ok(line) => {
                         let _ = logone::parser::parse_nix_line(&line, &mut logone);
                     }
-                    Err(e) => eprintln!("Error reading stderr: {}", e),
+                    Err(e) => {
+                        eprintln!("Error reading stderr: {}", e);
+                        return;
+                    }
                 }
             }
         });
@@ -85,21 +91,21 @@ impl NixBuild {
         // Wait for the command to complete
         let status = command
             .wait()
-            .map_err(|e| format!("Failed to wait for process: {}", e))?;
+            .map_err(|e| {anyhow::format_err!("Failed to wait for process: {}", e)});
 
         std::io::stdout()
             .flush()
-            .map_err(|e| format!("Failed to flush stdout: {}", e))?;
+            .map_err(|e| {anyhow::format_err!("Failed to flush stdout: {}", e)})?;
 
         // Ensure threads complete
         let stdout_lines: Vec<String> = stdout_handle
             .join()
-            .map_err(|e| format!("Failed to join stdout thread: {:?}", e))?;
+            .map_err(|e| anyhow::format_err!("Failed to join stdout thread: {:?}", e))?;
         stderr_handle
             .join()
-            .map_err(|e| format!("Failed to join stderr thread: {:?}", e))?;
+            .map_err(|e| anyhow::format_err!("Failed to join stderr thread: {:?}", e))?;
 
-        if status.success() {
+        if status?.success() {
             let build_records = parse_stdout_lines(stdout_lines);
             for record in build_records {
                 if let Some(out) = record.outputs.get("out") {
@@ -111,12 +117,12 @@ impl NixBuild {
                         )
                         .as_str(),
                     );
-                    println!("Created symlink for programs using '{}'", activation_script);
+                    gctx.shell().verbose(|s| s.status("Install", format!("Created symlink for programs using '{}'", activation_script))).unwrap();
                 }
             }
             Ok(())
         } else {
-            Err("nix-build command failed".to_string())
+            anyhow::bail!("could not compile target".to_string())
         }
     }
 }

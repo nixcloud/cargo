@@ -1,5 +1,4 @@
 use crate::command_prelude::*;
-use cargo::core::compiler::nix_build::build_rs_parser::{build_rs_parser, BuildRsParserCommand};
 use std::path::PathBuf;
 
 pub fn cli() -> Command {
@@ -48,10 +47,10 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
             let file_path: Option<PathBuf> = sub_args.value_of_path("path", gctx);
             if sub_args.subcommand_matches("rustc_arguments").is_some() {
                 eprintln!("rustc_arguments for path: {:?}", file_path.clone());
-                match build_rs_parser(BuildRsParserCommand::RustcArguments, file_path.clone()) {
-                    Ok(res) => println!("{}", res),
-                    Err(e) => return Err(CliError::new(anyhow::format_err!("{e}"), 101)),
-                }
+                // match build_rs_parser(BuildRsParserCommand::RustcArguments, file_path.clone()) {
+                //     Ok(res) => println!("{}", res),
+                //     Err(e) => return Err(CliError::new(anyhow::format_err!("{e}"), 101)),
+                // }
                 return Ok(());
             }
             if sub_args
@@ -59,13 +58,13 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
                 .is_some()
             {
                 eprintln!("environment_variables for path: {:?}", file_path.clone());
-                match build_rs_parser(
-                    BuildRsParserCommand::EnvironmentVariables,
-                    file_path.clone(),
-                ) {
-                    Ok(res) => println!("{}", res),
-                    Err(e) => return Err(CliError::new(anyhow::format_err!("{e}"), 101)),
-                }
+                // match build_rs_parser(
+                //     BuildRsParserCommand::EnvironmentVariables,
+                //     file_path.clone(),
+                // ) {
+                //     Ok(res) => println!("{}", res),
+                //     Err(e) => return Err(CliError::new(anyhow::format_err!("{e}"), 101)),
+                // }
                 return Ok(());
             } else {
                 // Handle other cases or default behavior
