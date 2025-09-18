@@ -350,6 +350,7 @@ fn create_nix_filepath(
         PathBuf::from("deps")
     };
     let base_dir = out_directory.clone().join(rel_dir.clone());
+    base_dir.create_dir()?;
     let file_path = base_dir.join(file_name).into_path_unlocked();
     Ok((rel_dir.join(file_name), file_path))
 }

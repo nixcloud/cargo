@@ -24,8 +24,9 @@ impl NixBuild {
             .map_err(|e| anyhow::format_err!("Failed to flush stdout: {}", e))?;
 
         let mut binding = Command::new("nix");
-        binding
+                binding
             .arg("build")
+            .arg("target")
             .arg("--file")
             .arg(format!(
                 "{}/cargo_build_caller.nix",
@@ -36,26 +37,35 @@ impl NixBuild {
                 "{}/result_cargo_build",
                 nix_base_dir.display().to_string()
             ))
-            .arg("-L")
-            .arg("target")
             .arg("--json")
             .arg("--log-format")
             .arg("internal-json")
-            .arg(keep_going)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        println!(
-            "Starting nix build: '{} {}'",
-            binding.get_program().to_string_lossy(),
-            binding
-                .get_args()
-                .map(|arg| arg.to_string_lossy().into_owned())
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
+        if !keep_going.is_empty() {
+            binding.arg(keep_going);
+        }
+
+        gctx.shell()
+            .verbose(|s| {
+                s.status(
+                    "nix build call",
+                    format!(
+                        "{} {}",
+                        binding.get_program().to_string_lossy(),
+                        binding
+                            .get_args()
+                            .map(|arg| arg.to_string_lossy().into_owned())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    ).trim(),
+                )
+            })
+            .unwrap();
 
         let mut command = binding
+            .env_clear()
             .spawn()
             .map_err(|e| anyhow::format_err!("Failed to execute nix-build: {}", e))?;
 
@@ -125,6 +135,11 @@ impl NixBuild {
 
         if status?.success() {
             let build_records = parse_stdout_lines(stdout_lines);
+
+            if build_records.len() != 1 {
+                anyhow::bail!("Can't create result symlink because too many results were created".to_string())
+            }
+
             for record in build_records {
                 if let Some(out) = record.outputs.get("out") {
                     let activation_script = format!("{}/bin/create-symlinks", out);
