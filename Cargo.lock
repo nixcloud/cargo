@@ -2761,9 +2761,9 @@ checksum = "04cbf5b083de1c7e0222a7a51dbfdba1cbe1c6ab0b15e29fff3f6c077fd9cd9f"
 
 [[package]]
 name = "logone"
-version = "0.2.5"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "737e1c044ebcc72ca5ea9187d93f4c65a928372d39bc236c9174e09c6e6eff10"
+checksum = "9bd3d81d8fa984ac773497473f7443299ef24c2fa1d8e1c9bda78d6bb4a7cec9"
 dependencies = [
  "anyhow",
  "chrono",

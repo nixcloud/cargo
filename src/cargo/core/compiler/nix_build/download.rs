@@ -1,4 +1,5 @@
 use crate::util::CargoResult;
+use crate::util::GlobalContext;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::process::{Command, Output};
@@ -34,12 +35,12 @@ fn run_command(args: Vec<String>) -> CargoResult<Output> {
     Ok(output)
 }
 
-pub fn download_git_for_metadata(
+pub fn download_git_for_metadata<'gctx>(
     url: &String,
     rev: &String,
     branch: &String,
+    gctx: &'gctx GlobalContext,
 ) -> CargoResult<CargoMetadata> {
-    println!("Starting git download to extract the sha256");
     let args = vec![
         String::from("--url"),
         url.to_string(),
@@ -49,7 +50,10 @@ pub fn download_git_for_metadata(
         branch.to_string(),
         String::from("--sparse-checkout"),
     ];
-    println!("{:?}", &args);
+
+    gctx.shell()
+        .verbose(|s| s.status("Downloading git", &args.join(", ")))?;
+
     let output = run_command(args)?;
     let json: Value = serde_json::from_slice(&output.stdout)?;
 

@@ -1010,7 +1010,11 @@ fn add_allow_features(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuild
 /// which Cargo will extract and display to the user.
 ///
 /// [`--error-format`]: https://doc.rust-lang.org/nightly/rustc/command-line-arguments.html#--error-format-control-how-errors-are-produced
-fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuilder, is_nix_build: bool) {
+fn add_error_format_and_color(
+    build_runner: &BuildRunner<'_, '_>,
+    cmd: &mut ProcessBuilder,
+    is_nix_build: bool,
+) {
     cmd.arg("--error-format=json");
     let mut json = String::from("--json=diagnostic-rendered-ansi,artifacts,future-incompat");
 
