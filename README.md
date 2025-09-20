@@ -20,6 +20,8 @@ This is the libnix concept integrated into cargo using a 'nix build backend', se
 
 ## State of development
 
+see a `cargo build` output at https://asciinema.org/a/740836
+
 * experimental backend builds 'cargo' (itself) and klick without any issues
 * project setup to use it is still a lot of work
 * 'cargo build' prints a store path and requires one more manual step

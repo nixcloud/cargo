@@ -154,7 +154,7 @@ pub fn cargo_crate_info<'a, 'gctx>(
     let crate_version = pkg.version().to_string();
 
     let meta = build_runner.files().metadata(&unit);
-    let crate_hash: String = meta.c_extra_filename().unwrap().to_string();
+    let crate_hash: String = meta.unit_id().to_string();
 
     let cargo_crate_info: String = format!(
         indoc! {r#"
@@ -183,7 +183,7 @@ pub fn create_nix_name<'a, 'gctx>(
     let mode: &str = mode_string(&unit.mode);
 
     let meta = build_runner.files().metadata(&unit);
-    let cargo_hash: String = meta.c_extra_filename().unwrap().to_string();
+    let cargo_hash: String = meta.unit_id().to_string();
 
     let nix_name: String = match only_name_and_version {
         false => format!(
@@ -807,11 +807,12 @@ impl<'a, 'gctx> NixBuildRunner {
         // paths::remove_dir_all(&nix_derivations_dir)?;
         nix_derivations_dir.create_dir()?;
         // println!("nix_derivations_dir: {}", nix_derivations_dir.display());
-        gctx.shell().concise(|s| {
+
+        gctx.shell().verbose(|s| {
             s.status(
-                "Nix build system",
+                "Nix",
                 format!(
-                    "Need to generate: {} units.",
+                    "Creating nix build system for {} cargo units.",
                     all_units_with_process_builder.len()
                 ),
             )
@@ -1227,7 +1228,7 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let create_symlink = if crate_build_type(&unit) == CrateBuildType::ScriptBuild {
             let meta = build_runner.files().metadata(&unit);
-            let hash: String = meta.c_extra_filename().unwrap().to_string();
+            let hash: String = meta.unit_id().to_string();
 
             format!(
                 indoc! {r#"
@@ -1271,8 +1272,8 @@ impl<'a, 'gctx> NixBuildRunner {
         if crate_build_type(&unit) == CrateBuildType::BinBuild {
             // instead of using fn link_targets() or fn link_or_copy() we built the names on the fly
             let meta = build_runner.files().metadata(&unit);
-            let hash: String = meta.c_extra_filename().unwrap().to_string();
-            let binary_name = unit.target.name();
+            let hash: String = meta.unit_id().to_string();
+            let binary_name: String = unit.target.crate_name();
             let binary_name_with_hash = format!("{}-{}", binary_name, hash);
             phases.push("installPhase");
             append.push(

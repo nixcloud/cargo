@@ -34,7 +34,7 @@ impl NixBuild {
             ))
             .arg("--out-link")
             .arg(format!(
-                "{}/result_cargo_build",
+                "{}/gc/result",
                 nix_base_dir.display().to_string()
             ))
             .arg("--json")
