@@ -2,6 +2,8 @@
 
 This is the libnix concept integrated into cargo using a 'nix build backend', see discussion at https://lastlog.de/blog/timeline.html?filter=tag::libnix
 
+This is an unofficial fork of Cargo with experimental libnix integration—not endorsed by the Rust Project.
+
 # What it can do
 
 * extended 'cargo build' so it uses 'nix build' internally by generating nix files on the fly and then build it using 'nix build'!
@@ -17,6 +19,8 @@ This is the libnix concept integrated into cargo using a 'nix build backend', se
 # What it can't do
 
 * no .fingerprint support yet, so no fast iteration on builds
+* no rustdoc support
+* no sandbox testing support
 
 ## State of development
 
