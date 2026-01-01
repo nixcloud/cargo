@@ -1,12 +1,15 @@
 # WARNING
 
-This is the libnix concept integrated into cargo using a 'nix build backend', see discussion at https://lastlog.de/blog/timeline.html?filter=tag::libnix
+This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 
-This is an unofficial fork of Cargo with experimental libnix integration—not endorsed by the Rust Project.
+* https://github.com/nixcloud/cargo exists as a PR with to goal to integrate the libnix concept by adding a 'nix build backend', see discussion at https://lastlog.de/blog/timeline.html?filter=tag::libnix
+* https://github.com/nixcloud/cargo/issues for issues, do not report issues on the original cargo tracker (or their formus)!
 
-# What it can do
+# State of development
 
-* extended 'cargo build' so it uses 'nix build' internally by generating nix files on the fly and then build it using 'nix build'!
+## What it can do
+
+* extendeds 'cargo build' so it uses 'nix build' internally by generating nix files on the fly and then build it using 'nix build'!
 * each dependency crate download/build uses its own store path and built in a sandbox so you will never have to recompile them again unless their input changes (rustc, cargo, env vars)
 * the root crate builds are built in a sandbox also
 * build artifacts during build can be reused during deployment (speedup, size reduction)
@@ -16,19 +19,74 @@ This is an unofficial fork of Cargo with experimental libnix integration—not e
 * can easily be used from a flake
 * features the @cargo protocol (similar to the @nix protocol) which mimics `cargo build`'s status output
 
-# What it can't do
+## What it can't do
 
 * no .fingerprint support yet, so no fast iteration on builds
 * no rustdoc support
 * no sandbox testing support
+* no rust-analyzer support whith code for dependencies referencing the nix store at /nix/store
 
-## State of development
+## Cargo commands
 
-see a `cargo build` output at https://asciinema.org/a/740836
+### New Commands
 
-* experimental backend builds 'cargo' (itself) and klick without any issues
-* project setup to use it is still a lot of work
-* 'cargo build' prints a store path and requires one more manual step
+    [ ] nix                  Use 'nix build' with the nix job scheduler to build crates inside a sandbox
+
+### Supported commands
+
+    [x] build                Compile a local package and all of its dependencies
+
+    [ ] run                  Run a binary or example of the local package
+    [ ] install              Install a Rust binary
+    [ ] uninstall            Remove a Rust binary
+    [ ] clean                Remove artifacts that cargo has generated in the past
+    [ ] doc                  Build a package's documentation
+    [ ] lint-docs            alias: run --package xtask-lint-docs --
+    [ ] fetch                Fetch dependencies of a package from the network
+    [ ] generate-lockfile    Generate the lockfile for a package
+    [ ] vendor               Vendor all dependencies for a project locally
+    [ ] verify-project       DEPRECATED: Check correctness of crate manifest.
+    [ ] bench                Execute all benchmarks of a local package
+    [ ] build-man            alias: run --package xtask-build-man --
+    [ ] bump-check           alias: run --package xtask-bump-check --
+    [ ] package              Assemble the local package into a distributable tarball
+    [ ] rustdoc              Build a package's documentation, using specified custom flags.
+    [ ] test                 Execute all unit and integration tests and build examples of a local package
+
+    [!] check                Check a local package and all of its dependencies for errors
+    [!] clippy               Checks a package to catch common mistakes and improve your Rust code.
+    [!] config               Inspect configuration values
+    [!] files
+    [!] fix                  Automatically fix lint warnings reported by rustc
+    [!] fmt                  Formats all bin and lib files of the current crate using rustfmt.
+    [!] help                 Displays help for a cargo subcommand
+    [!] info                 Display information about a package
+    [!] init                 Create a new cargo package in an existing directory
+    [!] locate-project       Print a JSON representation of a Cargo.toml file's location
+    [!] login                Log in to a registry.
+    [!] logout               Remove an API token from the registry locally
+    [!] metadata             Output the resolved dependencies of a package, the concrete used versions including overrides, in machine-readable format
+    [!] new                  Create a new cargo package at <path>
+    [!] owner                Manage the owners of a crate on the registry
+    [!] pkgid                Print a fully qualified package specification
+    [!] publish              Upload a package to the registry
+    [!] read-manifest        DEPRECATED: Print a JSON representation of a Cargo.toml manifest.
+    [!] remove               Remove dependencies from a Cargo.toml manifest file
+    [!] report               Generate and display various kinds of reports
+    [!] rm                   alias: remove
+    [!] rustc                Compile a package, and pass extra options to the compiler
+    [!] search               Search packages in the registry. Default registry is crates.io
+    [!] stale-label          alias: run --package xtask-stale-label --
+    [!] tree                 Display a tree visualization of a dependency graph
+    [!] update               Update dependencies as recorded in the local lock file
+    [!] version              Show version information
+    [!] yank                 Remove a pushed crate from the index
+
+    legend
+
+    [x] means explicit libnix enhanced code to support this feature
+    [ ] not supported yet, but command won't tell you but at times fail strangely
+    [!] no changes were required, using vanilla cargo
 
 # How to use
 
@@ -84,135 +142,3 @@ Note: The name and version of a crate can be copied from Cargo.lock but keep in 
 there is no check for unused or wrongly spelled dependencies or out of date versions.
 
 Note: This file is optional and explicitly outside of the generated nix files so it stays in your repository.
-
-<hr>
-
-# Cargo
-
-Cargo downloads your Rust project’s dependencies and compiles your project.
-
-**To start using Cargo**, learn more at [The Cargo Book].
-
-**To start developing Cargo itself**, read the [Cargo Contributor Guide].
-
-[The Cargo Book]: https://doc.rust-lang.org/cargo/
-[Cargo Contributor Guide]: https://rust-lang.github.io/cargo/contrib/
-
-> The Cargo binary distributed through with Rust is maintained by the Cargo
-> team for use by the wider ecosystem.
-> For all other uses of this crate (as a binary or library) this is maintained
-> by the Cargo team, primarily for use by Cargo and not intended for external
-> use (except as a transitive dependency). This crate may make major changes to
-> its APIs.
-
-## Code Status
-
-[![CI](https://github.com/rust-lang/cargo/actions/workflows/main.yml/badge.svg?branch=auto-cargo)](https://github.com/rust-lang/cargo/actions/workflows/main.yml)
-
-Code documentation: <https://doc.rust-lang.org/nightly/nightly-rustc/cargo/>
-
-## Compiling from Source
-
-### Requirements
-
-Cargo requires the following tools and packages to build:
-
-* `cargo` and `rustc`
-* A C compiler [for your platform](https://github.com/rust-lang/cc-rs#compile-time-requirements)
-* `git` (to clone this repository)
-
-**Other requirements:**
-
-The following are optional based on your platform and needs.
-
-* `pkg-config` — This is used to help locate system packages, such as `libssl` headers/libraries. This may not be required in all cases, such as using vendored OpenSSL, or on Windows.
-* OpenSSL — Only needed on Unix-like systems and only if the `vendored-openssl` Cargo feature is not used.
-
-  This requires the development headers, which can be obtained from the `libssl-dev` package on Ubuntu or `openssl-devel` with apk or yum or the `openssl` package from Homebrew on macOS.
-
-  If using the `vendored-openssl` Cargo feature, then a static copy of OpenSSL will be built from source instead of using the system OpenSSL.
-  This may require additional tools such as `perl` and `make`.
-
-  On macOS, common installation directories from Homebrew, MacPorts, or pkgsrc will be checked. Otherwise it will fall back to `pkg-config`.
-
-  On Windows, the system-provided Schannel will be used instead.
-
-  LibreSSL is also supported.
-
-**Optional system libraries:**
-
-The build will automatically use vendored versions of the following libraries. However, if they are provided by the system and can be found with `pkg-config`, then the system libraries will be used instead:
-
-* [`libcurl`](https://curl.se/libcurl/) — Used for network transfers.
-* [`libgit2`](https://libgit2.org/) — Used for fetching git dependencies.
-* [`libssh2`](https://www.libssh2.org/) — Used for SSH access to git repositories.
-* [`libz`](https://zlib.net/) (aka zlib) — Used for data compression.
-
-It is recommended to use the vendored versions as they are the versions that are tested to work with Cargo.
-
-### Compiling
-
-First, you'll want to check out this repository
-
-```
-git clone https://github.com/rust-lang/cargo.git
-cd cargo
-```
-
-With `cargo` already installed, you can simply run:
-
-```
-cargo build --release
-```
-
-## Adding new subcommands to Cargo
-
-Cargo is designed to be extensible with new subcommands without having to modify
-Cargo itself. See [the Wiki page][third-party-subcommands] for more details and
-a list of known community-developed subcommands.
-
-[third-party-subcommands]: https://github.com/rust-lang/cargo/wiki/Third-party-cargo-subcommands
-
-
-## Releases
-
-Cargo releases coincide with Rust releases.
-High level release notes are available as part of [Rust's release notes][rel].
-Detailed release notes are available in the [changelog].
-
-[rel]: https://github.com/rust-lang/rust/blob/master/RELEASES.md
-[changelog]: https://doc.rust-lang.org/nightly/cargo/CHANGELOG.md
-
-## Reporting issues
-
-Found a bug? We'd love to know about it!
-
-Please report all issues on the GitHub [issue tracker][issues].
-
-[issues]: https://github.com/rust-lang/cargo/issues
-
-## Contributing
-
-See the **[Cargo Contributor Guide]** for a complete introduction
-to contributing to Cargo.
-
-## License
-
-Cargo is primarily distributed under the terms of both the MIT license
-and the Apache License (Version 2.0).
-
-See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
-
-### Third party software
-
-This product includes software developed by the OpenSSL Project
-for use in the OpenSSL Toolkit (https://www.openssl.org/).
-
-In binary form, this product includes software that is licensed under the
-terms of the GNU General Public License, version 2, with a linking exception,
-which can be obtained from the [upstream repository][1].
-
-See [LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY) for details.
-
-[1]: https://github.com/libgit2/libgit2
-
