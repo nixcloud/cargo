@@ -1027,7 +1027,7 @@ fn add_error_format_and_color(
     cmd.arg(json);
 
     let gctx = build_runner.bcx.gctx;
-    if is_nix_build {
+    if !is_nix_build {
         if let Some(width) = gctx.shell().err_width().diagnostic_terminal_width() {
             cmd.arg(format!("--diagnostic-width={width}"));
         }

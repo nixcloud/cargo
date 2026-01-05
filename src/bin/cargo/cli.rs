@@ -16,6 +16,7 @@ use crate::command_prelude::*;
 use crate::util::is_rustup;
 use cargo::core::shell::ColorChoice;
 use cargo::util::style;
+use crate::util::BuildBackend;
 
 #[tracing::instrument(skip_all)]
 pub fn main(gctx: &mut GlobalContext) -> CliResult {
@@ -94,6 +95,16 @@ pub fn main(gctx: &mut GlobalContext) -> CliResult {
         )?;
         super::init_git(gctx);
 
+        match gctx.backend()? {
+            BuildBackend::Legacy => {
+                println!("❄❄❄  snowflake edition ❄❄❄");
+                println!("Using 'legacy' backend to build crates");
+            }
+            BuildBackend::Nix => {
+                println!("❄❄❄  snowflake edition ❄❄❄");
+                println!("Using 'nix' backend to build crates");
+            }
+        };
         exec.exec(gctx, subcommand_args)?;
     }
     Ok(())

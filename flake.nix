@@ -42,6 +42,7 @@
               openssl
               pkg-config
               nushell
+              tig
               fenix.packages.${system}.stable.rustc
               fenix.packages.${system}.stable.cargo
               fenix.packages.${system}.stable.rust-src

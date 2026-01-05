@@ -1,6 +1,4 @@
 use crate::command_prelude::*;
-
-use crate::util::BuildBackend;
 use cargo::ops;
 
 pub fn cli() -> Command {
@@ -48,17 +46,6 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
-    match gctx.backend()? {
-        BuildBackend::Legacy => {
-            println!("❄❄❄  snowflake edition ❄❄❄");
-            println!("Using 'legacy' backend to build crates");
-        }
-        BuildBackend::Nix => {
-            println!("❄❄❄  snowflake edition ❄❄❄");
-            println!("Using 'nix' backend to build crates");
-        }
-    };
-
     let ws = args.workspace(gctx)?;
     let mut compile_opts =
         args.compile_options(gctx, CompileMode::Build, Some(&ws), ProfileChecking::Custom)?;

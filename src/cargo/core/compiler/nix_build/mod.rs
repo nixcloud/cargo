@@ -282,7 +282,7 @@ fn generate_environment_variables<'gctx>(
                     }
                     _ => escape_environment_variable(env_value),
                 };
-                format!("    {} = \"{}\";", key, res)
+                format!("    {} = \"{}\";", key, res.trim())
             }
             None => format!("    {} = \"\";", key),
         })
@@ -1032,6 +1032,8 @@ impl<'a, 'gctx> NixBuildRunner {
         let environment_variables: String =
             generate_environment_variables(workspace, unit, process_builder)?;
 
+        let mut phases: Vec<&str> = vec!["unpackPhase", "buildPhase"];
+
         let mut rustc_arguments: Vec<String> = vec![];
         rustc_arguments.push(
             format!(indoc! {
@@ -1124,6 +1126,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 "function_arguments": function_arguments.join(", "),
                 "fullname": fullname,
                 "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
+                "nix_phases": phases.join(" "),
                 "crate_name": crate_name,
                 "crate_version": crate_version,
                 "src": src,

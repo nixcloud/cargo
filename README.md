@@ -7,24 +7,38 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 
 # State of development
 
-## What it can do
+## What works great
 
-* extendeds 'cargo build' so it uses 'nix build' internally by generating nix files on the fly and then build it using 'nix build'!
-* each dependency crate download/build uses its own store path and built in a sandbox so you will never have to recompile them again unless their input changes (rustc, cargo, env vars)
-* the root crate builds are built in a sandbox also
-* build artifacts during build can be reused during deployment (speedup, size reduction)
-* most 'heavy weight' asses like the toolchain and intermediate downloads/build artifacts are in the /nix/store and NOT in target/debug or target/release so now garbage collection is done by nix-collect-garbage
-* the cargo binary generates a nix-based toolchain and spawns the environment used to build (rustc, cargo, ...)
-* supports build-script-build aka build.rs execution using build-parser 
-* can easily be used from a flake
-* features the @cargo protocol (similar to the @nix protocol) which mimics `cargo build`'s status output
+* 'cargo build' uses 'nix build' internally (dynamically generating nix files on the fly and then build it using 'nix build')
+  * crate dependencies like serde, fmt, ... are downloaded/built into and from nix store paths (using the nix sandbox)
+  * root crate builds (uses nix store also, builds innix sandbox)
+  * full build.rs support using third party tool build-parser
+  * build artifacts during build can be reused during deployment (speedup, size reduction)
+  * advanced nix build logging with using `logone` in the `cargo build` style using the @cargo protocol (i.e. enhanced @nix protocol)
+  * improved GC
+    * toolchain (cargo/rustc) managed from nix
+    * intermediate artefacts (crates.io libraries downloads): ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.3.1/ has been moved to the /nix/store
+    * intermediate artefacts (crates.io libraries builds with different feature sets): target/debug/deps has been moved to the /nix/store
+    * however, registry clone is still at ~/.cargo/registry
 
-## What it can't do
+## What requires love still
 
-* no .fingerprint support yet, so no fast iteration on builds
+* no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
+* no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
 * no rustdoc support
-* no sandbox testing support
-* no rust-analyzer support whith code for dependencies referencing the nix store at /nix/store
+* no testing support
+* no rust-analyzer support (whith code for dependencies referencing the nix store at /nix/store)
+* using `CARGO_BACKEND=nix cargo build` downloads deps the legacy way unnecessarly
+* logone support is a good start but:
+  * cargo build is listed several times even though it is cargo (lib), cargo (build.rs_build), cargo (build.rs_run), cargo (bin)
+  * cargo status is sometimes wrong
+* in theory we could get rid of -C metadata=8abf83ef020a3059 / -C extra-filename=-27e7993d9cf32df7 (did not want to touch this early)
+* create concept for nix vendoring (so i know i can build offline)
+* improved gc handling: 
+  * reference all active sources from somewhere (to prevent GC)
+  * reference active toolchain (to prevent GC)
+* cargo tests execution
+* cargo doc
 
 ## Cargo commands
 
@@ -32,31 +46,42 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 
     [ ] nix                  Use 'nix build' with the nix job scheduler to build crates inside a sandbox
 
-### Supported commands
+### Commands status
+
+    # very common commands
 
     [x] build                Compile a local package and all of its dependencies
-
     [ ] run                  Run a binary or example of the local package
-    [ ] install              Install a Rust binary
-    [ ] uninstall            Remove a Rust binary
-    [ ] clean                Remove artifacts that cargo has generated in the past
     [ ] doc                  Build a package's documentation
-    [ ] lint-docs            alias: run --package xtask-lint-docs --
-    [ ] fetch                Fetch dependencies of a package from the network
-    [ ] generate-lockfile    Generate the lockfile for a package
-    [ ] vendor               Vendor all dependencies for a project locally
-    [ ] verify-project       DEPRECATED: Check correctness of crate manifest.
-    [ ] bench                Execute all benchmarks of a local package
-    [ ] build-man            alias: run --package xtask-build-man --
-    [ ] bump-check           alias: run --package xtask-bump-check --
-    [ ] package              Assemble the local package into a distributable tarball
-    [ ] rustdoc              Build a package's documentation, using specified custom flags.
     [ ] test                 Execute all unit and integration tests and build examples of a local package
+    [ ] check                Check a local package and all of its dependencies for errors
+    [ ] clippy               Checks a package to catch common mistakes and improve your Rust code.
+    
+    # less common commands (which require backend adaptions)
 
-    [!] check                Check a local package and all of its dependencies for errors
-    [!] clippy               Checks a package to catch common mistakes and improve your Rust code.
+    [0] clean                Remove artifacts that cargo has generated in the past
+    [0] install              Install a Rust binary
+    [0] uninstall            Remove a Rust binary
+    [0] rustdoc              Build a package's documentation, using specified custom flags.
+    [0] lint-docs            alias: run --package xtask-lint-docs --
+    [0] fetch                Fetch dependencies of a package from the network
+    [0] generate-lockfile    Generate the lockfile for a package
+    [0] vendor               Vendor all dependencies for a project locally
+    [0] bench                Execute all benchmarks of a local package
+    [0] build-man            alias: run --package xtask-build-man --
+    [0] bump-check           alias: run --package xtask-bump-check --
+    [0] rustc                Compile a package, and pass extra options to the compiler
+    [0] package              Assemble the local package into a distributable tarball
+
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'clean' is not supported yet"),
+            101,
+        ));
+    }
+
+    [!] verify-project       DEPRECATED: Check correctness of crate manifest.
     [!] config               Inspect configuration values
-    [!] files
     [!] fix                  Automatically fix lint warnings reported by rustc
     [!] fmt                  Formats all bin and lib files of the current crate using rustfmt.
     [!] help                 Displays help for a cargo subcommand
@@ -74,7 +99,6 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
     [!] remove               Remove dependencies from a Cargo.toml manifest file
     [!] report               Generate and display various kinds of reports
     [!] rm                   alias: remove
-    [!] rustc                Compile a package, and pass extra options to the compiler
     [!] search               Search packages in the registry. Default registry is crates.io
     [!] stale-label          alias: run --package xtask-stale-label --
     [!] tree                 Display a tree visualization of a dependency graph
@@ -85,6 +109,7 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
     legend
 
     [x] means explicit libnix enhanced code to support this feature
+    [0] means unsupported feature, needs code like in run to show the user that there is no support (unsupported)
     [ ] not supported yet, but command won't tell you but at times fail strangely
     [!] no changes were required, using vanilla cargo
 
