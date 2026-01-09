@@ -1527,9 +1527,9 @@ fn build_deps_args(
             deps
         });
     } else {
-        //println!("WARNING HACK: dependency= removed");
         cmd.arg("\\\n        ${fn.rustc_linker_arguments passthru.rust_crate_libraries}");
         cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_script_build_run}");
+        cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_crate_libraries}");
     }
 
     // Be sure that the host path is also listed. This'll ensure that proc macro
