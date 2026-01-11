@@ -21,17 +21,38 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
     * intermediate artefacts (crates.io libraries builds with different feature sets): target/debug/deps has been moved to the /nix/store
     * however, registry clone is still at ~/.cargo/registry
 
-## What requires love still
+## What still requires love
 
-* no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
+* pretty print library (vs. redundant code in dep/...) - https://x.com/joschelboschel/status/2008536931383095783
+
+* figure cpu utilization:
+  * `nix build` has such a minor cpu utilization, i only see a load of 25% at max 
+  * `cargo build` basically goes to 100%
+
+* logone support is a good start but:
+  * cargo build is listed several times even though it is cargo (lib), cargo (build.rs_build), cargo (build.rs_run), cargo (bin)
+  * cargo status is sometimes wrong
+
+* tokio crate: binary is actually called test-cat, nix-backend calls it test_cat
+  /nix/store/mrb3dfk0c3c2sm40r26qn5ms84w7j0ij-tests-integration-0_1_0-bin-892dd4ee4c5aadcd/bin/test_cat
+
 * no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
+  * https://github.com/nixcloud/cargo/issues/3
+
+* https://github.com/NixOS/nix/issues?q=is%3Aissue%20state%3Aopen%20author%3Aqknight (the tickets with "internal-json logger improvements" in the title)
+* build.rs: static file/directory list
+* Cargo.dependencies.nix is not picked up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
+  but it works with: nix build --file target/debug/nix/cargo_build_caller.nix target -L --keep-going, why?
+* targets
+  * add library targets (to targets.nix) for 'cargo build'
+  * if no targets are found (an error in generating the build system) don't evaluate later with nix build....
+* build.rs execution error messages are not working in @cargo, needs `nix build --file ... taget` evaluation
+* no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
+
 * no rustdoc support
 * no testing support
 * no rust-analyzer support (whith code for dependencies referencing the nix store at /nix/store)
 * using `CARGO_BACKEND=nix cargo build` downloads deps the legacy way unnecessarly
-* logone support is a good start but:
-  * cargo build is listed several times even though it is cargo (lib), cargo (build.rs_build), cargo (build.rs_run), cargo (bin)
-  * cargo status is sometimes wrong
 * in theory we could get rid of -C metadata=8abf83ef020a3059 / -C extra-filename=-27e7993d9cf32df7 (did not want to touch this early)
 * create concept for nix vendoring (so i know i can build offline)
 * improved gc handling: 
@@ -167,3 +188,45 @@ Note: The name and version of a crate can be copied from Cargo.lock but keep in 
 there is no check for unused or wrongly spelled dependencies or out of date versions.
 
 Note: This file is optional and explicitly outside of the generated nix files so it stays in your repository.
+
+# success stories
+
+https://github.com/EvanLi/Github-Ranking/blob/master/Top100/Rust.md
+
+                       /- cargo legacy 
+name                 |   | cargo libnix
+cargo          v1.87 | x | x
+build-parser  v0.1.8 | x | x
+ripgrep      v14.1.1 | x | x
+atuin        v18.5.0 | x | x 
+trunk       v0.21.14 | x | x
+bat          v0.25.0 | x | x
+sd            v1.0.0 | x | x
+mdBook        v0.5.2 | x | x
+just           v1.46 | x | x
+fd            v7.3.0 | x | x
+pankat-rs     v0.1.1 | x | x
+rustpad v0.1.0       | x | x
+synapse 1.0.0        |   | x
+tokio                |   | (wrong bin name, no libs)
+coreutils            |   | fails (build.rs, couldn't read ...  include!(concat!(env!("OUT_DIR"), "/uutils_map.rs"));)
+starship             |   | fails DEP_Z-NG_ROOT=/nix... (uses illegal env variable name, no - allowed, use envify() from cargo to normalize names)
+nushell  0.102.0     |   | build.rs: cargo:rustc-link-arg-benches=-rdynamic not implemented yet, requires pkg-config/openssl
+slint   1.15         |   | ? /derivations/i-slint-backend-qt-1.15.0-script_build_run-c2a74fa170f66d1e.nix':","\nthread 'main' panicked at internal/backends/qt/build.rs:18:38:\ncalled `Result::unwrap()` on an `Err` value: NotPresent
+lightningcss         | x | fails to create build system (target)
+leptos               | x | fails to create build system (target)
+bevy                 |   | fails to create build system (target)
+fuse-rs              |   | fails to create build system (target)
+uv                   | ? | 
+ka4h2 v0.0.24 (WASM) | x |
+klick  v0.5.7 (WASM) | x |
+influxdb             | ? | Downloading git --url, https://github.com fails...
+helix                |   | helix-term/build.rs:5:26:\nFailed to fetch tree-sitter grammars: 277 grammars failed to fetch
+rphtml v0.5.10       | x | (no targets, it is just a library)
+axum                 |   | (no targets, it is just a library)
+servo                |   | (no targets, it is just a library)
+yew                  |   | (no targets, it is just a library)
+
+x means compiles out of the box
++ means needs Cargo.dependencies.nix
+? means tried but failed

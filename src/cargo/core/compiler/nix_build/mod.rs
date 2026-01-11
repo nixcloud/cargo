@@ -1032,7 +1032,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let environment_variables: String =
             generate_environment_variables(workspace, unit, process_builder)?;
 
-        let mut phases: Vec<&str> = vec!["unpackPhase", "buildPhase"];
+        let phases: Vec<&str> = vec!["unpackPhase", "buildPhase"];
 
         let mut rustc_arguments: Vec<String> = vec![];
         rustc_arguments.push(
