@@ -681,14 +681,28 @@ fn generate_src<'gctx>(
         SourceKind::Path => {
             let src = workspace.root().display().to_string();
             let mut handlebars = Handlebars::new();
-            let template_str = indoc! {
-            r#"
-                src = builtins.filterSource
-                  (path: type:
-                    let base = baseNameOf path;
-                    in !(base == "target" || base == "result" || builtins.match "result-*" base != null)
-                  ) {{{src}}};
-            "#};
+            let template_str = if crate_build_type(&unit) == CrateBuildType::ScriptBuild {
+                indoc! {
+                    r#"
+                        src = pkgs.lib.fileset.toSource {
+                        root = {{{src}}};
+                            fileset = pkgs.lib.fileset.unions [
+                                {{{src}}}/build.rs
+                            ];
+                        };
+                    "#}
+            } else {
+                //   ) /home/nixos/cargo;
+                indoc! {
+                    r#"
+                        src = builtins.filterSource
+                        (path: type:
+                            let base = baseNameOf path;
+                            in !(base == "target" || base == "result" || builtins.match "result-*" base != null)
+                        ) {{{src}}};
+                    "#}
+            };
+
             handlebars.register_template_string("fetch", template_str)?;
             let rendered: String = handlebars.render(
                 "fetch",
