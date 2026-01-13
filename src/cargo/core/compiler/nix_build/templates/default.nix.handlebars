@@ -25,12 +25,12 @@ let
     get_rust_crate_parent = parent_list:
       assert lib.assertMsg (builtins.length parent_list == 1) "item is supposed to have exactly one parent, while it has 0 or more than 1";
       builtins.head parent_list;
-    inject = cargo_crate_info:
+    inject_deps = cargo_crate_info:
       let
         deps = external_crate_dependencies.deps;
         name = cargo_crate_info.name;
         version = cargo_crate_info.version;
-        hash= cargo_crate_info.hash;
+        crate_hash = cargo_crate_info.hash;
         entry = deps.${name} or null;
       in
         if builtins.isAttrs entry then
@@ -38,7 +38,7 @@ let
             verEntry = entry.${version} or null;
           in
             if builtins.isAttrs verEntry then
-              verEntry.${hash} or (throw "No deps found for ${name} version ${version} hash ${hash}")
+              verEntry.${crate_hash} or (throw "No deps found for ${name} version ${version} hash ${crate_hash}")
             else if builtins.isList verEntry then
               verEntry
             else
@@ -47,6 +47,27 @@ let
           entry
         else
           [];
+    inject_envs = cargo_crate_info:
+      let
+        envs = external_crate_dependencies.envs;
+        name = cargo_crate_info.name;
+        version = cargo_crate_info.version;
+        crate_hash = cargo_crate_info.crate_hash;
+        entry = envs.${name} or null;
+      in
+        if builtins.isAttrs entry then
+          let
+            verEntry = entry.${version} or null;
+          in
+            if builtins.isAttrs verEntry then
+              if builtins.isAttrs verEntry then
+                if verEntry ? "${crate_hash}" then verEntry.${crate_hash} else verEntry
+              else
+                {}
+            else
+              entry
+        else
+          {};
   };
   self = {
     target = callPackage' ./target.nix {};

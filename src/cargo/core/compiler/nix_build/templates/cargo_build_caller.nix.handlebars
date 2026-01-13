@@ -27,7 +27,7 @@ let
     then builtins.trace "Using Cargo.dependencies.nix"
          import ../../../Cargo.dependencies.nix { inherit pkgs; }
     else builtins.trace "No Cargo.dependencies.nix found"
-         { deps = {}; });
+         { deps = {}; envs = {}; });
   toolchain = fenix.stable.toolchain;
   cargoPackages = import ./derivations/default.nix {
     inherit pkgs external_crate_dependencies build_parser;

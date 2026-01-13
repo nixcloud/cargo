@@ -20,18 +20,22 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
     * intermediate artefacts (crates.io libraries downloads): ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.3.1/ has been moved to the /nix/store
     * intermediate artefacts (crates.io libraries builds with different feature sets): target/debug/deps has been moved to the /nix/store
     * however, registry clone is still at ~/.cargo/registry
+    * injecting custom dependencies or environment variables with Cargo.dependencies.nix per crate (both root crates and dependency crates)
 
 ## What still requires love
 
 * pretty print library (vs. redundant code in dep/...) - https://x.com/joschelboschel/status/2008536931383095783
 
-* figure cpu utilization:
+* cargo install --locked cargo-leptos
+
+* figure max cpu utilization:
   * `nix build` has such a minor cpu utilization, i only see a load of 25% at max 
   * `cargo build` basically goes to 100%
 
 * logone support is a good start but:
   * cargo build is listed several times even though it is cargo (lib), cargo (build.rs_build), cargo (build.rs_run), cargo (bin)
   * cargo status is sometimes wrong
+  * * https://github.com/NixOS/nix/issues?q=is%3Aissue%20state%3Aopen%20author%3Aqknight (the tickets with "internal-json logger improvements" in the title)
 
 * tokio crate: binary is actually called test-cat, nix-backend calls it test_cat
   /nix/store/mrb3dfk0c3c2sm40r26qn5ms84w7j0ij-tests-integration-0_1_0-bin-892dd4ee4c5aadcd/bin/test_cat
@@ -39,7 +43,6 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 * no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
   * https://github.com/nixcloud/cargo/issues/3
 
-* https://github.com/NixOS/nix/issues?q=is%3Aissue%20state%3Aopen%20author%3Aqknight (the tickets with "internal-json logger improvements" in the title)
 * build.rs: static file/directory list
 * Cargo.dependencies.nix is not picked up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
   but it works with: nix build --file target/debug/nix/cargo_build_caller.nix target -L --keep-going, why?
@@ -52,7 +55,7 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 * no rustdoc support
 * no testing support
 * no rust-analyzer support (whith code for dependencies referencing the nix store at /nix/store)
-* using `CARGO_BACKEND=nix cargo build` downloads deps the legacy way unnecessarly
+* using `CARGO_BACKEND=nix cargo build` still downloads deps the legacy way unnecessarly
 * in theory we could get rid of -C metadata=8abf83ef020a3059 / -C extra-filename=-27e7993d9cf32df7 (did not want to touch this early)
 * create concept for nix vendoring (so i know i can build offline)
 * improved gc handling: 
@@ -60,6 +63,7 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
   * reference active toolchain (to prevent GC)
 * cargo tests execution
 * cargo doc
+* add " Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s" to the end of the build
 
 ## Cargo commands
 
@@ -80,7 +84,7 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
     
     # less common commands (which require backend adaptions)
 
-    [0] clean                Remove artifacts that cargo has generated in the past
+    [ ] clean                Remove artifacts that cargo has generated in the past
     [0] install              Install a Rust binary
     [0] uninstall            Remove a Rust binary
     [0] rustdoc              Build a package's documentation, using specified custom flags.
@@ -94,12 +98,7 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
     [0] rustc                Compile a package, and pass extra options to the compiler
     [0] package              Assemble the local package into a distributable tarball
 
-    if matches!(gctx.backend()?, BuildBackend::Nix) {
-        return Err(CliError::new(
-            anyhow::format_err!("cargo 'clean' is not supported yet"),
-            101,
-        ));
-    }
+    # less common commands (which require NO backend adaptions)
 
     [!] verify-project       DEPRECATED: Check correctness of crate manifest.
     [!] config               Inspect configuration values
@@ -161,13 +160,13 @@ afterwards install it with running something like:
 
     /nix/store/5646xcjihqq11icyxyr3s0jc89s8j1hj-cargo-targets-symlinks/bin/cargo-targets-symlinks
 
-### injecting dependencies (pkg-config, openssl, ...)
+### injecting dependencies (pkg-config, openssl, ...) or environment variables
 
 There is an easy way to inject dependencies into the cargo generated nix attributes:
 
 1. create a file `Cargo.dependencies.nix` next to Cargo.lock / Cargo.toml
 
-2. fill it with your desired nix dependencies like `openssl` or `curl`:
+2. fill it with your desired nix dependencies like `openssl` or `curl` or environment variables:
 
         { pkgs }:
         with pkgs;
@@ -180,6 +179,16 @@ There is an easy way to inject dependencies into the cargo generated nix attribu
                 "unicode-ident" = [ pkg-config curl ];
                 "xml5ever" = {
                     "0.20.0" = [];
+                };
+            };
+            envs = {
+                "cargo" = {
+                    "0.88.0" = {
+                        "FOO" = "bar11 asdf";
+                    };
+                };
+                "cargo-platform" = {
+                    "FOO" = "worx";
                 };
             };
         }
@@ -206,23 +215,37 @@ mdBook        v0.5.2 | x | x
 just           v1.46 | x | x
 fd            v7.3.0 | x | x
 pankat-rs     v0.1.1 | x | x
-rustpad v0.1.0       | x | x
-synapse 1.0.0        |   | x
-tokio                |   | (wrong bin name, no libs)
+rustpad       v0.1.0 | x | x
+synapse        1.0.0 |   | x
+nix-installer 3.15.1 |   | x
+    { pkgs }: 
+            with pkgs;
+            {
+                deps = {};
+                envs = {
+                    "nix-installer" = {
+                        NIX_TARBALL_URL = "foo.tar.xz";
+                        DETERMINATE_NIX_TARBALL_PATH = "../README.md";
+                        DETERMINATE_NIXD_BINARY_PATH = "../README.md";
+                    };
+                };
+            }
 coreutils            |   | fails (build.rs, couldn't read ...  include!(concat!(env!("OUT_DIR"), "/uutils_map.rs"));)
 starship             |   | fails DEP_Z-NG_ROOT=/nix... (uses illegal env variable name, no - allowed, use envify() from cargo to normalize names)
-nushell  0.102.0     |   | build.rs: cargo:rustc-link-arg-benches=-rdynamic not implemented yet, requires pkg-config/openssl
-slint   1.15         |   | ? /derivations/i-slint-backend-qt-1.15.0-script_build_run-c2a74fa170f66d1e.nix':","\nthread 'main' panicked at internal/backends/qt/build.rs:18:38:\ncalled `Result::unwrap()` on an `Err` value: NotPresent
+nushell      0.102.0 |   | build.rs: cargo:rustc-link-arg-benches=-rdynamic not implemented yet, requires pkg-config/openssl
+tokio                |   | (wrong bin name, no libs)
+slint           1.15 |   | ? /derivations/i-slint-backend-qt-1.15.0-script_build_run-c2a74fa170f66d1e.nix':","\nthread 'main' panicked at internal/backends/qt/build.rs:18:38:\ncalled `Result::unwrap()` on an `Err` value: NotPresent
 lightningcss         | x | fails to create build system (target)
 leptos               | x | fails to create build system (target)
+cargo-leptos         | x | deps/openssl-sys-0.9.110-script_build_run-c7b5d3a81281fe1c.nix':","\n\n\n/build/openssl-src-300.5.4+3.5.4/openssl: No such fi
 bevy                 |   | fails to create build system (target)
 fuse-rs              |   | fails to create build system (target)
 uv                   | ? | 
-ka4h2 v0.0.24 (WASM) | x |
-klick  v0.5.7 (WASM) | x |
+ka4h2        v0.0.24 | x |
+klick         v0.5.7 | x |
 influxdb             | ? | Downloading git --url, https://github.com fails...
 helix                |   | helix-term/build.rs:5:26:\nFailed to fetch tree-sitter grammars: 277 grammars failed to fetch
-rphtml v0.5.10       | x | (no targets, it is just a library)
+rphtml       v0.5.10 | x | (no targets, it is just a library)
 axum                 |   | (no targets, it is just a library)
 servo                |   | (no targets, it is just a library)
 yew                  |   | (no targets, it is just a library)
