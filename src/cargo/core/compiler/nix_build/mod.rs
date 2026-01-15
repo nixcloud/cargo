@@ -687,7 +687,7 @@ fn generate_src<'gctx>(
                         src = pkgs.lib.fileset.toSource {
                         root = {{{src}}};
                             fileset = pkgs.lib.fileset.unions [
-                                {{{src}}}/build.rs
+                                {{{src}}}/${CARGO_MANIFEST_DIR}/build.rs
                             ];
                         };
                     "#}
