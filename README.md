@@ -2,8 +2,13 @@
 
 This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 
+This fork is intended as a PR to contribute this to the official cargo project and to engineer the solution and to get feedback on the work from the nix community.
+
+We use these resources:
+
 * https://github.com/nixcloud/cargo exists as a PR with to goal to integrate the libnix concept by adding a 'nix build backend', see discussion at https://lastlog.de/blog/timeline.html?filter=tag::libnix
 * https://github.com/nixcloud/cargo/issues for issues, do not report issues on the original cargo tracker (or their formus)!
+* https://lastlog.de/blog/libnix_cargo-nix-backend.html
 
 # State of development
 
@@ -24,32 +29,60 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 
 ## What still requires love
 
-* pretty print library (vs. redundant code in dep/...) - https://x.com/joschelboschel/status/2008536931383095783
+### Actively working on
+
+* release of this work
+  * create a release workflow (for cargo-libnix as well as for projects using this toolchain)
+  * create something 'simple' like fenix so ppl can experiment with this toolchain
+
+* no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
+  * https://github.com/nixcloud/cargo/issues/3
+
+* refactor the codebase
+  * make /tmp/out for legacy runs more obvious, also clean directory before start
+
+* get more targets to work out of the box, see 
+
+### Backlog
+
+* pretty print functions in default.nix and call via fn.pretty_print (...) 
+  currently there is too much redundant code in generated nix files in dep/... 
+  see https://x.com/joschelboschel/status/2008536931383095783
 
 * cargo install --locked cargo-leptos
+
+* logone support is a good start but:
+  * "cargo" as build target is listed 4 times when it should be: cargo (lib), cargo (build.rs_build), cargo (build.rs_run), cargo (bin)
+  * cargo status is sometimes wrong
+  * build.rs execution error messages are not working in @cargo, needs `nix build --file ... taget` evaluation
+  * "error: could not compile target" which occures when there is an error in the generated nix code target/debug/nix/cargo_build_caller.nix
+    * https://github.com/NixOS/nix/issues/13909
+    * https://github.com/NixOS/nix/issues/13910
+  * https://github.com/NixOS/nix/issues?q=is%3Aissue%20state%3Aopen%20author%3Aqknight (the tickets with "internal-json logger improvements" in the title)
+
+* make cargo_parser a direct argument and don't inject into pkgs and later compile so we can override it easily
+
+* pass "src" / "project_root" as argument to target/debug/nix/cargo_build_caller.nix so we can use
+    external_crate_dependencies =
+        (if builtins.pathExists ${project_root}/Cargo.dependencies.nix
+        then builtins.trace "Using Cargo.dependencies.nix"
+            import ${project_root}/Cargo.dependencies.nix { inherit pkgs; }
 
 * figure max cpu utilization:
   * `nix build` has such a minor cpu utilization, i only see a load of 25% at max 
   * `cargo build` basically goes to 100%
 
-* logone support is a good start but:
-  * cargo build is listed several times even though it is cargo (lib), cargo (build.rs_build), cargo (build.rs_run), cargo (bin)
-  * cargo status is sometimes wrong
-  * * https://github.com/NixOS/nix/issues?q=is%3Aissue%20state%3Aopen%20author%3Aqknight (the tickets with "internal-json logger improvements" in the title)
-
 * tokio crate: binary is actually called test-cat, nix-backend calls it test_cat
   /nix/store/mrb3dfk0c3c2sm40r26qn5ms84w7j0ij-tests-integration-0_1_0-bin-892dd4ee4c5aadcd/bin/test_cat
 
-* no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
-  * https://github.com/nixcloud/cargo/issues/3
 
-* build.rs: static file/directory list
-* Cargo.dependencies.nix is not picked up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
+* BUG: Cargo.dependencies.nix is not picked up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
   but it works with: nix build --file target/debug/nix/cargo_build_caller.nix target -L --keep-going, why?
-* targets
+
+* BUG: no lib targets in target.nix
   * add library targets (to targets.nix) for 'cargo build'
   * if no targets are found (an error in generating the build system) don't evaluate later with nix build....
-* build.rs execution error messages are not working in @cargo, needs `nix build --file ... taget` evaluation
+
 * no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
 
 * no rustdoc support
@@ -64,6 +97,8 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 * cargo tests execution
 * cargo doc
 * add " Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s" to the end of the build
+
+* get this PR upstream
 
 ## Cargo commands
 
@@ -144,7 +179,7 @@ Type:
 
     alias cargo=/home/nixos/cargo/target/debug/cargo
 
-Call with: `CARGO_BACKEND=nix cargo build` to generate files in target/debug/nix
+Call with: `CARGO_BACKEND=nix cargo build` to generate files in target/debug/nix and build + install project with the nix-backend
 Call with: `cargo build` to study the traditional build and see /tmp/out but this needs a manual cleanup before each run.
 
 Alternative calls for using the nix backend in cargo:
@@ -207,7 +242,7 @@ name                 |   | cargo libnix
 cargo          v1.87 | x | x
 build-parser  v0.1.8 | x | x
 ripgrep      v14.1.1 | x | x
-atuin        v18.5.0 | x | x 
+atuin        v18.5.0 | x | x
 trunk       v0.21.14 | x | x
 bat          v0.25.0 | x | x
 sd            v1.0.0 | x | x
@@ -230,9 +265,12 @@ nix-installer 3.15.1 |   | x
                     };
                 };
             }
-coreutils            |   | fails (build.rs, couldn't read ...  include!(concat!(env!("OUT_DIR"), "/uutils_map.rs"));)
-starship             |   | fails DEP_Z-NG_ROOT=/nix... (uses illegal env variable name, no - allowed, use envify() from cargo to normalize names)
+coreutils            |   | x   
+   ++++ we could introduce BUILD_OUT_DIR="${coreutils-0_5_0-script_build_run-7d8760345f435e2a}"; so in the source include!(concat!(env!("BUILD_OUT_DIR"), "/uutils_map.rs"));
+   ++++ horrible amount of useless recompiles due to src = builtins.filterSource on 80 root crate targets
+starship             |   | x
 nushell      0.102.0 |   | build.rs: cargo:rustc-link-arg-benches=-rdynamic not implemented yet, requires pkg-config/openssl
+
 tokio                |   | (wrong bin name, no libs)
 slint           1.15 |   | ? /derivations/i-slint-backend-qt-1.15.0-script_build_run-c2a74fa170f66d1e.nix':","\nthread 'main' panicked at internal/backends/qt/build.rs:18:38:\ncalled `Result::unwrap()` on an `Err` value: NotPresent
 lightningcss         | x | fails to create build system (target)
@@ -253,3 +291,23 @@ yew                  |   | (no targets, it is just a library)
 x means compiles out of the box
 + means needs Cargo.dependencies.nix
 ? means tried but failed
+
+# Legal
+
+This is the email response of the Rust Foundation to https://internals.rust-lang.org/t/new-rust-backend-libnix/23848 
+
+> Your fork falls under the explicit allowance in the Rust trademark policy to "host a fork of the code for the purpose of making changes, additions, or deletions that will be submitted as proposed improvements to the Rust Project". The policy does not restrict the size, depth, or architectural significance of the changes. Adding a new build backend is permitted by this allowance.
+
+> You're entitled to publicly host and distribute a fork, in source form, under the Cargo name, provided that:
+> it is clearly presented as unofficial,
+> it is not marketed or promoted as an official or endorsed version of Cargo, and
+> it is positioned as work intended for upstream contribution rather than as a competing product.
+> The measures you mention (namespaced repository, clear disclaimers, experimental framing) are sufficient and appropriate for this, and we appreciate the care you've taken to do that!
+> 
+> Providing commercial support or consulting around this work does not, in itself, violate the trademark policy. The requirement is simply that such services must not be presented as official Cargo support, and must not imply endorsement by the Rust Project or the Rust Foundation. You would only need to seek explicit written permission if you intended to market, brand, or distribute your fork as a product in its own right using the Cargo name, or in a way that a reasonable user could interpret as official Cargo. In those circumstances I think the Rust Foundation's board would most likely want you to choose a new name for it to avoid any confusion.
+> 
+> I hope that's helpful.
+> 
+> Abi Broom
+> Director of Operations
+> Rust Foundation

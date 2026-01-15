@@ -11,8 +11,8 @@ let
   build_parser_sources = pkgs.fetchFromGitHub {
     owner = "nixcloud";
     repo = "cargo-build_script_build-parser";
-    rev = "788a202b8646aae41761a70c8658878bdb8f0017";
-    sha256 = "sha256-1rMP0bNIho2PGSmG7oJUCIJ16i7JQ/n5dj1pNS0UI+I=";
+    rev = "e2716ac2de7acbbd9079f641cf78b494041af41b";
+    sha256 = "sha256-AuQcr9moMM2d5LCbkQzn/1XQOmZbC2VMOLrR2tgCPAo=";
   };
   build_parser = pkgs.callPackage build_parser_sources {};
   fenixSrc = pkgs.fetchFromGitHub {
