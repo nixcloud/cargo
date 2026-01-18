@@ -1,0 +1,9 @@
+#!/bin/bash
+# Usage: ./script.sh f1 f2
+
+if [[ $# -ne 2 ]]; then
+    echo "Usage: $0 f1 f2"
+    exit 1
+fi
+
+comm -13 <(sort "$1") <(sort "$2")

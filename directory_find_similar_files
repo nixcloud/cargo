@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <dir1> <dir2>"
+    exit 1
+fi
+
+DIR1="$1"
+DIR2="$2"
+
+# Find all unique, common filenames in both directories
+comm -12 \
+  <(find "$DIR1" -type f -printf '%f\n' | sort -u) \
+  <(find "$DIR2" -type f -printf '%f\n' | sort -u) |
+while read -r filename; do
+    # For all files matching filename in dir1
+    while read -r file1; do
+        # For all files matching filename in dir2
+        while read -r file2; do
+            if cmp -s "$file1" "$file2"; then
+                echo "[same]   $filename"
+            else
+                echo "[differ] $filename"
+            fi
+        done < <(find "$DIR2" -type f -name "$filename")
+    done < <(find "$DIR1" -type f -name "$filename")
+done
