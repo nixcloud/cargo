@@ -8,6 +8,24 @@ let
       builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.rust_crate_libraries)) [] a
     );
     rustc_linker_arguments = rust_crate_libraries: builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs rust_crate_libraries));
+    rustc_linker_arguments_dir = rust_crate_libraries: 
+      pkgs.stdenv.mkDerivation {
+        name = "rustc-linker-arguments-dir";
+        # anyhow-139173be5e005a44.d  libanyhow-139173be5e005a44.rlib  libanyhow-139173be5e005a44.rmeta  nix
+        buildCommand = ''
+          mkdir -p $out/deps
+          for lib in ${builtins.concatStringsSep " " (map (lib: "${lib}") (allCollectedInputs rust_crate_libraries))}; do
+            if [ -d "$lib" ]; then
+              for f in "$lib"/*.rlib "$lib"/*.rmeta "$lib"/*.d "$lib"/*.so; do
+                if [ -e "$f" ]; then
+                  ln -s "$f" "$out/deps/" || true
+                fi
+              done
+            fi
+          done
+          echo ${builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs rust_crate_libraries))} > $out/rustc-linker-arguments
+        '';
+      };
     rustc_arguments = rust_crate_parent: assert lib.assertMsg (builtins.length rust_crate_parent <= 1) "passthru.rust_crate_parent must have 0 or 1 element at maxium" ;
       lib.replaceStrings ["\n"] [""] (builtins.concatStringsSep " " (map (crate:
         if builtins.pathExists "${crate}/nix/rustc-arguments" then

@@ -19,6 +19,8 @@ We use these resources:
   * root crate builds (uses nix store also, builds innix sandbox)
   * full build.rs support using third party tool build-parser
   * build artifacts during build can be reused during deployment (speedup, size reduction)
+  * dynamically generating a deps folder with symlinks to rlib/rmeta/so/... so we can supply one argument like:
+    -L dependency=${fn.rustc_linker_arguments passthru.rust_crate_libraries} instead of many -L ... arguments
   * advanced nix build logging with using `logone` in the `cargo build` style using the @cargo protocol (i.e. enhanced @nix protocol)
   * improved GC
     * toolchain (cargo/rustc) managed from nix
@@ -31,6 +33,36 @@ We use these resources:
 
 ### Actively working on
 
+
+* implement nix/rustc_link_arg_benches for cargo:rustc-link-arg-benches=-rdynamic in the generated nix code
+
+* REFACTOR:
+ * BUG: Cargo.dependencies.nix is not picked up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
+    but it works with: nix build --file target/debug/nix/cargo_build_caller.nix target -L --keep-going, why?
+
+* REFACTOR:
+  * make cargo_parser a direct argument and don't inject into pkgs and later compile so we can override it easily
+  * pass "src" / "project_root" as argument to target/debug/nix/cargo_build_caller.nix so we can use
+    external_crate_dependencies =
+        (if builtins.pathExists ${project_root}/Cargo.dependencies.nix
+        then builtins.trace "Using Cargo.dependencies.nix"
+            import ${project_root}/Cargo.dependencies.nix { inherit pkgs; }
+
+* FEATURE: pretty print functions in default.nix and call via fn.pretty_print (...) 
+  currently there is too much redundant code in generated nix files in dep/... 
+  see https://x.com/joschelboschel/status/2008536931383095783
+
+* BUG: build = "build/main.rs" is not called correctly because default 'build.rs' was renamed and this is not taken into account
+
+* BUG: tokio crate: binary is actually called test-cat, nix-backend calls it test_cat
+  /nix/store/mrb3dfk0c3c2sm40r26qn5ms84w7j0ij-tests-integration-0_1_0-bin-892dd4ee4c5aadcd/bin/test_cat
+
+* BUG: no lib targets in target.nix
+  * add library targets (to targets.nix) for 'cargo build'
+  * if no targets are found (an error in generating the build system) don't evaluate later with nix build....
+
+* get more targets to work out of the box, see success stories
+
 * release of this work
   * create a release workflow (for cargo-libnix as well as for projects using this toolchain)
   * create something 'simple' like fenix so ppl can experiment with this toolchain
@@ -38,16 +70,23 @@ We use these resources:
 * no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
   * https://github.com/nixcloud/cargo/issues/3
 
+    starte to play with  --extra-sandbox-paths /tmp/sandbox-file
+    https://github.com/NixOS/nix/issues/6115
+
 * refactor the codebase
   * make /tmp/out for legacy runs more obvious, also clean directory before start
 
-* get more targets to work out of the box, see 
+* no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
 
 ### Backlog
 
-* pretty print functions in default.nix and call via fn.pretty_print (...) 
-  currently there is too much redundant code in generated nix files in dep/... 
-  see https://x.com/joschelboschel/status/2008536931383095783
+* RUSTFLAGS might not be supported ATM
+  
+   https://grok.com/share/bGVnYWN5_d6b5f489-ac0c-49d0-99a2-8f97e3dbb571
+
+* remove --emit=dep-info from builds
+
+* implement equivalent of `cargo build --timings` for nix backend
 
 * cargo install --locked cargo-leptos
 
@@ -60,30 +99,9 @@ We use these resources:
     * https://github.com/NixOS/nix/issues/13910
   * https://github.com/NixOS/nix/issues?q=is%3Aissue%20state%3Aopen%20author%3Aqknight (the tickets with "internal-json logger improvements" in the title)
 
-* make cargo_parser a direct argument and don't inject into pkgs and later compile so we can override it easily
-
-* pass "src" / "project_root" as argument to target/debug/nix/cargo_build_caller.nix so we can use
-    external_crate_dependencies =
-        (if builtins.pathExists ${project_root}/Cargo.dependencies.nix
-        then builtins.trace "Using Cargo.dependencies.nix"
-            import ${project_root}/Cargo.dependencies.nix { inherit pkgs; }
-
 * figure max cpu utilization:
   * `nix build` has such a minor cpu utilization, i only see a load of 25% at max 
   * `cargo build` basically goes to 100%
-
-* tokio crate: binary is actually called test-cat, nix-backend calls it test_cat
-  /nix/store/mrb3dfk0c3c2sm40r26qn5ms84w7j0ij-tests-integration-0_1_0-bin-892dd4ee4c5aadcd/bin/test_cat
-
-
-* BUG: Cargo.dependencies.nix is not picked up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
-  but it works with: nix build --file target/debug/nix/cargo_build_caller.nix target -L --keep-going, why?
-
-* BUG: no lib targets in target.nix
-  * add library targets (to targets.nix) for 'cargo build'
-  * if no targets are found (an error in generating the build system) don't evaluate later with nix build....
-
-* no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
 
 * no rustdoc support
 * no testing support
@@ -97,6 +115,8 @@ We use these resources:
 * cargo tests execution
 * cargo doc
 * add " Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s" to the end of the build
+
+* convert crate license into nix license so it can be BOM'ed
 
 * get this PR upstream
 
@@ -237,22 +257,24 @@ Note: This file is optional and explicitly outside of the generated nix files so
 
 https://github.com/EvanLi/Github-Ranking/blob/master/Top100/Rust.md
 
-                       /- cargo legacy 
+cargo with checkout: 093c427c1 (HEAD -> libnix, origin/libnix, origin/HEAD) Updated cargo-build_script_build-parser to fix DEP_Z-NG_ROOT to DEP_Z_NG_ROOT
+
+                       /- cargo legacy    (both use the same cargo / rustc so we know it is buildable)
 name                 |   | cargo libnix
-cargo          v1.87 | x | x
+cargo          v1.87 | x | +   "openssl-sys" = [ pkg-config openssl ];
 build-parser  v0.1.8 | x | x
 ripgrep      v14.1.1 | x | x
 atuin        v18.5.0 | x | x
 trunk       v0.21.14 | x | x
-bat          v0.25.0 | x | x
 sd            v1.0.0 | x | x
 mdBook        v0.5.2 | x | x
 just           v1.46 | x | x
 fd            v7.3.0 | x | x
-pankat-rs     v0.1.1 | x | x
+pankat-rs     v0.1.1 | x | +   "libsqlite3-sys" = [ pkg-config sqlite ];
 rustpad       v0.1.0 | x | x
 synapse        1.0.0 |   | x
-nix-installer 3.15.1 |   | x
+starship             |   | +   "openssl-sys" = [ pkg-config openssl ];  "libz-ng-sys" = [ cmake ];
+nix-installer 3.15.1 |   | +
     { pkgs }: 
             with pkgs;
             {
@@ -265,28 +287,60 @@ nix-installer 3.15.1 |   | x
                     };
                 };
             }
-coreutils            |   | x   
+coreutils            |   | x  (requires manual patch because of OUT_DIR) 
    ++++ we could introduce BUILD_OUT_DIR="${coreutils-0_5_0-script_build_run-7d8760345f435e2a}"; so in the source include!(concat!(env!("BUILD_OUT_DIR"), "/uutils_map.rs"));
    ++++ horrible amount of useless recompiles due to src = builtins.filterSource on 80 root crate targets
-starship             |   | x
-nushell      0.102.0 |   | build.rs: cargo:rustc-link-arg-benches=-rdynamic not implemented yet, requires pkg-config/openssl
+
+bat          v0.25.0 | x | x
+delta        v0.18.2 |   | x
+rust-analyzer        |   | x
+   2025-01-07
+nushell      0.102.0 | x | +   "openssl-sys" = [ pkg-config openssl ];
+
+# fail stories
 
 tokio                |   | (wrong bin name, no libs)
 slint           1.15 |   | ? /derivations/i-slint-backend-qt-1.15.0-script_build_run-c2a74fa170f66d1e.nix':","\nthread 'main' panicked at internal/backends/qt/build.rs:18:38:\ncalled `Result::unwrap()` on an `Err` value: NotPresent
-lightningcss         | x | fails to create build system (target)
-leptos               | x | fails to create build system (target)
+lightningcss         | x | (no targets, it is just a library)
+rphtml       v0.5.10 | x | (no targets, it is just a library)
+axum                 | x | (no targets, it is just a library)
+yew                  | x | (no targets, it is just a library)
+servo                |   | (no targets, it is just a library) 
+`cargo build` does not compile:
+ Compiling idna v1.1.0
+ thread 'main' panicked at /home/nixos/.cargo/git/checkouts/stylo-482338307e42a9ea/a47ab67/style/build.rs:38:9:
+  Can't find python (tried python3)! Try fixing PATH or setting the PYTHON3 env var
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 cargo-leptos         | x | deps/openssl-sys-0.9.110-script_build_run-c7b5d3a81281fe1c.nix':","\n\n\n/build/openssl-src-300.5.4+3.5.4/openssl: No such fi
+                           bundled openssl won't compile (source can't be found)
+leptos               | x | fails to create build system (target)
 bevy                 |   | fails to create build system (target)
 fuse-rs              |   | fails to create build system (target)
 uv                   | ? | 
+vaultwarden          | x | legacy: `cargo build  --features sqlite` works
+    nix build --file target/debug/nix/cargo_build_caller.nix target -L
+    CARGO_BACKEND=nix ~/cargo/target/debug/cargo build -v --features sqlite
+    error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "vaultwarden-1_0_0-script_build-ab50c3dfe01f1634" at /home/nixos/tests/vaultwarden/target/debug/nix/derivations/vaultwarden-1.0.0-script_build_run-373c093bb6046a0d.nix:2'
 ka4h2        v0.0.24 | x |
 klick         v0.5.7 | x |
 influxdb             | ? | Downloading git --url, https://github.com fails...
 helix                |   | helix-term/build.rs:5:26:\nFailed to fetch tree-sitter grammars: 277 grammars failed to fetch
-rphtml       v0.5.10 | x | (no targets, it is just a library)
-axum                 |   | (no targets, it is just a library)
-servo                |   | (no targets, it is just a library)
-yew                  |   | (no targets, it is just a library)
+codex                |   | cd codex-rs -> generates incomplete nix based build system for 'ratatui'
+fuel-core            |   | 
+eza                  |   | error: include_str!(concat!(env!("OUT_DIR"), "/version_string.txt"))
+zed                  |   | async-task: error: No such file or directory (os error 2)
+meilisearch          |   | error: No such file or directory (os error 2) during `cargo build`
+typst                |   | error: No such file or directory (os error 2) during `cargo build`
+egui                 |   | ?
+ruff                 |   | error: rustc 1.89.0 is not supported by the following packages:
+zellij               |   | error: rustc 1.89.0 is not supported by the following package:
+fish-shell           |   | git clone error - error: No such file or directory (os error 2)
+surrealdb            |   | There was an error executing build_script_build in file: '/home/nixos/tests/surrealdb/target/debug/nix/derivations/deps/rquickjs-sys-0.9.0-script_build_run-cc5015d81fa1961f.nix
+Unable to find libclang: "couldn't find any valid shared libraries matching: ['libclang.so', 'libclang-*.so', 'libclang.so.*', 'libclang-*.so.*'], set the `LIBCLANG_PATH` environment variable to a path where one of these files can be found (invalid: [])"
+difftastic           |   | Compiling tikv-jemalloc-sys  error: returning 'char *' from a function with return type 'int' makes integer from pointer without a cast [-Wint-conversion] "make" "-j" "8"
+expected success, got: exit status: 2
+sniffnet             |   | sniffnet-1_4_2-bin-3810a677ed3b815e: bin/mktemp: Argument list too long (maybe this means the -L ... list to rustc because it is huge)
+dioxus               |   | `cargo build` does not create anything in target/debug and nix-backend does not build anything
 
 x means compiles out of the box
 + means needs Cargo.dependencies.nix
@@ -311,3 +365,50 @@ This is the email response of the Rust Foundation to https://internals.rust-lang
 > Abi Broom
 > Director of Operations
 > Rust Foundation
+
+# statistics for incremental builds in rustc
+
+lib+bin means it compiles 'cargo (lib)' and 'cargo (bin)' from the cargo source code using the cargo nix backend by either changing the file:
+
+* src/cargo/lib.rs (for the forced rebuild of the lib + bin)
+* src/bin/cargo/main.rs (for the bin only)
+
+afterwards I call:
+
+    time nix build --file nix/cargo_build_caller.nix target -L
+
+## lib+bin: nix-backend with many -L ...
+
+real    1m15.614s
+user    0m7.804s
+sys     0m0.751s
+
+# lib+bin: nix-backend with the -L dependency=.../deps hack (similar to the deps/ folder in legacy)
+
+real    1m17.391s
+user    0m7.529s
+sys     0m0.748s
+
+# lib+bin: cargo legacy
+
+real    0m19.607s
+user    0m13.753s
+sys     0m5.863s
+
+it is caused by: target/debug/incremental/cargo-0i29k4tub0pvo/s-hezavpzb8y-1r8by2t-a1ki49rk4yh64bbyy1yy0wyea/
+
+# lib+bin: cargo legacy (with removed target/debug/incremental/cargo-*)
+
+real    1m14.432s
+user    1m56.883s
+sys     0m12.990s
+
+# lib+bin: nix-backend with mapped --extra-sandbox-paths /tmp/sandbox-file
+
+real    1m10.728s
+user    0m8.802s
+sys     0m0.698s
+
+--extra-sandbox-paths /tmp/sandbox-file
+
+https://github.com/NixOS/nix/issues/6115

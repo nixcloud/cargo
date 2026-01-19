@@ -1527,7 +1527,8 @@ fn build_deps_args(
             deps
         });
     } else {
-        cmd.arg("\\\n        ${fn.rustc_linker_arguments passthru.rust_crate_libraries}");
+        //cmd.arg("\\\n        ${fn.rustc_linker_arguments passthru.rust_crate_libraries}");
+        cmd.arg("\\\n        -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps");
         cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_script_build_run}");
         cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_crate_libraries}");
     }
