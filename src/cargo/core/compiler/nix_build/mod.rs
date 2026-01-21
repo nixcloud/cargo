@@ -835,6 +835,9 @@ impl<'a, 'gctx> NixBuildRunner {
             gctx.shell()
                 .verbose(|s| s.status("Generating", &fullname))?;
 
+            // let s = format!("unit.profile.incremental: {} {:?}", &fullname, unit.profile.incremental);
+            // println!("{s}");
+
             let deps: Dependencies = create_unit_dependencies(
                 &unit,
                 &crate_name,

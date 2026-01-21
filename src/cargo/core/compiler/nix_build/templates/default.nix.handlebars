@@ -16,7 +16,7 @@ let
           mkdir -p $out/deps
           for lib in ${builtins.concatStringsSep " " (map (lib: "${lib}") (allCollectedInputs rust_crate_libraries))}; do
             if [ -d "$lib" ]; then
-              for f in "$lib"/*.rlib "$lib"/*.rmeta "$lib"/*.d "$lib"/*.so; do
+              for f in "$lib"/*.rlib "$lib"/*.rmeta "$lib"/*.so; do
                 if [ -e "$f" ]; then
                   ln -s "$f" "$out/deps/" || true
                 fi
