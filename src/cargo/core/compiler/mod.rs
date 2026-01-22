@@ -1236,20 +1236,20 @@ fn build_base_args(
             .map(|s| s.as_ref()),
     );
     if incremental {
-        match bcx.gctx.backend()? {
+        let dir: OsString = match bcx.gctx.backend()? {
             BuildBackend::Legacy => {
-                let dir = build_runner
+                build_runner
                     .files()
                     .layout(unit.kind)
                     .incremental()
-                    .as_os_str();
-                opt(cmd, "-C", "incremental=", Some(dir));
+                    .as_os_str()
+                    .into()
             }
             BuildBackend::Nix => {
-                //println!("WARNING HACK: incremental=$INC_DIR");
-                opt(cmd, "-C", "incremental=$INC_DIR", None);
+                OsString::from("$INC_DIR")
             }
-        }
+        };
+        opt(cmd, "-C", "incremental=", Some(&dir));
     }
 
     let strip = strip.into_inner();
