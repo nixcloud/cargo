@@ -15,20 +15,19 @@
 {{{unpack_phase}}}
 
     RUSTC = "${rustc}/bin/rustc";
-
 {{{environment_variables}}}
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
       {{{change_directory}}}
 
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m {{{fullname}}}"
-      echo "@cargo { \"type\":0, \"crate_name\":\"{{{crate_name}}}\", \"id\":\"{{{fullname}}}\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}"
 {{{additional_build_phase_arguments}}}
 {{{command_line}}}
     '';

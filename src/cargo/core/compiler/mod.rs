@@ -1249,6 +1249,7 @@ fn build_base_args(
                 OsString::from("$INC_DIR")
             }
         };
+        //$(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
         opt(cmd, "-C", "incremental=", Some(&dir));
     }
 

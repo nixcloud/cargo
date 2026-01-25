@@ -10,6 +10,13 @@ We use these resources:
 * https://github.com/nixcloud/cargo/issues for issues, do not report issues on the original cargo tracker (or their formus)!
 * https://lastlog.de/blog/libnix_cargo-nix-backend.html
 
+Similar projects:
+
+* naersk
+* crane
+* cargo2nix
+* crate2nix
+
 # State of development
 
 ## What works great
@@ -34,11 +41,17 @@ We use these resources:
 
 ### Actively working on
 
-* on `cargo build` remove .nix files which are not used anymore in target/debug/nix/*
+* BUG: consider doing this also in the bin
+      cp -r ${fn.get_rust_crate_parent passthru.rust_crate_parent}/* $OUT_DIR
+
+* incremental target, add this to rustc call:
+  $(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
 
 * release of this work
   * create a release workflow (for cargo-libnix as well as for projects using this toolchain)
   * create something 'simple' like fenix so ppl can experiment with this toolchain
+
+* BUG: on `cargo build` garbage-collect .nix files in target/debug/nix/* which are not used anymore
 
 * use of this work
   * create a workflow on how to make use of cargo+rustc for your own project
@@ -54,7 +67,7 @@ We use these resources:
 * implement nix/rustc_link_arg_benches for cargo:rustc-link-arg-benches=-rdynamic in the generated nix code
 
 * REFACTOR:
- * BUG: Cargo.dependencies.nix is not picked up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
+  * BUG: Cargo.dependencies.nix is not picked up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
     but it works with: nix build --file target/debug/nix/cargo_build_caller.nix target -L --keep-going, why?
 
 * REFACTOR:
@@ -79,13 +92,14 @@ We use these resources:
 
 * get more targets to work out of the box, see fail stories
 
-
 * refactor the codebase
   * make /tmp/out for legacy runs more obvious, also clean directory before start
 
 * no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
 
 ### Backlog
+
+* experiment with rewriting the bash in nushell (better error messages)
 
 * RUSTFLAGS might not be supported ATM (nix-backend)
 
@@ -112,6 +126,7 @@ We use these resources:
 * figure max cpu utilization:
   * `nix build` has such a minor cpu utilization, i only see a load of 25% at max 
   * `cargo build` basically goes to 100%
+  it seems in this video it was doing much more parallel builds: https://asciinema.org/a/742433
 
 * no rustdoc support
 * no testing support
@@ -331,7 +346,7 @@ cargo-leptos         | x | deps/openssl-sys-0.9.110-script_build_run-c7b5d3a8128
 leptos               | x | fails to create build system (target)
 bevy                 |   | fails to create build system (target)
 fuse-rs              |   | fails to create build system (target)
-uv                   | ? | 
+uv                   | ? | generated build system is wrong: error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "uv-version-0_9_22-69df0fced6bb13c4" at /home/nixos/tests/uv/target/debug/nix/derivations/uv-0.9.22-bin-389c9a1de962636b.nix:2'
 vaultwarden          | x | legacy: `cargo build  --features sqlite` works
     nix build --file target/debug/nix/cargo_build_caller.nix target -L
     CARGO_BACKEND=nix ~/cargo/target/debug/cargo build -v --features sqlite
@@ -358,7 +373,6 @@ difftastic           |   | Compiling tikv-jemalloc-sys  error: returning 'char *
 expected success, got: exit status: 2
 sniffnet             |   | sniffnet-1_4_2-bin-3810a677ed3b815e: bin/mktemp: Argument list too long (maybe this means the -L ... list to rustc because it is huge)
 dioxus               |   | `cargo build` does not create anything in target/debug and nix-backend does not build anything
-
 
 x means compiles out of the box
 + means needs Cargo.dependencies.nix

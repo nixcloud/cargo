@@ -43,6 +43,59 @@ let
     get_rust_crate_parent = parent_list:
       assert lib.assertMsg (builtins.length parent_list == 1) "item is supposed to have exactly one parent, while it has 0 or more than 1";
       builtins.head parent_list;
+    import_bash_function_helpers = ''
+      print_compiling_message() {
+        local fullname="$1"
+        printf '\033[0;32mCompiling\033[0m %s\n' "$fullname"
+      }
+
+      print_cargo_message_type_0() {
+        local fullname="$1"
+        local crate_name="$2"
+        echo "@cargo { \"type\":0, \"crate_name\":\"$crate_name\", \"id\":\"$fullname\" }"
+      }
+
+      print_cargo_message_type_2() {
+        local fullname="$1"
+        local crate_name="$2"
+        local rustc_exit_code="$3"
+        local rustc_json_output_lines="$4"
+        output=$(${pkgs.jq}/bin/jq -s -r -c \
+          --arg fullname "$fullname" \
+          --arg crate_name "$crate_name" \
+          --arg exit_code "$rustc_exit_code" \
+          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
+          "$rustc_json_output_lines")
+        printf '@cargo %s\n' "$output"
+      }
+
+      # rustc outputs json, from that we extracted the .rendered part and print it to stdout 
+      # (so we see useful messages during 'nix build')
+      print_rustc_rendered_messages() {
+        local rustc_json_output_lines="$1"
+        while IFS= read -r line
+        do
+            tmpFile=$(${pkgs.mktemp}/bin/mktemp)
+            echo "$line" > $tmpFile
+            ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
+        done < $rustc_json_output_lines
+      }
+
+      # set env variables from the passthru propagation, used for DEP_* and similar from build.rs
+      load_environment_variables_from_files() {
+        local files="$1"
+        for file in $files; do
+          if [ -f $file ]; then
+            set -a
+              while read -r line; do
+                echo -e "\033[38;5;208m$line\033[0m"
+              done < "$file"
+              source $file
+              set +a
+          fi
+        done
+      }
+    '';
     inject_deps = cargo_crate_info:
       let
         deps = external_crate_dependencies.deps;

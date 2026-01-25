@@ -296,16 +296,7 @@ fn generate_environment_variables<'gctx>(
 fn handle_dynamic_crate_aspects(unit: &Unit, deps: &Dependencies) -> Vec<String> {
     let mut additional_build_phase_arguments: Vec<String> = vec![];
     let source_environment_variables: String = indoc! {r#"
-    for file in ${fn.environment_variables passthru.rust_script_build_run}; do
-      if [ -f $file ]; then
-        set -a
-          while read -r line; do
-            echo -e "\033[38;5;208m$line\033[0m"
-          done < "$file"
-          source $file
-          set +a
-      fi
-    done
+      load_environment_variables_from_files "${fn.environment_variables passthru.rust_script_build_run}"
     "#}
     .to_string();
 
@@ -1200,23 +1191,11 @@ impl<'a, 'gctx> NixBuildRunner {
         rustc_exit_value=$?
         set +x -e
              
-        # print errors
-        while IFS= read -r line
-        do
-            tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-            echo "$line" > $tmpFile
-            ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-        done < $rustc_json_output_lines
+        print_rustc_rendered_messages $rustc_json_output_lines
         {{{create_symlink}}}
 
-        # return structured formatted errors for later processing
-        output=$(${pkgs.jq}/bin/jq -s -r -c \
-            --arg fullname "{{{fullname}}}" \
-            --arg crate_name "{{{crate_name}}}" \
-            --arg exit_code "$rustc_exit_value" \
-            '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-            "$rustc_json_output_lines")
-        printf '@cargo %s\n' "$output"
+        print_cargo_message_type_2 "${meta.cargo_crate_info.name}" "${name}" $rustc_exit_value $rustc_json_output_lines
+
         if [ "$rustc_exit_value" -ne 0 ]; then
             exit $rustc_exit_value
         fi
