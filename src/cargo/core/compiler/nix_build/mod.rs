@@ -307,8 +307,7 @@ fn handle_dynamic_crate_aspects(unit: &Unit, deps: &Dependencies) -> Vec<String>
                 Some(_) => {
                     additional_build_phase_arguments
                         .push(format!(indoc! {r#"
-                        cp -r ${{fn.get_rust_crate_parent passthru.rust_crate_parent}}/* $OUT_DIR
-                        rm -Rf $OUT_DIR/nix
+                        copy_build_script_run_results_over_without_nix "${{fn.get_rust_crate_parent passthru.rust_crate_parent}}"
                     "#}).to_string().indentation(6));
                 }
                 None => {}
@@ -319,7 +318,9 @@ fn handle_dynamic_crate_aspects(unit: &Unit, deps: &Dependencies) -> Vec<String>
                 Some(_) => {
                     if crate_build_type(unit) == CrateBuildType::LibBuild {
                         additional_build_phase_arguments
-                            .push(format!("cp -r ${{fn.get_rust_crate_parent passthru.rust_crate_parent}}/* $OUT_DIR").to_string().indentation(6));
+                            .push(format!(indoc! {r#"
+                            copy_build_script_run_results_over_with_nix "${{fn.get_rust_crate_parent passthru.rust_crate_parent}}"
+                        "#}).to_string().indentation(6));
                         additional_build_phase_arguments
                             .push(format!(indoc! {r#"
                             for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do

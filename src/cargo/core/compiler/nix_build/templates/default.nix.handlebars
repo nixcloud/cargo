@@ -109,6 +109,17 @@ let
           fi
         done
       }
+
+      copy_build_script_run_results_over_with_nix() {
+        local build_script_run_out_dir="$1"
+        cp -r "$build_script_run_out_dir"/* $OUT_DIR
+      }
+
+      copy_build_script_run_results_over_without_nix() {
+        local build_script_run_out_dir="$1"
+        cp -r "$build_script_run_out_dir"/* $OUT_DIR
+        rm -Rf $OUT_DIR/nix
+      }
     '';
     inject_deps = cargo_crate_info:
       let
