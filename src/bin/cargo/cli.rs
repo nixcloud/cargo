@@ -101,10 +101,10 @@ pub fn main(gctx: &mut GlobalContext) -> CliResult {
         println!("Support you: File issues at: https://github.com/nixcloud/cargo/issues/");
         match gctx.backend()? {
             BuildBackend::Legacy => {
-                println!("Using 'legacy' backend to build crates");
+                println!("\x1b[35mUsing 'legacy' backend to build crates\x1b[0m");
             }
             BuildBackend::Nix => {
-                println!("Using 'nix' backend to build crates");
+                println!("\x1b[35mUsing 'nix' backend to build crates\x1b[0m");
             }
         };
         exec.exec(gctx, subcommand_args)?;

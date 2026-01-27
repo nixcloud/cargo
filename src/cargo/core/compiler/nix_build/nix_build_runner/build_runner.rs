@@ -40,6 +40,8 @@ impl NixBuild {
             .arg("--json")
             .arg("--log-format")
             .arg("internal-json")
+            //.arg("--option extra-sandbox-paths")
+            //.arg("'/incremental-target=/cargo-incremental-target'")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 

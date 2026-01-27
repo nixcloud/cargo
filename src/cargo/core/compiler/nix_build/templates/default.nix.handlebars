@@ -69,6 +69,20 @@ let
         printf '@cargo %s\n' "$output"
       }
 
+      print_cargo_message_type_3() {
+        local crate_name="$1"
+        local notice="$2"
+        local exit_code="$3"
+        local build_script_build_output_lines="$4"
+        output=$(${pkgs.jq}/bin/jq -c -n \
+          --arg crate_name "$crate_name" \
+          --arg notice "$notice" \
+          --arg exit_code "$exit_code" \
+          --rawfile msg $build_script_build_output_lines \
+          '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
+        printf '@cargo %s\n' "$output"
+      }
+
       # rustc outputs json, from that we extracted the .rendered part and print it to stdout 
       # (so we see useful messages during 'nix build')
       print_rustc_rendered_messages() {

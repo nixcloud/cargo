@@ -1057,14 +1057,9 @@ impl<'a, 'gctx> NixBuildRunner {
                 ${ {{parent_full_name}} }/build_script_build > $OUT_DIR/nix/build_script_build.out 2> $build_script_build_output_lines
                 build_script_build_exit_value=$?
                 set +x -e
+
                 if [ "$build_script_build_exit_value" -ne 0 ]; then
-                    output=$(${pkgs.jq}/bin/jq -c -n \
-                        --arg crate_name "{{{crate_name}}}" \
-                        --arg notice "{{{filename_notice_build_script_build}}}" \
-                        --arg exit_code "$build_script_build_exit_value" \
-                        --rawfile msg $build_script_build_output_lines \
-                        '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
-                    printf '@cargo %s\n' "$output"
+                    print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "{{{filename_notice_build_script_build}}}" $build_script_build_exit_value $build_script_build_output_lines
                     cat "$build_script_build_output_lines"
                     exit $build_script_build_exit_value
                 fi
@@ -1074,14 +1069,9 @@ impl<'a, 'gctx> NixBuildRunner {
                 ${build_parser}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results 2> $build_parser_output_lines
                 build_parser_exit_value=$?
                 set +x -e
+
                 if [ "$build_parser_exit_value" -ne 0 ]; then
-                    output=$(${pkgs.jq}/bin/jq -c -n \
-                        --arg crate_name "{{{crate_name}}}" \
-                        --arg notice "{{{filename_notice_build_parser}}}" \
-                        --arg exit_code "$build_parser_exit_value" \
-                        --rawfile msg $build_parser_output_lines \
-                        '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
-                    printf '@cargo %s\n' "$output"
+                    print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "{{{filename_notice_build_parser}}}" $build_script_build_exit_value $build_script_build_output_lines
                     cat $build_parser_output_lines
                     exit $build_parser_exit_value
                 fi
@@ -1194,7 +1184,7 @@ impl<'a, 'gctx> NixBuildRunner {
         print_rustc_rendered_messages $rustc_json_output_lines
         {{{create_symlink}}}
 
-        print_cargo_message_type_2 "${meta.cargo_crate_info.name}" "${name}" $rustc_exit_value $rustc_json_output_lines
+        print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" $rustc_exit_value $rustc_json_output_lines
 
         if [ "$rustc_exit_value" -ne 0 ]; then
             exit $rustc_exit_value

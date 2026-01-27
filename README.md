@@ -41,8 +41,64 @@ Similar projects:
 
 ### Actively working on
 
-* BUG: consider doing this also in the bin
-      cp -r ${fn.get_rust_crate_parent passthru.rust_crate_parent}/* $OUT_DIR
+* no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
+
+    --generate-buildsystem <DIR>    Output a build system to the specified directory instead of building.
+                                    Additional option: --upstream-repo <GIT-URL> (clone and generate from upstream repo).
+
+    --upstream-repo <GIT-URL>       [Requires --generate-buildsystem]
+                                    Clone and generate the buildsystem from this upstream repo, not the local directory.
+
+* BUG: eza shows that for -bin.nix crates this is missing
+  cp -r ${fn.get_rust_crate_parent passthru.rust_crate_parent}/* $OUT_DIR
+
+  also add rust_crate_parent into the -bin crate (currently only rust_script_build_run is set)
+  OR can we not use rust_crate_parent at all and only use rust_script_build_run?
+
+            match crate_build_type(unit) {
+                    CrateBuildType::BinBuild => {
+                        additional_build_phase_arguments.push(source_environment_variables.indentation(6));
+                    }
+                    CrateBuildType::LibBuild | CrateBuildType::ScriptBuild | CrateBuildType::ScriptBuildRun => {
+                        match &deps.rust_crate_parent {
+                            Some(_) => {
+                                if crate_build_type(unit) == CrateBuildType::LibBuild {
+                                    additional_build_phase_arguments
+                                        .push(format!("cp -r ${{fn.get_rust_crate_parent passthru.rust_crate_parent}}/* $OUT_DIR").to_string().indentation(6));
+
+    [nixos@nixos:~/tests/eza]$ vim target/debug/nix/derivations/eza-0.23.4-bin-748779b38cd5bdac.nix
+        { fn, pkgs, rustc, cargo, deps, eza-0_23_4-5425a52509ec25ff, eza-0_23_4-script_build_run-ae522e8eeb4be1ec }: with deps;
+        pkgs.stdenv.mkDerivation rec {
+            name = "eza-0_23_4-bin-748779b38cd5bdac";
+            meta.cargo_crate_info = {
+                name = "eza";
+                version = "0.23.4";
+                crate_hash = "748779b38cd5bdac";
+            };
+            buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+            env = fn.inject_envs meta.cargo_crate_info;
+
+            passthru.rust_crate_libraries = [ansi-width-0_1_0-925be429a32c343d backtrace-0_3_76-6b1d223f918ea607 chrono-0_4_42-dc2daccceef10cf6 dirs-6_0_0-a8934f498a729747 eza-0_23_4-5425a52509ec25ff git2-0_20_2-b99c5890ceaf2f84 glob-0_3_3-dddedbc796f0a88e libc-0_2_176-064bf35aaaf99812 locale-0_2_2-bc678a5bd3906d41 log-0_4_28-568abef6574317d3 natord-plus-plus-2_0_0-3ea526056716a7bd nu-ansi-term-0_50_1-56ff9cf424470041 palette-0_7_6-9c2d79530faad57c path-clean-1_0_1-120aac488f84091c percent-encoding-2_3_2-463af3bb23658951 phf-0_12_1-9adefdbb9bb546bf plist-1_8_0-3cc9278b0e88958a proc-mounts-0_3_0-4eeec1e729034304 rayon-1_11_0-b8f3f6bbb3f7e8af serde-1_0_228-7af073b37626f843 serde_norway-0_9_42-f49089c5f05e89ce terminal_size-0_4_3-ec5168ee8d279ecd timeago-0_4_2-f439956bebf181d2 unicode-width-0_2_2-d4d444ee72791683 unit-prefix-0_5_2-4538036d5e8fb6f7 uutils_term_grid-0_7_0-f53739b5a5b375a3 uzers-0_12_1-7211e8b4e705e7e4];
+            passthru.rust_crate_parent = [];
+            passthru.rust_script_build_run = [eza-0_23_4-5425a52509ec25ff];
+            phases = "unpackPhase buildPhase installPhase";
+
+    # generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
+    { pkgs, fn, cargo, rustc, deps, build_parser, cargo-0_88_0-script_build-cfc654fccb259515 }: with deps;
+      pkgs.stdenv.mkDerivation rec {
+        name = "cargo-0_88_0-script_build_run-f5d51778f22880c0";
+        meta.cargo_crate_info = {
+          name = "cargo";
+          version = "0.88.0";
+          crate_hash = "f5d51778f22880c0";
+        };
+        buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+        passthru.rust_crate_libraries = [];
+        passthru.rust_crate_parent = [cargo-0_88_0-script_build-cfc654fccb259515];
+        passthru.rust_script_build_run = [curl-sys-0_4_80_plus_curl-8_12_1-db5fbe1d9680c71f libgit2-sys-0_18_0_plus_1_9_0-86c4b3f8f5bf526a];
+        phases = "unpackPhase buildPhase";
+
+
 
 * incremental target, add this to rustc call:
   $(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
@@ -79,10 +135,6 @@ Similar projects:
         then builtins.trace "Using Cargo.dependencies.nix"
             import ${project_root}/Cargo.dependencies.nix { inherit pkgs; }
 
-* FEATURE: pretty print functions in default.nix and call via fn.pretty_print (...) 
-  currently there is too much redundant code in generated nix files in dep/... 
-  see https://x.com/joschelboschel/status/2008536931383095783
-
 * BUG: tokio crate: binary is actually called test-cat, nix-backend calls it test_cat
   /nix/store/mrb3dfk0c3c2sm40r26qn5ms84w7j0ij-tests-integration-0_1_0-bin-892dd4ee4c5aadcd/bin/test_cat
 
@@ -95,7 +147,9 @@ Similar projects:
 * refactor the codebase
   * make /tmp/out for legacy runs more obvious, also clean directory before start
 
-* no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
+
+* BUG: if there is a problem with a rustc call which lacks the openssl DEP_ env variables, errors are
+  very hard to understand. i think it did not even print an error, had this with
 
 ### Backlog
 
@@ -146,12 +200,6 @@ Similar projects:
 * get this PR upstream
 
 ## Cargo commands
-
-### New Commands
-
-    [ ] nix                  Use 'nix build' with the nix job scheduler to build crates inside a sandbox
-
-### Commands status
 
     # very common commands
 
@@ -234,7 +282,7 @@ Alternative calls for using the nix backend in cargo:
 
 ### nix build system
 
-    time nix build --file target/debug/nix/default.nix --impure -L --no-link --print-out-paths target --json --log-format internal-json
+    time nix build --file target/debug/nix/default.nix --impure -L --no-link --print-out-paths target --json --log-format internal-json --option extra-sandbox-paths '/incremental-target=/cargo-incremental-target'
 
 afterwards install it with running something like:
 
@@ -324,6 +372,7 @@ delta        v0.18.2 |   | x
 rust-analyzer        |   | x
    2025-01-07
 nushell      0.102.0 | x | +   "openssl-sys" = [ pkg-config openssl ];
+eza   58b98cfa       |   | x error: include_str!(concat!(env!("OUT_DIR"), "/version_string.txt")) -> fixed by adding '  cp -r ${fn.get_rust_crate_parent passthru.rust_script_build_run}/* $OUT_DIR' to the bin crate
 ```
 
 # fail stories
@@ -351,21 +400,48 @@ vaultwarden          | x | legacy: `cargo build  --features sqlite` works
     nix build --file target/debug/nix/cargo_build_caller.nix target -L
     CARGO_BACKEND=nix ~/cargo/target/debug/cargo build -v --features sqlite
     error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "vaultwarden-1_0_0-script_build-ab50c3dfe01f1634" at /home/nixos/tests/vaultwarden/target/debug/nix/derivations/vaultwarden-1.0.0-script_build_run-373c093bb6046a0d.nix:2'
-ka4h2        v0.0.24 | x |
-klick         v0.5.7 | x |
+ka4h2        v0.0.30 |   | Downloading git --url, https://codeberg.org/slowtec/utbw, --rev, 202510d2592d791a65aa7a7cc4f0dc6c17964c0d, --branch-name, , --sparse-checkout
+klick         v0.5.7 |   | Downloading git --url, https://codeberg.org/slowtec/utbw, --rev, 4980fb49ad4871d8f41a80a2d56466c19f382273, --branch-name, , --sparse-checkout
 influxdb             | ? | Downloading git --url, https://github.com fails...
+ruff                 |   | 
+  0.11.7 -> Downloading git --url, https://github.com/salsa-rs/salsa.git, --rev, 87bf6b6c2d5f6479741271da73bd9d30c2580c26, --branch-name, , --sparse-checkout
+  0.11.4 -> Downloading git --url, https://github.com/salsa-rs/salsa.git, --rev, 296a8c78da1b54c76ff5795eb4c1e3fe2467e9fc, --branch-name, , --sparse-checkout
+  0.10.0 -> Downloading git --url, https://github.com/salsa-rs/salsa.git, --rev, 095d8b2b8115c3cf8bf31914dd9ea74648bb7cf9, --branch-name, , --sparse-checkout
 helix                |   | helix-term/build.rs:5:26:\nFailed to fetch tree-sitter grammars: 277 grammars failed to fetch
 codex                |   | cd codex-rs -> generates incomplete nix based build system for 'ratatui'
-fuel-core            |   | 
-eza                  |   | error: include_str!(concat!(env!("OUT_DIR"), "/version_string.txt"))
+fuel-core            |   |
+  v0.45.1
+            error: hiding a lifetime that's elided elsewhere is confusing
+            --> crates/types/src/blockchain/transaction.rs:32:15
+            |
+            32 |     fn inputs(&self) -> Cow<[Input]>;
+            |               ^^^^^     ------------ the same lifetime is hidden here
+            |               |
+            |               the lifetime is elided here
+            |
+            = help: the same lifetime is referred to in inconsistent ways, making the signature confusing 
 zed                  |   | async-task: error: No such file or directory (os error 2)
 meilisearch          |   | error: No such file or directory (os error 2) during `cargo build`
 typst                |   | error: No such file or directory (os error 2) during `cargo build`
 RustPython           |   | error: No such file or directory (os error 2) during `cargo build`
    2024-12-30-main-4
-egui                 |   | ?
-ruff                 |   | error: rustc 1.89.0 is not supported by the following packages:
-zellij               |   | error: rustc 1.89.0 is not supported by the following package:
+egui                 | x | error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "epaint_default_fonts-0_33_3-ddad1624ebe00829" at /home/nixos/tests/egui/target/debug/nix/derivations/epaint-0.33.3-3fd34fda4c0e1cfc.nix:2'
+    646fea2133b4793ff077905fa4bacd8c636f52eb
+zellij               |   | 
+  v0.40.0
+
+            openssl-sys> Compiling openssl-sys-0_9_93-script_build_run-7187b6a4caac7e43
+            openssl-sys> @cargo { "type":0, "crate_name":"openssl-sys", "id":"openssl-sys-0_9_93-script_build_run-7187b6a4caac7e43" }
+            openssl-sys> +++ /nix/store/1v3a0zdgihczyzb509jxh75yircyap0x-openssl-sys-0_9_93-script_build-7e55d923cd5b48bd/build_script_build
+            openssl-sys> +++ build_script_build_exit_value=101
+            openssl-sys> +++ set +x -e
+            openssl-sys> @cargo {"type":3,"crate_name":"openssl-sys","exit_code":101,"messages":["There was an error executing build_script_build in file: '/home/nixos/tests/zellij/target/debug/nix/derivations/deps/openssl-sys-0.9.93-script_build_run-7187b6a4caac7e43.nix':","\nthread 'main' panicked at src/lib.rs:601:32:\ncalled `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: \"No such file or directory\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"]}
+            openssl-sys>
+            openssl-sys> thread 'main' panicked at src/lib.rs:601:32:
+            openssl-sys> called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+            openssl-sys> note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+            note: keeping build directory '/nix/var/nix/builds/nix-2071057-3168327591/build'
+
 fish-shell           |   | git clone error - error: No such file or directory (os error 2)
 surrealdb            |   | There was an error executing build_script_build in file: '/home/nixos/tests/surrealdb/target/debug/nix/derivations/deps/rquickjs-sys-0.9.0-script_build_run-cc5015d81fa1961f.nix
 Unable to find libclang: "couldn't find any valid shared libraries matching: ['libclang.so', 'libclang-*.so', 'libclang.so.*', 'libclang-*.so.*'], set the `LIBCLANG_PATH` environment variable to a path where one of these files can be found (invalid: [])"
