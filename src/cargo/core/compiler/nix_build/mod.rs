@@ -303,6 +303,16 @@ fn handle_dynamic_crate_aspects(unit: &Unit, deps: &Dependencies) -> Vec<String>
     match crate_build_type(unit) {
         CrateBuildType::BinBuild => {
             additional_build_phase_arguments.push(source_environment_variables.indentation(6));
+            match &deps.rust_crate_parent {
+                Some(_) => {
+                    additional_build_phase_arguments
+                        .push(format!(indoc! {r#"
+                        cp -r ${{fn.get_rust_crate_parent passthru.rust_crate_parent}}/* $OUT_DIR
+                        rm -Rf $OUT_DIR/nix
+                    "#}).to_string().indentation(6));
+                }
+                None => {}
+            };
         }
         CrateBuildType::LibBuild | CrateBuildType::ScriptBuild | CrateBuildType::ScriptBuildRun => {
             match &deps.rust_crate_parent {
@@ -492,7 +502,7 @@ fn create_unit_dependencies<'a, 'gctx>(
     //     "rustls-0_23_23-script_build",
     // ]
     let search: String = match crate_build_type(unit) {
-        CrateBuildType::LibBuild => {
+        CrateBuildType::BinBuild | CrateBuildType::LibBuild => {
             format!("{}-{}-script_build_run", crate_name, crate_version).nix_attr_replace()
         }
         CrateBuildType::ScriptBuildRun => {

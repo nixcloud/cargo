@@ -41,9 +41,6 @@ Similar projects:
 
 ### Actively working on
 
-* BUG: don't copy nix/ folder in -bin / (lib) when inheriting from script_build_run:
-  cp -R ${build_rs_example-0_1_0-script_build_run-c14b772accd0d4ed}/* $out
-
 * no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
 
     --generate-buildsystem <DIR>    Output a build system to the specified directory instead of building.
@@ -51,60 +48,6 @@ Similar projects:
 
     --upstream-repo <GIT-URL>       [Requires --generate-buildsystem]
                                     Clone and generate the buildsystem from this upstream repo, not the local directory.
-
-* BUG: eza shows that for -bin.nix crates this is missing
-  cp -r ${fn.get_rust_crate_parent passthru.rust_crate_parent}/* $OUT_DIR
-
-  also add rust_crate_parent into the -bin crate (currently only rust_script_build_run is set)
-  OR can we not use rust_crate_parent at all and only use rust_script_build_run?
-
-            match crate_build_type(unit) {
-                    CrateBuildType::BinBuild => {
-                        additional_build_phase_arguments.push(source_environment_variables.indentation(6));
-                    }
-                    CrateBuildType::LibBuild | CrateBuildType::ScriptBuild | CrateBuildType::ScriptBuildRun => {
-                        match &deps.rust_crate_parent {
-                            Some(_) => {
-                                if crate_build_type(unit) == CrateBuildType::LibBuild {
-                                    additional_build_phase_arguments
-                                        .push(format!("cp -r ${{fn.get_rust_crate_parent passthru.rust_crate_parent}}/* $OUT_DIR").to_string().indentation(6));
-
-    [nixos@nixos:~/tests/eza]$ vim target/debug/nix/derivations/eza-0.23.4-bin-748779b38cd5bdac.nix
-        { fn, pkgs, rustc, cargo, deps, eza-0_23_4-5425a52509ec25ff, eza-0_23_4-script_build_run-ae522e8eeb4be1ec }: with deps;
-        pkgs.stdenv.mkDerivation rec {
-            name = "eza-0_23_4-bin-748779b38cd5bdac";
-            meta.cargo_crate_info = {
-                name = "eza";
-                version = "0.23.4";
-                crate_hash = "748779b38cd5bdac";
-            };
-            buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
-            env = fn.inject_envs meta.cargo_crate_info;
-
-            passthru.rust_crate_libraries = [ansi-width-0_1_0-925be429a32c343d backtrace-0_3_76-6b1d223f918ea607 chrono-0_4_42-dc2daccceef10cf6 dirs-6_0_0-a8934f498a729747 eza-0_23_4-5425a52509ec25ff git2-0_20_2-b99c5890ceaf2f84 glob-0_3_3-dddedbc796f0a88e libc-0_2_176-064bf35aaaf99812 locale-0_2_2-bc678a5bd3906d41 log-0_4_28-568abef6574317d3 natord-plus-plus-2_0_0-3ea526056716a7bd nu-ansi-term-0_50_1-56ff9cf424470041 palette-0_7_6-9c2d79530faad57c path-clean-1_0_1-120aac488f84091c percent-encoding-2_3_2-463af3bb23658951 phf-0_12_1-9adefdbb9bb546bf plist-1_8_0-3cc9278b0e88958a proc-mounts-0_3_0-4eeec1e729034304 rayon-1_11_0-b8f3f6bbb3f7e8af serde-1_0_228-7af073b37626f843 serde_norway-0_9_42-f49089c5f05e89ce terminal_size-0_4_3-ec5168ee8d279ecd timeago-0_4_2-f439956bebf181d2 unicode-width-0_2_2-d4d444ee72791683 unit-prefix-0_5_2-4538036d5e8fb6f7 uutils_term_grid-0_7_0-f53739b5a5b375a3 uzers-0_12_1-7211e8b4e705e7e4];
-            passthru.rust_crate_parent = [];
-            passthru.rust_script_build_run = [eza-0_23_4-5425a52509ec25ff];
-            phases = "unpackPhase buildPhase installPhase";
-
-    # generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
-    { pkgs, fn, cargo, rustc, deps, build_parser, cargo-0_88_0-script_build-cfc654fccb259515 }: with deps;
-      pkgs.stdenv.mkDerivation rec {
-        name = "cargo-0_88_0-script_build_run-f5d51778f22880c0";
-        meta.cargo_crate_info = {
-          name = "cargo";
-          version = "0.88.0";
-          crate_hash = "f5d51778f22880c0";
-        };
-        buildInputs = [] ++ fn.inject meta.cargo_crate_info;
-        passthru.rust_crate_libraries = [];
-        passthru.rust_crate_parent = [cargo-0_88_0-script_build-cfc654fccb259515];
-        passthru.rust_script_build_run = [curl-sys-0_4_80_plus_curl-8_12_1-db5fbe1d9680c71f libgit2-sys-0_18_0_plus_1_9_0-86c4b3f8f5bf526a];
-        phases = "unpackPhase buildPhase";
-
-
-
-* incremental target, add this to rustc call:
-  $(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
 
 * release of this work
   * create a release workflow (for cargo-libnix as well as for projects using this toolchain)
@@ -122,6 +65,10 @@ Similar projects:
     https://github.com/NixOS/nix/issues/6115
 
     /home/nixos/cargo/src/cargo/core/compiler/mod.rs:1238 opt(cmd, "-C", "incremental=$INC_DIR", None);
+
+    * incremental target, add this to rustc call:
+      $(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
+
 
 * implement nix/rustc_link_arg_benches for cargo:rustc-link-arg-benches=-rdynamic in the generated nix code
 
@@ -376,18 +323,14 @@ delta        v0.18.2 |   | x
 rust-analyzer        |   | x
    2025-01-07
 nushell      0.102.0 | x | +   "openssl-sys" = [ pkg-config openssl ];
+coreutils            |   | x   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
+eza   58b98cfa       |   | x   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
+build_rs_example     | x | x   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
 ```
 
 # fail stories
 
 ```
-################################################################# OUT_DIR ################################################################################################################################
-coreutils            |   | x  (requires manual patch because of OUT_DIR) 
-   ++++ we could introduce BUILD_OUT_DIR="${coreutils-0_5_0-script_build_run-7d8760345f435e2a}"; so in the source include!(concat!(env!("BUILD_OUT_DIR"), "/uutils_map.rs"));
-   ++++ horrible amount of useless recompiles due to src = builtins.filterSource on 80 root crate targets
-eza   58b98cfa       |   | x error: include_str!(concat!(env!("OUT_DIR"), "/version_string.txt")) -> fixed by adding '  cp -r ${fn.get_rust_crate_parent passthru.rust_script_build_run}/* $OUT_DIR' to the bin crate
-build_rs_example     | x | x error: couldn't read `/nix/store/3qh8a1dqdy541298lp3wkc9lzrca7nph-build_rs_example-0_1_0-bin-d469499e9944fe93/foobar.rs`: No such file or directory (os error 2) - include!(concat!(env!("OUT_DIR"), "/foobar.rs"));
-################################################################# /OUT_DIR ################################################################################################################################
 ################################################################# error generating nix build system ################################################################################################################################
 tokio                |   | (wrong bin name, no libs)
 leptos               | x | fails to create build system (target)
