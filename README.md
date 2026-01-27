@@ -41,6 +41,9 @@ Similar projects:
 
 ### Actively working on
 
+* BUG: don't copy nix/ folder in -bin / (lib) when inheriting from script_build_run:
+  cp -R ${build_rs_example-0_1_0-script_build_run-c14b772accd0d4ed}/* $out
+
 * no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
 
     --generate-buildsystem <DIR>    Output a build system to the specified directory instead of building.
@@ -150,6 +153,10 @@ Similar projects:
 
 * BUG: if there is a problem with a rustc call which lacks the openssl DEP_ env variables, errors are
   very hard to understand. i think it did not even print an error, had this with
+
+* BUG: improve error quality in typst for git clone errors (using nixcloud/cargo d922a5bca855964209473671d9e4ec8a2666776d)
+  Downloading git --url, https://github.com/typst/typst-assets, --rev, 57a38ca98236748ad83c806a48096b281686a7de, --branch-name, , --sparse-checkout
+  error: No such file or directory (os error 2)
 
 ### Backlog
 
@@ -363,23 +370,29 @@ nix-installer 3.15.1 |   | +
                     };
                 };
             }
-coreutils            |   | x  (requires manual patch because of OUT_DIR) 
-   ++++ we could introduce BUILD_OUT_DIR="${coreutils-0_5_0-script_build_run-7d8760345f435e2a}"; so in the source include!(concat!(env!("BUILD_OUT_DIR"), "/uutils_map.rs"));
-   ++++ horrible amount of useless recompiles due to src = builtins.filterSource on 80 root crate targets
 
 bat          v0.25.0 | x | x
 delta        v0.18.2 |   | x
 rust-analyzer        |   | x
    2025-01-07
 nushell      0.102.0 | x | +   "openssl-sys" = [ pkg-config openssl ];
-eza   58b98cfa       |   | x error: include_str!(concat!(env!("OUT_DIR"), "/version_string.txt")) -> fixed by adding '  cp -r ${fn.get_rust_crate_parent passthru.rust_script_build_run}/* $OUT_DIR' to the bin crate
 ```
 
 # fail stories
 
 ```
+################################################################# OUT_DIR ################################################################################################################################
+coreutils            |   | x  (requires manual patch because of OUT_DIR) 
+   ++++ we could introduce BUILD_OUT_DIR="${coreutils-0_5_0-script_build_run-7d8760345f435e2a}"; so in the source include!(concat!(env!("BUILD_OUT_DIR"), "/uutils_map.rs"));
+   ++++ horrible amount of useless recompiles due to src = builtins.filterSource on 80 root crate targets
+eza   58b98cfa       |   | x error: include_str!(concat!(env!("OUT_DIR"), "/version_string.txt")) -> fixed by adding '  cp -r ${fn.get_rust_crate_parent passthru.rust_script_build_run}/* $OUT_DIR' to the bin crate
+build_rs_example     | x | x error: couldn't read `/nix/store/3qh8a1dqdy541298lp3wkc9lzrca7nph-build_rs_example-0_1_0-bin-d469499e9944fe93/foobar.rs`: No such file or directory (os error 2) - include!(concat!(env!("OUT_DIR"), "/foobar.rs"));
+################################################################# /OUT_DIR ################################################################################################################################
+################################################################# error generating nix build system ################################################################################################################################
 tokio                |   | (wrong bin name, no libs)
-slint           1.15 |   | ? /derivations/i-slint-backend-qt-1.15.0-script_build_run-c2a74fa170f66d1e.nix':","\nthread 'main' panicked at internal/backends/qt/build.rs:18:38:\ncalled `Result::unwrap()` on an `Err` value: NotPresent
+leptos               | x | fails to create build system (target)
+bevy                 |   | fails to create build system (target)
+fuse-rs              |   | fails to create build system (target)
 lightningcss         | x | (no targets, it is just a library)
 rphtml       v0.5.10 | x | (no targets, it is just a library)
 axum                 | x | (no targets, it is just a library)
@@ -390,16 +403,9 @@ servo                |   | (no targets, it is just a library)
  thread 'main' panicked at /home/nixos/.cargo/git/checkouts/stylo-482338307e42a9ea/a47ab67/style/build.rs:38:9:
   Can't find python (tried python3)! Try fixing PATH or setting the PYTHON3 env var
   note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-cargo-leptos         | x | deps/openssl-sys-0.9.110-script_build_run-c7b5d3a81281fe1c.nix':","\n\n\n/build/openssl-src-300.5.4+3.5.4/openssl: No such fi
-                           bundled openssl won't compile (source can't be found)
-leptos               | x | fails to create build system (target)
-bevy                 |   | fails to create build system (target)
-fuse-rs              |   | fails to create build system (target)
-uv                   | ? | generated build system is wrong: error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "uv-version-0_9_22-69df0fced6bb13c4" at /home/nixos/tests/uv/target/debug/nix/derivations/uv-0.9.22-bin-389c9a1de962636b.nix:2'
-vaultwarden          | x | legacy: `cargo build  --features sqlite` works
-    nix build --file target/debug/nix/cargo_build_caller.nix target -L
-    CARGO_BACKEND=nix ~/cargo/target/debug/cargo build -v --features sqlite
-    error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "vaultwarden-1_0_0-script_build-ab50c3dfe01f1634" at /home/nixos/tests/vaultwarden/target/debug/nix/derivations/vaultwarden-1.0.0-script_build_run-373c093bb6046a0d.nix:2'
+################################################################# /error generating nix build system ###############################################################################################################################
+################################################################# git ################################################################################################################################
+fish-shell           |   | Downloading git --url, https://github.com/fish-shell/rust-pcre2, --rev, 85b7afba1a9d9bd445779800e5bcafeb732e4421, --branch-name, , --sparse-checkout
 ka4h2        v0.0.30 |   | Downloading git --url, https://codeberg.org/slowtec/utbw, --rev, 202510d2592d791a65aa7a7cc4f0dc6c17964c0d, --branch-name, , --sparse-checkout
 klick         v0.5.7 |   | Downloading git --url, https://codeberg.org/slowtec/utbw, --rev, 4980fb49ad4871d8f41a80a2d56466c19f382273, --branch-name, , --sparse-checkout
 influxdb             | ? | Downloading git --url, https://github.com fails...
@@ -407,8 +413,24 @@ ruff                 |   |
   0.11.7 -> Downloading git --url, https://github.com/salsa-rs/salsa.git, --rev, 87bf6b6c2d5f6479741271da73bd9d30c2580c26, --branch-name, , --sparse-checkout
   0.11.4 -> Downloading git --url, https://github.com/salsa-rs/salsa.git, --rev, 296a8c78da1b54c76ff5795eb4c1e3fe2467e9fc, --branch-name, , --sparse-checkout
   0.10.0 -> Downloading git --url, https://github.com/salsa-rs/salsa.git, --rev, 095d8b2b8115c3cf8bf31914dd9ea74648bb7cf9, --branch-name, , --sparse-checkout
-helix                |   | helix-term/build.rs:5:26:\nFailed to fetch tree-sitter grammars: 277 grammars failed to fetch
+zed                  |   | Downloading git --url, https://github.com/smol-rs/async-task.git, --rev, b4486cd71e4e94fbda54ce6302444de14f4d190e, --branch-name, , --sparse-checkout
+meilisearch          |   | Downloading git --url, https://github.com/meilisearch/bbqueue, --rev, e8af4a4bccc8eb36b2b0442c4a9c5cb839d1cea2, --branch-name, , --sparse-checkout
+typst                |   | Downloading git --url, https://github.com/typst/typst-assets, --rev, 57a38ca98236748ad83c806a48096b281686a7de, --branch-name, , --sparse-checkout
+RustPython           |   | Downloading git --url, https://github.com/RustPython/__doc__, --rev, 8b62ce5d796d68a091969c9fa5406276cb483f79, --branch-name, , --sparse-checkout
+   2024-12-30-main-4
+################################################################# /git ################################################################################################################################   
 codex                |   | cd codex-rs -> generates incomplete nix based build system for 'ratatui'
+egui                 | x | error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "epaint_default_fonts-0_33_3-ddad1624ebe00829" at /home/nixos/tests/egui/target/debug/nix/derivations/epaint-0.33.3-3fd34fda4c0e1cfc.nix:2'
+    646fea2133b4793ff077905fa4bacd8c636f52eb
+uv                   | ? | generated build system is wrong: error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "uv-version-0_9_22-69df0fced6bb13c4" at /home/nixos/tests/uv/target/debug/nix/derivations/uv-0.9.22-bin-389c9a1de962636b.nix:2'
+vaultwarden          | x | legacy: `cargo build  --features sqlite` works
+    nix build --file target/debug/nix/cargo_build_caller.nix target -L
+    CARGO_BACKEND=nix ~/cargo/target/debug/cargo build -v --features sqlite
+    error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "vaultwarden-1_0_0-script_build-ab50c3dfe01f1634" at /home/nixos/tests/vaultwarden/target/debug/nix/derivations/vaultwarden-1.0.0-script_build_run-373c093bb6046a0d.nix:2'
+cargo-leptos         | x | deps/openssl-sys-0.9.110-script_build_run-c7b5d3a81281fe1c.nix':","\n\n\n/build/openssl-src-300.5.4+3.5.4/openssl: No such fi
+                           bundled openssl won't compile (source can't be found)
+slint           1.15 |   | ? /derivations/i-slint-backend-qt-1.15.0-script_build_run-c2a74fa170f66d1e.nix':","\nthread 'main' panicked at internal/backends/qt/build.rs:18:38:\ncalled `Result::unwrap()` on an `Err` value: NotPresent
+helix                |   | helix-term/build.rs:5:26:\nFailed to fetch tree-sitter grammars: 277 grammars failed to fetch
 fuel-core            |   |
   v0.45.1
             error: hiding a lifetime that's elided elsewhere is confusing
@@ -420,16 +442,8 @@ fuel-core            |   |
             |               the lifetime is elided here
             |
             = help: the same lifetime is referred to in inconsistent ways, making the signature confusing 
-zed                  |   | async-task: error: No such file or directory (os error 2)
-meilisearch          |   | error: No such file or directory (os error 2) during `cargo build`
-typst                |   | error: No such file or directory (os error 2) during `cargo build`
-RustPython           |   | error: No such file or directory (os error 2) during `cargo build`
-   2024-12-30-main-4
-egui                 | x | error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "epaint_default_fonts-0_33_3-ddad1624ebe00829" at /home/nixos/tests/egui/target/debug/nix/derivations/epaint-0.33.3-3fd34fda4c0e1cfc.nix:2'
-    646fea2133b4793ff077905fa4bacd8c636f52eb
 zellij               |   | 
   v0.40.0
-
             openssl-sys> Compiling openssl-sys-0_9_93-script_build_run-7187b6a4caac7e43
             openssl-sys> @cargo { "type":0, "crate_name":"openssl-sys", "id":"openssl-sys-0_9_93-script_build_run-7187b6a4caac7e43" }
             openssl-sys> +++ /nix/store/1v3a0zdgihczyzb509jxh75yircyap0x-openssl-sys-0_9_93-script_build-7e55d923cd5b48bd/build_script_build
@@ -442,7 +456,6 @@ zellij               |   |
             openssl-sys> note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
             note: keeping build directory '/nix/var/nix/builds/nix-2071057-3168327591/build'
 
-fish-shell           |   | git clone error - error: No such file or directory (os error 2)
 surrealdb            |   | There was an error executing build_script_build in file: '/home/nixos/tests/surrealdb/target/debug/nix/derivations/deps/rquickjs-sys-0.9.0-script_build_run-cc5015d81fa1961f.nix
 Unable to find libclang: "couldn't find any valid shared libraries matching: ['libclang.so', 'libclang-*.so', 'libclang.so.*', 'libclang-*.so.*'], set the `LIBCLANG_PATH` environment variable to a path where one of these files can be found (invalid: [])"
 difftastic           |   | Compiling tikv-jemalloc-sys  error: returning 'char *' from a function with return type 'int' makes integer from pointer without a cast [-Wint-conversion] "make" "-j" "8"

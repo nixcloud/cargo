@@ -1,5 +1,5 @@
 # generated from default.nix.handlebars using cargo (manual edits won't be persistent)
-{ pkgs, rustc , cargo, external_crate_dependencies ? { deps = {}; }, build_parser, project_root }:
+{ pkgs, rustc, cargo, external_crate_dependencies, build_parser, project_root }:
 let
   lib = pkgs.lib;
   callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo build_parser; });

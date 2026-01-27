@@ -1163,6 +1163,7 @@ impl<'a, 'gctx> NixBuildRunner {
 
         // let mut rust_crate_libraries: Vec<String> = vec![];
 
+
         let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version, &gctx)?;
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
 
@@ -1183,7 +1184,6 @@ impl<'a, 'gctx> NixBuildRunner {
              
         print_rustc_rendered_messages $rustc_json_output_lines
         {{{create_symlink}}}
-
         print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" $rustc_exit_value $rustc_json_output_lines
 
         if [ "$rustc_exit_value" -ne 0 ]; then
