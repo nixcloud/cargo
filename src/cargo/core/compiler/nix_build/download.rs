@@ -28,10 +28,31 @@ pub struct CargoMetadata {
 }
 
 fn run_command(args: Vec<String>) -> CargoResult<Output> {
-    let output = Command::new("nix-prefetch-git").args(args).output()?;
+    let output = Command::new("nix-prefetch-git")
+        .args(&args)
+        .output();
+
+    let output = match output {
+        Ok(o) => o,
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "Failed to spawn 'nix-prefetch-git {}': {}",
+                args.join(" "),
+                e
+            )
+            .into());
+        }
+    };
+
     if !output.status.success() {
-        return Err(anyhow::anyhow!("Command execution failed").into());
+        return Err(anyhow::anyhow!(
+            "Command 'nix-prefetch-git {}' failed with exit code {:?}",
+            args.join(" "),
+            output.status.code()
+        )
+        .into());
     }
+
     Ok(output)
 }
 
@@ -41,20 +62,25 @@ pub fn download_git_for_metadata<'gctx>(
     branch: &String,
     gctx: &'gctx GlobalContext,
 ) -> CargoResult<CargoMetadata> {
-    let args = vec![
+let mut args = vec![
         String::from("--url"),
         url.to_string(),
         String::from("--rev"),
         rev.to_string(),
-        String::from("--branch-name"),
-        branch.to_string(),
-        String::from("--sparse-checkout"),
     ];
+    if !branch.is_empty() {
+        args.push(String::from("--branch-name"));
+        args.push(branch.to_string());
+    }
+    args.push(String::from("--sparse-checkout"));
 
     gctx.shell()
-        .verbose(|s| s.status("Downloading git", &args.join(", ")))?;
+        .verbose(|s| s.status("Downloading git", &args.join(" ")))?;
 
-    let output = run_command(args)?;
+    let output = match run_command(args) {
+        Ok(out) => out,
+        Err(e) => return Err(anyhow::anyhow!("Failed to run nix-prefetch-git: {}", e)),
+    };
     let json: Value = serde_json::from_slice(&output.stdout)?;
 
     Ok(CargoMetadata {
