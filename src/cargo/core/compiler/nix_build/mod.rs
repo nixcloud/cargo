@@ -1262,8 +1262,9 @@ impl<'a, 'gctx> NixBuildRunner {
             // instead of using fn link_targets() or fn link_or_copy() we built the names on the fly
             let meta = build_runner.files().metadata(&unit);
             let hash: String = meta.unit_id().to_string();
-            let binary_name: String = unit.target.crate_name();
-            let binary_name_with_hash = format!("{}-{}", binary_name, hash);
+            let crate_name: String = unit.target.crate_name().to_string();
+            let binary_name: String = unit.target.name().to_string();
+            let crate_name_with_hash = format!("{}-{}", crate_name, hash);
             phases.push("installPhase");
             append.push(
                 format!(
@@ -1273,7 +1274,7 @@ impl<'a, 'gctx> NixBuildRunner {
                         ln -s $out/{} $out/bin/{}
                       '';
                 "#},
-                    binary_name_with_hash, binary_name
+                    crate_name_with_hash, binary_name
                 )
                 .to_string()
                 .indentation(4),
