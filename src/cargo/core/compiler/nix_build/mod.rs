@@ -776,7 +776,7 @@ fn generate_src<'gctx>(
 
 struct SymlinkedTargets {
     attribute_name: String,
-    binary_name: String,
+    script: String,
 }
 
 pub struct NixBuildRunner {}
@@ -880,6 +880,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     &nix_derivations_dir,
                     &mut symlinked_targets,
                     &gctx,
+                    &requested_profile,
                 )?
             }
         }
@@ -963,19 +964,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let targets = symlinked_targets
             .iter()
             .map(|t| {
-                format!(
-                    indoc! {
-                    r#"
-                      rm -f target/{}/{}
-                      ln -s ${{{}}}/bin/{} target/{}/
-                    "#},
-                    requested_profile,
-                    t.binary_name,
-                    t.attribute_name,
-                    t.binary_name,
-                    requested_profile,
-                )
-                .to_string()
+                t.script
                 .indentation(2)
             })
             .collect::<Vec<String>>()
@@ -1163,6 +1152,7 @@ impl<'a, 'gctx> NixBuildRunner {
         nix_derivations_dir: &Filesystem,
         symlinked_targets: &mut Vec<SymlinkedTargets>,
         gctx: &'gctx GlobalContext,
+        requested_profile: &str
     ) -> CargoResult<()> {
         // println!("unit.target: {:?}", unit.target);
         // println!(
@@ -1258,12 +1248,13 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let mut phases: Vec<&str> = vec!["unpackPhase", "buildPhase"];
         let mut append: Vec<String> = vec![];
-        if crate_build_type(&unit) == CrateBuildType::BinBuild {
+
+        if is_root && crate_build_type(&unit) == CrateBuildType::BinBuild {
             // instead of using fn link_targets() or fn link_or_copy() we built the names on the fly
             let meta = build_runner.files().metadata(&unit);
             let hash: String = meta.unit_id().to_string();
             let crate_name: String = unit.target.crate_name().to_string();
-            let binary_name: String = unit.target.name().to_string();
+            let binary_name: String = unit.target.name().to_string(); // could also be binary_filename(), see manifest.rs
             let crate_name_with_hash = format!("{}-{}", crate_name, hash);
             phases.push("installPhase");
             append.push(
@@ -1279,14 +1270,62 @@ impl<'a, 'gctx> NixBuildRunner {
                 .to_string()
                 .indentation(4),
             );
+            let attribute_name = create_nix_name(
+                unit,
+                build_runner,
+                NixNameMode::AttributeName,
+                false,
+            );
             symlinked_targets.push(SymlinkedTargets {
-                attribute_name: create_nix_name(
-                    unit,
-                    build_runner,
-                    NixNameMode::AttributeName,
-                    false,
-                ),
-                binary_name: binary_name.to_string(),
+                attribute_name: attribute_name.clone(),
+                script: format!(
+                    indoc! {
+                    r#"
+                      rm -f target/{}/{}
+                      ln -s ${{{}}}/bin/{} target/{}/
+                    "#},
+                    requested_profile,
+                    binary_name,
+                    attribute_name,
+                    binary_name,
+                    requested_profile,
+                )
+                .to_string()
+            });
+        } else if is_root && crate_build_type(&unit) == CrateBuildType::LibBuild {
+            // Support for [lib] only crates
+            let meta = build_runner.files().metadata(&unit);
+            let hash: String = meta.unit_id().to_string();
+            let name: String = unit.target.name().to_string();
+
+            let attribute_name = create_nix_name(
+                unit,
+                build_runner,
+                NixNameMode::AttributeName,
+                false,
+            );
+
+            // List the extensions and their prefixes. Adjust "lib" if needed.
+            let exts = [("rlib", "lib"), ("so", "lib"), ("a", "lib"), ("rmeta", "lib"), ("d", "lib")];
+
+            // Build the body of the script.
+            let mut script_body = String::new();
+            for (ext, prefix) in exts.iter() {
+                let src_name = format!("{prefix}{name}-{hash}.{ext}");
+                let dst_name = format!("{prefix}{name}.{ext}");
+                script_body.push_str(&format!(
+                    r#"
+                        if [[ -f "${{{attribute_name}}}/{}" ]]; then
+                          ln -fs ${{{attribute_name}}}/{} target/{}/{}
+                        fi
+                    "#,
+                    src_name, src_name, requested_profile, dst_name
+                ));
+            }
+
+            symlinked_targets.push(SymlinkedTargets {
+                attribute_name: attribute_name.clone(),
+                script: script_body,
             });
         }
 
