@@ -2,7 +2,6 @@ result
 result-*
 default.nix
 release.nix
-nix/*
 .continue/*
 /target
 /Cargo.lock

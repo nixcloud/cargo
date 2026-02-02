@@ -1,0 +1,131 @@
+# generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
+{ pkgs, fn, cargo, rustc, deps, build_parser }: with deps;
+  pkgs.stdenv.mkDerivation rec {
+    name = "curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-5dbbf84b2b7464b9";
+    meta.cargo_crate_info = {
+      name = "curl-sys";
+      version = "0.4.80+curl-8.12.1";
+      crate_hash = "5dbbf84b2b7464b9";
+    };
+    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    passthru.rust_crate_libraries = [];
+    passthru.rust_crate_parent = [curl-sys-0_4_80_plus_curl-8_12_1-script_build-dc795e51d6e22aca];
+    passthru.rust_script_build_run = [libnghttp2-sys-0_1_11_plus_1_64_0-d8f3869573ff8422 libz-sys-1_1_21-69f52d4cc5a20a24 openssl-sys-0_9_106-adcaf6cb517a5566];
+    phases = "";
+
+    src = pkgs.fetchurl {
+      url = "https://crates.io/api/v1/crates/curl-sys/0.4.80+curl-8.12.1/download";
+      sha256 = "55f7df2eac63200c3ab25bde3b2268ef2ee56af3d238e76d61f01c3c49bff734";
+    };
+    unpackPhase = ''
+      tar xf $src
+      cd curl-sys-0.4.80+curl-8.12.1
+    '';
+
+    RUSTC = "${rustc}/bin/rustc";
+    CARGO = "${cargo}/bin/cargo";
+
+    CARGO_CFG_FEATURE = "default,http2,libnghttp2-sys,openssl-sys,ssl";
+    CARGO_CFG_PANIC = "unwind";
+    CARGO_CFG_TARGET_ABI = "";
+    CARGO_CFG_TARGET_ARCH = "x86_64";
+    CARGO_CFG_TARGET_ENDIAN = "little";
+    CARGO_CFG_TARGET_ENV = "gnu";
+    CARGO_CFG_TARGET_FAMILY = "unix";
+    CARGO_CFG_TARGET_FEATURE = "fxsr,sse,sse2";
+    CARGO_CFG_TARGET_HAS_ATOMIC = "16,32,64,8,ptr";
+    CARGO_CFG_TARGET_OS = "linux";
+    CARGO_CFG_TARGET_POINTER_WIDTH = "64";
+    CARGO_CFG_TARGET_VENDOR = "unknown";
+    CARGO_CFG_UNIX = "";
+    CARGO_ENCODED_RUSTFLAGS = "";
+    CARGO_FEATURE_DEFAULT = "1";
+    CARGO_FEATURE_HTTP2 = "1";
+    CARGO_FEATURE_LIBNGHTTP2_SYS = "1";
+    CARGO_FEATURE_OPENSSL_SYS = "1";
+    CARGO_FEATURE_SSL = "1";
+    CARGO_MANIFEST_DIR = "./";
+    CARGO_MANIFEST_LINKS = "curl";
+    CARGO_MANIFEST_PATH = "./Cargo.toml";
+    CARGO_PKG_AUTHORS = "Alex Crichton <alex@alexcrichton.com>";
+    CARGO_PKG_DESCRIPTION = "Native bindings to the libcurl library";
+    CARGO_PKG_HOMEPAGE = "";
+    CARGO_PKG_LICENSE = "MIT";
+    CARGO_PKG_LICENSE_FILE = "";
+    CARGO_PKG_NAME = "curl-sys";
+    CARGO_PKG_README = "";
+    CARGO_PKG_REPOSITORY = "https://github.com/alexcrichton/curl-rust";
+    CARGO_PKG_RUST_VERSION = "";
+    CARGO_PKG_VERSION = "0.4.80+curl-8.12.1";
+    CARGO_PKG_VERSION_MAJOR = "0";
+    CARGO_PKG_VERSION_MINOR = "4";
+    CARGO_PKG_VERSION_PATCH = "80";
+    CARGO_PKG_VERSION_PRE = "";
+    DEBUG = "true";
+    HOST = "x86_64-unknown-linux-gnu";
+    NUM_JOBS = "8";
+    OPT_LEVEL = "0";
+    PROFILE = "debug";
+    RUSTC_WORKSPACE_WRAPPER = "";
+    RUSTC_WRAPPER = "";
+    RUSTDOC = "rustdoc";
+    RUSTFLAGS = "";
+    TARGET = "x86_64-unknown-linux-gnu";
+
+    buildPhase = ''
+      export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
+      export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
+
+      mkdir -p $out/nix
+      export OUT_DIR=$out
+      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
+
+      echo -e "\e[92mCompiling\e[0m curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-5dbbf84b2b7464b9"
+      echo "@cargo { \"type\":0, \"crate_name\":\"curl-sys\", \"id\":\"curl-sys-0_4_80_plus_curl-8_12_1-script_build_run-5dbbf84b2b7464b9\" }"
+      for file in ${fn.environment_variables passthru.rust_script_build_run}; do
+        if [ -f $file ]; then
+          set -a
+            while read -r line; do
+              echo -e "\033[38;5;208m$line\033[0m"
+            done < "$file"
+            source $file
+            set +a
+        fi
+      done
+      build_script_build_output_lines=$(${pkgs.mktemp}/bin/mktemp)
+      set -x +e
+      ${ curl-sys-0_4_80_plus_curl-8_12_1-script_build-dc795e51d6e22aca }/build_script_build > $OUT_DIR/nix/build_script_build.out 2> $build_script_build_output_lines
+      build_script_build_exit_value=$?
+      set +x -e
+      if [ "$build_script_build_exit_value" -ne 0 ]; then
+          output=$(${pkgs.jq}/bin/jq -c -n \
+              --arg crate_name "curl-sys" \
+              --arg notice "There was an error executing build_script_build in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/curl-sys-0.4.80_plus_curl-8.12.1-script_build_run-5dbbf84b2b7464b9.nix':" \
+              --arg exit_code "$build_script_build_exit_value" \
+              --rawfile msg $build_script_build_output_lines \
+              '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
+          printf '@cargo %s\n' "$output"
+          cat "$build_script_build_output_lines"
+          exit $build_script_build_exit_value
+      fi
+      
+      build_parser_output_lines=$(${pkgs.mktemp}/bin/mktemp)
+      set -x +e
+      ${build_parser}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results 2> $build_parser_output_lines
+      build_parser_exit_value=$?
+      set +x -e
+      if [ "$build_parser_exit_value" -ne 0 ]; then
+          output=$(${pkgs.jq}/bin/jq -c -n \
+              --arg crate_name "curl-sys" \
+              --arg notice "There was an error executing build_parser in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/curl-sys-0.4.80_plus_curl-8.12.1-script_build_run-5dbbf84b2b7464b9.nix':" \
+              --arg exit_code "$build_parser_exit_value" \
+              --rawfile msg $build_parser_output_lines \
+              '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
+          printf '@cargo %s\n' "$output"
+          cat $build_parser_output_lines
+          exit $build_parser_exit_value
+      fi
+      echo "@cargo {\"type\": 3, \"crate_name\": \"curl-sys\", \"exit_code\": 0, \"messages\": []}"
+    '';
+
+}

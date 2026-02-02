@@ -6,9 +6,13 @@ This fork is intended as a PR to contribute this to the official cargo project a
 
 We use these resources:
 
-* https://github.com/nixcloud/cargo exists as a PR with to goal to integrate the libnix concept by adding a 'nix build backend', see discussion at https://lastlog.de/blog/timeline.html?filter=tag::libnix
-* https://github.com/nixcloud/cargo/issues for issues, do not report issues on the original cargo tracker (or their formus)!
+* https://github.com/nixcloud/cargo - branch **libnix** - exists as a PR to incorperate nix into cargo
+* https://github.com/nixcloud/cargo/issues - for issues, do not report issues on the original cargo tracker (or their formus)!
+
+Motivation behind this work:
+
 * https://lastlog.de/blog/libnix_cargo-nix-backend.html
+* https://lastlog.de/blog/timeline.html?filter=tag::libnix
 
 Similar projects:
 
@@ -16,6 +20,20 @@ Similar projects:
 * crane
 * cargo2nix
 * crate2nix
+
+This project is [xkcd 927](https://xkcd.com/927/).
+
+# compare
+
+* registry management
+* per crate store download
+* per crate store build
+* per crate dependencies
+* per crate environment variables
+* rustc incremental builds
+* IFD support
+* IFD free support
+* build.rs handling
 
 # State of development
 
@@ -39,7 +57,7 @@ Similar projects:
 
 ## What still requires love
 
-### Actively working on
+### high prio
 
 * no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
 
@@ -49,14 +67,9 @@ Similar projects:
     --upstream-repo <GIT-URL>       [Requires --generate-buildsystem]
                                     Clone and generate the buildsystem from this upstream repo, not the local directory.
 
-* release of this work
+* release workflow of this work
   * create a release workflow (for cargo-libnix as well as for projects using this toolchain)
   * create something 'simple' like fenix so ppl can experiment with this toolchain
-
-* BUG: on `cargo build` garbage-collect .nix files in target/debug/nix/* which are not used anymore
-
-* use of this work
-  * create a workflow on how to make use of cargo+rustc for your own project
 
 * no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
   * https://github.com/nixcloud/cargo/issues/3
@@ -69,12 +82,69 @@ Similar projects:
     * incremental target, add this to rustc call:
       $(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
 
+* refactor the codebase
+  * make /tmp/out for legacy runs more obvious, also clean directory before start
+
+### mid prio
+
+* how to support this in nix build?
+
+    cd pankat-wasm && wasm-pack build --target web --release --manifest-path ./Cargo.toml 
+    [INFO]: 🎯  Checking for the Wasm target...
+    [INFO]: 🌀  Compiling to Wasm...
+    warning: unused variable: `target`
+      --> src/lib.rs:27:13
+      |
+    27 |         let target: Element = document.get_element_by_id(self.id.as_str()).unwrap();
+      |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_target`
+      |
+      = note: `#[warn(unused_variables)]` on by default
+
+    warning: `pankat-wasm` (lib) generated 1 warning
+        Finished `release` profile [optimized] target(s) in 0.30s
+
+
+    solution:
+    export PATH=/home/nixos/cargo/target/debug:$PATH
+    [nixos@nixos:~/pankat-rs/pankat-wasm]$ CARGO_BACKEND=nix wasm-pack build --target web --debug --manifest-path ./Cargo.toml
+    [INFO]: 🎯  Checking for the Wasm target...
+    [INFO]: 🌀  Compiling to Wasm...
+    ❄❄❄  snowflake edition ❄❄❄
+    This is an unofficial fork of Cargo — not endorsed by the Rust Project.
+    Support me: Consider a star at https://github.com/nixcloud/cargo/stargazers
+    Support you: File issues at: https://github.com/nixcloud/cargo/issues/
+    Using 'nix' backend to build crates
+    error[E0463]: can't find crate for `core`
+      |
+      = note: the `wasm32-unknown-unknown` target may not be installed
+      = help: consider downloading the target with `rustup target add wasm32-unknown-unknown`
+
+    error: aborting due to 1 previous error
+
+
+* BUG: on `cargo build` garbage-collect .nix files in target/debug/nix/* which are not used anymore
+* FEATURE: add fixup_out_path_build_rs_paths() function
+    for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
+        if [ -f "$file" ]; then
+        sed -i "s|${fn.get_rust_crate_parent passthru.rust_crate_parent}|$out|g" "$file"
+        fi
+    done
+* REFACTOR:
+  * BUG: Cargo.dependencies.nix pickup is not working or shown up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
+    but it works with: nix build --file target/debug/nix/cargo_build_caller.nix target -L --keep-going
+
+* EXPERIMENT: when logging a absolute path in the build_script_build run phase, can i pass the path to the source into like
+
+    {path}
+
+    and inside the build_script_build use:
+        print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "There was an error executing build_script_build in file: '${path}/target/debug/nix/derivations/cargo-0.88.0-script_build_run-f5d51778f22880c0.nix':" $build_script_build_exit_value $build_script_build_output_lines
+    instead of     
+        print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "There was an error executing build_script_build in file: '/home/nixos/cargo/target/debug/nix/derivations/cargo-0.88.0-script_build_run-f5d51778f22880c0.nix':" $build_script_build_exit_value $build_script_build_output_lines
+
+  and then expect that the source won't be recompiled if i move it to a different directory? i guess it needs to be recompiled
 
 * implement nix/rustc_link_arg_benches for cargo:rustc-link-arg-benches=-rdynamic in the generated nix code
-
-* REFACTOR:
-  * BUG: Cargo.dependencies.nix is not picked up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
-    but it works with: nix build --file target/debug/nix/cargo_build_caller.nix target -L --keep-going, why?
 
 * REFACTOR:
   * use  https://nix.dev/manual/nix/2.18/language/constructs (asserts) on function calls arguments
@@ -85,29 +155,24 @@ Similar projects:
         then builtins.trace "Using Cargo.dependencies.nix"
             import ${project_root}/Cargo.dependencies.nix { inherit pkgs; }
 
-* BUG: tokio crate: binary is actually called test-cat, nix-backend calls it test_cat
-  /nix/store/mrb3dfk0c3c2sm40r26qn5ms84w7j0ij-tests-integration-0_1_0-bin-892dd4ee4c5aadcd/bin/test_cat
-
-* BUG: no lib targets in target.nix
-  * add library targets (to targets.nix) for 'cargo build'
-  * if no targets are found (an error in generating the build system) don't evaluate later with nix build....
-
-* get more targets to work out of the box, see fail stories
-
-* refactor the codebase
-  * make /tmp/out for legacy runs more obvious, also clean directory before start
-
 
 * BUG: if there is a problem with a rustc call which lacks the openssl DEP_ env variables, errors are
   very hard to understand. i think it did not even print an error, had this with
 
-* BUG: improve error quality in typst for git clone errors (using nixcloud/cargo d922a5bca855964209473671d9e4ec8a2666776d)
-  Downloading git --url, https://github.com/typst/typst-assets, --rev, 57a38ca98236748ad83c806a48096b281686a7de, --branch-name, , --sparse-checkout
-  error: No such file or directory (os error 2)
+* experiment with rewriting the bash in nushell 
+  * better error messages
+  * typed function
 
-### Backlog
+### low prio
 
-* experiment with rewriting the bash in nushell (better error messages)
+
+* FEATURE: git usage in src
+  * cache the git entry if found in the store, which requires that we
+  * write the hash into Cargo.dependency.nix so we can lookup the store path
+  Downloading "git --url https://github.com/typst/typst-assets, --rev 57a38ca98236748ad83c806a48096b281686a7de  --sparse-checkout"
+
+
+* cargo build vs. cargo build -v vs. cargo build -vv (nix-backend should work similar)
 
 * RUSTFLAGS might not be supported ATM (nix-backend)
 
@@ -124,6 +189,9 @@ Similar projects:
 
 * logone support is a good start but:
   * "cargo" as build target is listed 4 times when it should be: cargo (lib), cargo (build.rs_build), cargo (build.rs_run), cargo (bin)
+    * codex-app-server(bin) - creates a bin target
+    * zerocopy(build.rs) - This means Cargo is compiling zerocopy's build.rs script.
+    * mylib (lib) - creates a library target
   * cargo status line is a bit broken... (list of all targets should only increase, parallel builds broken?!)
   * build.rs execution error messages are not working in @cargo, needs `nix build --file ... taget` evaluation
   * "error: could not compile target" which occures when there is an error in the generated nix code target/debug/nix/cargo_build_caller.nix
@@ -135,6 +203,10 @@ Similar projects:
   * `nix build` has such a minor cpu utilization, i only see a load of 25% at max 
   * `cargo build` basically goes to 100%
   it seems in this video it was doing much more parallel builds: https://asciinema.org/a/742433
+  
+  nix build --file target/debug/nix/cargo_build_caller.nix deps.adler2-2_0_0-115180b36279fc7c deps.anstyle-1_0_10-bf6d032cb7d79be1 deps.allocator-api2-0_2_21-bd3713078dfee01f -L
+
+  shows that these 3 are build in parallel!
 
 * no rustdoc support
 * no testing support
@@ -151,7 +223,12 @@ Similar projects:
 
 * convert crate license into nix license so it can be BOM'ed
 
+* what about support to compile for different archs (cross compile)
+
 * get this PR upstream
+
+* don't download git each time, cache it in Cargo.dependencies.nix
+  Downloading git --url https://github.com/fish-shell/rust-pcre2 --rev 85b7afba1a9d9bd445779800e5bcafeb732e4421 --sparse-checkout
 
 ## Cargo commands
 
@@ -215,16 +292,36 @@ Similar projects:
     [ ] not supported yet, but command won't tell you but at times fail strangely
     [!] no changes were required, using vanilla cargo
 
-# How to use
+# Build cargo with libnix
 
-Type:
+## build using legacy cargo
 
     nix develop
     cargo build
+    alias cargo=target/debug/cargo
 
-## Use custom cargo
+## build using flake
 
-    alias cargo=/home/nixos/cargo/target/debug/cargo
+    nix develop
+    nix build .#cargo-libnix
+    alias cargo=result/bin/cargo
+
+    CARGO_BACKEND=nix cargo build
+
+## build using cargo_build_caller.nix
+
+Using the cargo_build_caller.nix is similar to using the flake.nix as it preparse a build-environment which
+mimics a flake.nix and works everywhere.
+
+    nix develop
+    nix build target --file nix/cargo_build_caller.nix --out-link ./result
+    result/bin/create-symlinks
+    alias cargo=result/bin/cargo
+
+Note: Instead of calling cargo_build_caller.nix one can call nix/derivations/default.nix directly but needs
+to prepare the environment. This becomes interesting when integrating a cargo libnix based project into nixpkgs.
+
+# Use cargo with libnix
 
 Call with: `CARGO_BACKEND=nix cargo build` to generate files in target/debug/nix and build + install project with the nix-backend
 Call with: `cargo build` to study the traditional build and see /tmp/out but this needs a manual cleanup before each run.
@@ -290,91 +387,102 @@ cargo with checkout: 093c427c1 (HEAD -> libnix, origin/libnix, origin/HEAD) Upda
 
 ```
                        /- cargo legacy    (both use the same cargo / rustc so we know it is buildable)
-name                 |   | cargo libnix
-cargo          v1.87 | x | +   "openssl-sys" = [ pkg-config openssl ];
-build-parser  v0.1.8 | x | x
-ripgrep      v14.1.1 | x | x
-atuin        v18.5.0 | x | x
-trunk       v0.21.14 | x | x
-sd            v1.0.0 | x | x
-mdBook        v0.5.2 | x | x
-just           v1.46 | x | x
-fd            v7.3.0 | x | x
-pankat-rs     v0.1.1 | x | +   "libsqlite3-sys" = [ pkg-config sqlite ];
-rustpad       v0.1.0 | x | x
-synapse        1.0.0 |   | x
-starship             |   | +   "openssl-sys" = [ pkg-config openssl ];  "libz-ng-sys" = [ cmake ];
-nix-installer 3.15.1 |   | +
-    { pkgs }: 
-            with pkgs;
-            {
-                deps = {};
-                envs = {
-                    "nix-installer" = {
-                        NIX_TARBALL_URL = "foo.tar.xz";
-                        DETERMINATE_NIX_TARBALL_PATH = "../README.md";
-                        DETERMINATE_NIXD_BINARY_PATH = "../README.md";
-                    };
-                };
-            }
-
-bat          v0.25.0 | x | x
-delta        v0.18.2 |   | x
-rust-analyzer        |   | x
+name                 |   | /-cargo libnix
+cargo          v1.87 | + | + |   "openssl-sys" = [ pkg-config openssl ];
+build-parser  v0.1.8 | x | x |
+ripgrep      v14.1.1 | x | x |
+atuin        v18.5.0 | x | x |
+trunk       v0.21.14 | x | x |
+sd            v1.0.0 | x | x |
+mdBook        v0.5.2 | x | x |
+just           v1.46 | x | x |
+fd            v7.3.0 | x | x |
+pankat-rs     v0.1.1 | + | + |   "libsqlite3-sys" = [ pkg-config sqlite ];
+rustpad       v0.1.0 | x | x |
+synapse        1.0.0 |   | x |
+starship     v1.22.0 |   | + |   "openssl-sys" = [ pkg-config openssl ];  "libz-ng-sys" = [ cmake ];
+nix-installer 3.15.1 |   | + |   envs = { "nix-installer" = { NIX_TARBALL_URL = "foo.tar.xz"; DETERMINATE_NIX_TARBALL_PATH = "../README.md"; DETERMINATE_NIXD_BINARY_PATH = "../README.md"; }; };
+bat          v0.25.0 | x | x |
+delta        v0.18.2 |   | x |
+rust-analyzer        |   | x |
    2025-01-07
-nushell      0.102.0 | x | +   "openssl-sys" = [ pkg-config openssl ];
-coreutils            |   | x   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
-eza   58b98cfa       |   | x   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
-build_rs_example     | x | x   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
+nushell      0.102.0 | + | + |   "openssl-sys" = [ pkg-config openssl ];
+coreutils            |   | x |   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
+eza   58b98cfa       |   | x |   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
+build_rs_example     | x | x |   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
+sniffnet             |   | x |   deps = {"alsa-sys" = [ pkg-config alsa-lib ]; "sniffnet" = [ pkg-config libpcap ]; };
+RustPython           |   | x | 
+   2024-12-30-main-4
+axum                 | x | x | 
+tokio                | x | x |
+lightningcss         | x | x |
+yew                  | x | x |
+
 ```
 
 # fail stories
 
 ```
-################################################################# error generating nix build system ################################################################################################################################
-tokio                |   | (wrong bin name, no libs)
-leptos               | x | fails to create build system (target)
-bevy                 |   | fails to create build system (target)
-fuse-rs              |   | fails to create build system (target)
-lightningcss         | x | (no targets, it is just a library)
-rphtml       v0.5.10 | x | (no targets, it is just a library)
-axum                 | x | (no targets, it is just a library)
-yew                  | x | (no targets, it is just a library)
-servo                |   | (no targets, it is just a library) 
-`cargo build` does not compile:
- Compiling idna v1.1.0
- thread 'main' panicked at /home/nixos/.cargo/git/checkouts/stylo-482338307e42a9ea/a47ab67/style/build.rs:38:9:
-  Can't find python (tried python3)! Try fixing PATH or setting the PYTHON3 env var
-  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-################################################################# /error generating nix build system ###############################################################################################################################
-################################################################# git ################################################################################################################################
-fish-shell           |   | Downloading git --url, https://github.com/fish-shell/rust-pcre2, --rev, 85b7afba1a9d9bd445779800e5bcafeb732e4421, --branch-name, , --sparse-checkout
-ka4h2        v0.0.30 |   | Downloading git --url, https://codeberg.org/slowtec/utbw, --rev, 202510d2592d791a65aa7a7cc4f0dc6c17964c0d, --branch-name, , --sparse-checkout
-klick         v0.5.7 |   | Downloading git --url, https://codeberg.org/slowtec/utbw, --rev, 4980fb49ad4871d8f41a80a2d56466c19f382273, --branch-name, , --sparse-checkout
-influxdb             | ? | Downloading git --url, https://github.com fails...
-ruff                 |   | 
-  0.11.7 -> Downloading git --url, https://github.com/salsa-rs/salsa.git, --rev, 87bf6b6c2d5f6479741271da73bd9d30c2580c26, --branch-name, , --sparse-checkout
-  0.11.4 -> Downloading git --url, https://github.com/salsa-rs/salsa.git, --rev, 296a8c78da1b54c76ff5795eb4c1e3fe2467e9fc, --branch-name, , --sparse-checkout
-  0.10.0 -> Downloading git --url, https://github.com/salsa-rs/salsa.git, --rev, 095d8b2b8115c3cf8bf31914dd9ea74648bb7cf9, --branch-name, , --sparse-checkout
-zed                  |   | Downloading git --url, https://github.com/smol-rs/async-task.git, --rev, b4486cd71e4e94fbda54ce6302444de14f4d190e, --branch-name, , --sparse-checkout
-meilisearch          |   | Downloading git --url, https://github.com/meilisearch/bbqueue, --rev, e8af4a4bccc8eb36b2b0442c4a9c5cb839d1cea2, --branch-name, , --sparse-checkout
-typst                |   | Downloading git --url, https://github.com/typst/typst-assets, --rev, 57a38ca98236748ad83c806a48096b281686a7de, --branch-name, , --sparse-checkout
-RustPython           |   | Downloading git --url, https://github.com/RustPython/__doc__, --rev, 8b62ce5d796d68a091969c9fa5406276cb483f79, --branch-name, , --sparse-checkout
-   2024-12-30-main-4
-################################################################# /git ################################################################################################################################   
-codex                |   | cd codex-rs -> generates incomplete nix based build system for 'ratatui'
-egui                 | x | error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "epaint_default_fonts-0_33_3-ddad1624ebe00829" at /home/nixos/tests/egui/target/debug/nix/derivations/epaint-0.33.3-3fd34fda4c0e1cfc.nix:2'
-    646fea2133b4793ff077905fa4bacd8c636f52eb
-uv                   | ? | generated build system is wrong: error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "uv-version-0_9_22-69df0fced6bb13c4" at /home/nixos/tests/uv/target/debug/nix/derivations/uv-0.9.22-bin-389c9a1de962636b.nix:2'
-vaultwarden          | x | legacy: `cargo build  --features sqlite` works
+######################### error generating nix build system #######################################################
+
+leptos               | x |   | fails to create build system (target)
+  ./or_poisoned/src/lib.rs a lib in the workspace lacks a nix attribute to compile and include it
+bevy                 |   |   | fails to create build system (target)
+fuse-rs              | + |   | fails to create build system (target)
+  `cargo build` compiles:
+  buildInputs = pkg-config fuse
+vaultwarden          | x |   | legacy: `cargo build  --features sqlite` works
     nix build --file target/debug/nix/cargo_build_caller.nix target -L
     CARGO_BACKEND=nix ~/cargo/target/debug/cargo build -v --features sqlite
     error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "vaultwarden-1_0_0-script_build-ab50c3dfe01f1634" at /home/nixos/tests/vaultwarden/target/debug/nix/derivations/vaultwarden-1.0.0-script_build_run-373c093bb6046a0d.nix:2'
-cargo-leptos         | x | deps/openssl-sys-0.9.110-script_build_run-c7b5d3a81281fe1c.nix':","\n\n\n/build/openssl-src-300.5.4+3.5.4/openssl: No such fi
-                           bundled openssl won't compile (source can't be found)
-slint           1.15 |   | ? /derivations/i-slint-backend-qt-1.15.0-script_build_run-c2a74fa170f66d1e.nix':","\nthread 'main' panicked at internal/backends/qt/build.rs:18:38:\ncalled `Result::unwrap()` on an `Err` value: NotPresent
-helix                |   | helix-term/build.rs:5:26:\nFailed to fetch tree-sitter grammars: 277 grammars failed to fetch
-fuel-core            |   |
+egui                 | x |   | error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "epaint_default_fonts-0_33_3-ddad1624ebe00829" at /home/nixos/tests/egui/target/debug/nix/derivations/epaint-0.33.3-3fd34fda4c0e1cfc.nix:2'
+    646fea2133b4793ff077905fa4bacd8c636f52eb
+uv                   | ? |   | generated build system is wrong: error: evaluation aborted with the following error message: 'lib.customisation.callPackageWith: Function called without required argument "uv-version-0_9_22-69df0fced6bb13c4" at /home/nixos/tests/uv/target/debug/nix/derivations/uv-0.9.22-bin-389c9a1de962636b.nix:2'
+codex                | x |   | cd codex-rs -> generates incomplete nix based build system for 'ratatui'
+    'lib.customisation.callPackageWith: Function called without required argument "codex-utils-string-0_0_0-cefa78c3ad9fc803" at /home/nixos/tests/codex/codex-rs/target/debug/nix/derivations/codex-core-0.0.0-8096744b3ee573af.nix:2'
+typst                | x |   | lib.customisation.callPackageWith: Function called without required argument "codex-utils-string-0_0_0-cefa78c3ad9fc803" at /home/nixos/tests/codex/codex-rs/target/debug/nix/derivations/codex-core-0.0.0-8096744b3ee573af.nix:2'
+######################### /error generating nix build system ######################################################
+
+######################### system libs #############################################################################
+
+servo                | + |   | (no targets, it is a library + bin called servo)
+  `cargo build` compiles:
+  export LIBCLANG_PATH="/nix/store/xid2z20mcf5ylgpl5w3jbd1bsh7zk4iv-clang-19.1.7-lib/lib"
+  buildInputs = python3 uv fontconfig udev libclang clang pkg-config (maybe openssl)
+difftastic           | ? |   | 
+  `cargo build`: Compiling tikv-jemalloc-sys  error: returning 'char *' from a function with return type 'int' makes integer from pointer without a cast [-Wint-conversion] "make" "-j" "8"
+expected success, got: exit status: 2
+surrealdb            |   |   | There was an error executing build_script_build in file: '/home/nixos/tests/surrealdb/target/debug/nix/derivations/deps/rquickjs-sys-0.9.0-script_build_run-cc5015d81fa1961f.nix
+    Unable to find libclang: "couldn't find any valid shared libraries matching: ['libclang.so', 'libclang-*.so', 'libclang.so.*', 'libclang-*.so.*'], set the `LIBCLANG_PATH` environment variable to a path where one of these files can be found (invalid: [])"
+ruff                 |   |   | 
+      make: *** [Makefile:478: src/malloc_io.sym.o] Error 1
+      make: *** Waiting for unfinished jobs....
+      In file included from /nix/store/r25srliigrrv5q3n7y8ms6z10spvjcd9-glibc-2.40-66-dev/include/bits/libc-header-start.h:33,
+                      from /nix/store/r25srliigrrv5q3n7y8ms6z10spvjcd9-glibc-2.40-66-dev/include/math.h:27,
+                      from include/jemalloc/internal/jemalloc_internal_decls.h:4,
+                      from include/jemalloc/internal/jemalloc_preamble.h:5,
+                      from src/pa.c:1:
+      /nix/store/r25srliigrrv5q3n7y8ms6z10spvjcd9-glibc-2.40-66-dev/include/features.h:422:4: warning: #warning _FORTIFY_SOURCE requires compiling with optimization (-O) [-Wcpp]
+        422 | #  warning _FORTIFY_SOURCE requires compiling with optimization (-O)
+            |    ^~~~~~~
+
+      thread 'main' panicked at build.rs:388:9:
+      command did not execute successfully: cd "/nix/store/dad6ml39l6aw86zpwh52riqs99n76ww1-tikv-jemalloc-sys-0_6_0_plus_5_3_0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7-script_build_run-0944f779b2abc523/build" && "make" "-j" "8"
+      expected success, got: exit status: 2
+      note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+################################################################# /system libs ######################################
+
+zed                  |   |   | 
+
+fish-shell           | x |   | 
+    fish> thread 'main' panicked at build.rs:9:33:
+    fish> called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+    fish> note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    note: keeping build directory '/nix/var/nix/builds/nix-2707034-4188332499/build'
+
+slint           1.15 |   |   | ? /derivations/i-slint-backend-qt-1.15.0-script_build_run-c2a74fa170f66d1e.nix':","\nthread 'main' panicked at internal/backends/qt/build.rs:18:38:\ncalled `Result::unwrap()` on an `Err` value: NotPresent
+fuel-core            |   |   |
   v0.45.1
             error: hiding a lifetime that's elided elsewhere is confusing
             --> crates/types/src/blockchain/transaction.rs:32:15
@@ -385,26 +493,81 @@ fuel-core            |   |
             |               the lifetime is elided here
             |
             = help: the same lifetime is referred to in inconsistent ways, making the signature confusing 
-zellij               |   | 
+zellij               | ? |   | 
   v0.40.0
-            openssl-sys> Compiling openssl-sys-0_9_93-script_build_run-7187b6a4caac7e43
-            openssl-sys> @cargo { "type":0, "crate_name":"openssl-sys", "id":"openssl-sys-0_9_93-script_build_run-7187b6a4caac7e43" }
-            openssl-sys> +++ /nix/store/1v3a0zdgihczyzb509jxh75yircyap0x-openssl-sys-0_9_93-script_build-7e55d923cd5b48bd/build_script_build
-            openssl-sys> +++ build_script_build_exit_value=101
-            openssl-sys> +++ set +x -e
-            openssl-sys> @cargo {"type":3,"crate_name":"openssl-sys","exit_code":101,"messages":["There was an error executing build_script_build in file: '/home/nixos/tests/zellij/target/debug/nix/derivations/deps/openssl-sys-0.9.93-script_build_run-7187b6a4caac7e43.nix':","\nthread 'main' panicked at src/lib.rs:601:32:\ncalled `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: \"No such file or directory\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"]}
-            openssl-sys>
-            openssl-sys> thread 'main' panicked at src/lib.rs:601:32:
-            openssl-sys> called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
-            openssl-sys> note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-            note: keeping build directory '/nix/var/nix/builds/nix-2071057-3168327591/build'
+  `cargo build`: error: couldn't read `/home/nixos/tests/zellij/zellij-utils/../target/wasm32-wasi/debug/compact-bar.wasm`: No such file or directory (os error 2)
 
-surrealdb            |   | There was an error executing build_script_build in file: '/home/nixos/tests/surrealdb/target/debug/nix/derivations/deps/rquickjs-sys-0.9.0-script_build_run-cc5015d81fa1961f.nix
-Unable to find libclang: "couldn't find any valid shared libraries matching: ['libclang.so', 'libclang-*.so', 'libclang.so.*', 'libclang-*.so.*'], set the `LIBCLANG_PATH` environment variable to a path where one of these files can be found (invalid: [])"
-difftastic           |   | Compiling tikv-jemalloc-sys  error: returning 'char *' from a function with return type 'int' makes integer from pointer without a cast [-Wint-conversion] "make" "-j" "8"
-expected success, got: exit status: 2
-sniffnet             |   | sniffnet-1_4_2-bin-3810a677ed3b815e: bin/mktemp: Argument list too long (maybe this means the -L ... list to rustc because it is huge)
-dioxus               |   | `cargo build` does not create anything in target/debug and nix-backend does not build anything
+
+dioxus               |   |   | 
+  `cargo build` does not create anything in target/debug and nix-backend does not build anything
+  `cargo nix-backend: does not create anything either
+
+################################################################# build.rs ######################################
+
+influxdb             | ? |   | 
+   Compiling proc-macro2
+      error: linking with `cc` failed: exit status: 1
+        |
+        = note:  "cc" "-m64" "/build/rustcwQmWHJ/symbols.o" "<3 object files omitted>" "-Wl,--as-needed" "-Wl,-Bstatic" "<sysroot>/lib/rustlib/x86_64-unknown-linux-gnu/lib/{libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,libcfg_if-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-Wl,-Bdynamic" "-lgcc_s" "-lutil" "-lrt" "-lpthread" "-lm" "-ldl" "-lc" "-L" "/build/rustcwQmWHJ/raw-dylibs" "-Wl,--eh-frame-hdr" "-Wl,-z,noexecstack" "-L" "<sysroot>/lib/rustlib/x86_64-unknown-linux-gnu/lib" "-o" "/nix/store/71r81vqx67srsq3xp39wxwn5mj4gkmkf-proc-macro2-1_0_104-script_build-ce509221ad1d58e7/build_script_build-ce509221ad1d58e7" "-Wl,--gc-sections" "-pie" "-Wl,-z,relro,-z,now" "-nodefaultlibs" "-fuse-ld=lld" "-Wl,--no-rosegment"
+        = note: some arguments are omitted. use `--verbose` to show all linker arguments
+        = note: collect2: fatal error: cannot find 'ld'
+                compilation terminated.
+meilisearch          |   |   | 
+  Compiling lindera-ko-dic
+    There was an error executing build_script_build in file: '/home/nixos/tests/meilisearch/target/debug/nix/derivations/deps/lindera-ko-dic-0.43.3-script_build_run-e80b3a3ed484e7a3.nix':
+    Error: "Failed to download a valid file from all sources"
+ka4h2        v0.0.30 | x |   |    
+    Compiling ka4h2 error: couldn't read `src/pages/../../target/markdown/datenschutz.html`: No such file or directory (os error 2)
+      --> src/pages/datenschutz.rs:3:29
+      3 | const ABOUT_DE_HTML: &str = include_str!("../../target/markdown/datenschutz.html");
+        |                             ^^^^^^^^^^^^^^
+klick         v0.5.7 | x | x | nix-backend: First compiling klick-infrastructure-server failed but 'just run'
+      
+helix                |   |   | helix-term/build.rs:5:26:\nFailed to fetch tree-sitter grammars: 277 grammars failed to fetch
+cargo-leptos         | x |   | deps/openssl-sys-0.9.110-script_build_run-c7b5d3a81281fe1c.nix':","\n\n\n/build/openssl-src-300.5.4+3.5.4/openssl: No such fi
+                           bundled openssl won't compile (source can't be found)
+################################################################# /build.rs ########################################
+################################################################# package cargo (with libnix backend) ########################################
+
+to make this work 
+
+[nixos@nixos:~/klick/frontend]$ trunk build
+2026-01-31T06:29:55.259049Z  INFO 🚀 Starting trunk 0.21.14
+2026-01-31T06:29:55.259495Z  INFO 📦 starting build
+❄❄❄  snowflake edition ❄❄❄
+This is an unofficial fork of Cargo — not endorsed by the Rust Project.
+Support me: Consider a star at https://github.com/nixcloud/cargo/stargazers
+Support you: File issues at: https://github.com/nixcloud/cargo/issues/
+Using 'nix' backend to build crates
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Rebuilding...
+
+Done in 1114ms.
+
+thread 'main' panicked at src/cargo/core/compiler/nix_build/mod.rs:609:62:
+called `Result::unwrap()` on an `Err` value: StripPrefixError(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+2026-01-31T06:30:00.237226Z ERROR ❌ error
+error from build pipeline
+
+Caused by:
+    0: HTML build pipeline failed (1 errors), showing first
+    1: error from asset pipeline
+    2: running cargo build
+    3: error during cargo build execution
+    4: cargo call to executable 'cargo' with args: '["build", "--target=wasm32-unknown-unknown", "--manifest-path", "/home/nixos/klick/frontend/Cargo.toml"]' returned a bad status: exit status: 101
+2026-01-31T06:30:00.237295Z ERROR error from build pipeline
+2026-01-31T06:30:00.237321Z  INFO   1: HTML build pipeline failed (1 errors), showing first
+2026-01-31T06:30:00.237342Z  INFO   2: error from asset pipeline
+2026-01-31T06:30:00.237347Z  INFO   3: running cargo build
+2026-01-31T06:30:00.237350Z  INFO   4: error during cargo build execution
+2026-01-31T06:30:00.237368Z  INFO   5: cargo call to executable 'cargo' with args: '["build", "--target=wasm32-unknown-unknown", "--manifest-path", "/home/nixos/klick/frontend/Cargo.toml"]' returned a bad status: exit status: 101
+
+
+################################################################# /package cargo (with libnix backend) ########################################
 
 x means compiles out of the box
 + means needs Cargo.dependencies.nix

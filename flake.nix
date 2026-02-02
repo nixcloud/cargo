@@ -1,6 +1,5 @@
-# generated from flake.nix.handlebars using cargo (manual edits won't be persistent)
 {
-  description = "flake generated and managed by cargo (do not modify)";
+  description = "a flake to build cargo 1.89.0 with libnix backend";
   inputs = {
     nixpkgs.url      = "github:NixOS/nixpkgs/nixos-25.05";
     fenix.url        = "github:nix-community/fenix";
@@ -17,6 +16,7 @@
               fenix.overlay
             ];
           };
+          lib = pkgs.lib;
           external_crate_dependencies =
             if builtins.pathExists ./Cargo.dependencies.nix
               then import ./Cargo.dependencies.nix { inherit pkgs; }
@@ -25,20 +25,21 @@
           rustc = fenix.packages.${system}.stable.rustc;
           cargo = fenix.packages.${system}.stable.cargo;
           build_parser = build-parser.packages.${system}.default;
-          project_root = inputs.project_root or builtins.toPath "./.";
-
-          #cargo_packages =
-          #  import nix/derivations/default.nix {
-          #    inherit pkgs rustc cargo external_crate_dependencies build_parser project_root;
-          #  };
+          
+          project_root = ./.;
+          cargo-libnix = (import nix/derivations/default.nix {
+            inherit project_root pkgs external_crate_dependencies build_parser;
+            rustc = fenix.packages.${system}.stable.rustc;
+            cargo = fenix.packages.${system}.stable.cargo;
+           }).cargo-0_88_0-bin-85e09d7d8299b1ad;
         in
         with pkgs;
         rec {
-          #packages = cargo_packages;
+          packages = { inherit cargo-libnix; };
 
           devShells.default = mkShell {
             buildInputs = [
-	      nix-output-monitor
+	            nix-output-monitor
               openssl
               pkg-config
               nushell
