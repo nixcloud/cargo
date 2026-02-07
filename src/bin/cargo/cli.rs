@@ -95,7 +95,7 @@ pub fn main(gctx: &mut GlobalContext) -> CliResult {
         )?;
         super::init_git(gctx);
 
-        println!("❄❄❄  snowflake edition ❄❄❄");
+        println!("❄❄❄  nixcloud edition ❄❄❄");
         println!("This is an unofficial fork of Cargo — not endorsed by the Rust Project.");
         println!("Support me: Consider a star at https://github.com/nixcloud/cargo/stargazers");
         println!("Support you: File issues at: https://github.com/nixcloud/cargo/issues/");

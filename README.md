@@ -59,6 +59,12 @@ This project is [xkcd 927](https://xkcd.com/927/).
 
 ### high prio
 
+until 1.may 2026
+
+* file issue that git clone is not good enough for nix (or cargo should also add a nar hash)
+
+* file https://github.com/nixcloud/cargo/issues/8 in nixpkgs
+
 * no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
 
     --generate-buildsystem <DIR>    Output a build system to the specified directory instead of building.
@@ -87,6 +93,10 @@ This project is [xkcd 927](https://xkcd.com/927/).
 
 ### mid prio
 
+* support klick 
+    
+    cargo zigbuild --release --target x86_64-unknown-linux-musl
+
 * how to support this in nix build?
 
     cd pankat-wasm && wasm-pack build --target web --release --manifest-path ./Cargo.toml 
@@ -109,7 +119,7 @@ This project is [xkcd 927](https://xkcd.com/927/).
     [nixos@nixos:~/pankat-rs/pankat-wasm]$ CARGO_BACKEND=nix wasm-pack build --target web --debug --manifest-path ./Cargo.toml
     [INFO]: 🎯  Checking for the Wasm target...
     [INFO]: 🌀  Compiling to Wasm...
-    ❄❄❄  snowflake edition ❄❄❄
+    ❄❄❄  nixcloud edition ❄❄❄
     This is an unofficial fork of Cargo — not endorsed by the Rust Project.
     Support me: Consider a star at https://github.com/nixcloud/cargo/stargazers
     Support you: File issues at: https://github.com/nixcloud/cargo/issues/
@@ -449,11 +459,12 @@ servo                | + |   | (no targets, it is a library + bin called servo)
   `cargo build` compiles:
   export LIBCLANG_PATH="/nix/store/xid2z20mcf5ylgpl5w3jbd1bsh7zk4iv-clang-19.1.7-lib/lib"
   buildInputs = python3 uv fontconfig udev libclang clang pkg-config (maybe openssl)
+surrealdb            |   |   | There was an error executing build_script_build in file: '/home/nixos/tests/surrealdb/target/debug/nix/derivations/deps/rquickjs-sys-0.9.0-script_build_run-cc5015d81fa1961f.nix
+    Unable to find libclang: "couldn't find any valid shared libraries matching: ['libclang.so', 'libclang-*.so', 'libclang.so.*', 'libclang-*.so.*'], set the `LIBCLANG_PATH` environment variable to a path where one of these files can be found (invalid: [])"
+
 difftastic           | ? |   | 
   `cargo build`: Compiling tikv-jemalloc-sys  error: returning 'char *' from a function with return type 'int' makes integer from pointer without a cast [-Wint-conversion] "make" "-j" "8"
 expected success, got: exit status: 2
-surrealdb            |   |   | There was an error executing build_script_build in file: '/home/nixos/tests/surrealdb/target/debug/nix/derivations/deps/rquickjs-sys-0.9.0-script_build_run-cc5015d81fa1961f.nix
-    Unable to find libclang: "couldn't find any valid shared libraries matching: ['libclang.so', 'libclang-*.so', 'libclang.so.*', 'libclang-*.so.*'], set the `LIBCLANG_PATH` environment variable to a path where one of these files can be found (invalid: [])"
 ruff                 |   |   | 
       make: *** [Makefile:478: src/malloc_io.sym.o] Error 1
       make: *** Waiting for unfinished jobs....
@@ -534,7 +545,7 @@ to make this work
 [nixos@nixos:~/klick/frontend]$ trunk build
 2026-01-31T06:29:55.259049Z  INFO 🚀 Starting trunk 0.21.14
 2026-01-31T06:29:55.259495Z  INFO 📦 starting build
-❄❄❄  snowflake edition ❄❄❄
+❄❄❄  nixcloud edition ❄❄❄
 This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 Support me: Consider a star at https://github.com/nixcloud/cargo/stargazers
 Support you: File issues at: https://github.com/nixcloud/cargo/issues/

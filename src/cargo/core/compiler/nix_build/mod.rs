@@ -1314,12 +1314,13 @@ impl<'a, 'gctx> NixBuildRunner {
                 let src_name = format!("{prefix}{name}-{hash}.{ext}");
                 let dst_name = format!("{prefix}{name}.{ext}");
                 script_body.push_str(&format!(
+                    indoc! {
                     r#"
-                        if [[ -f "${{{attribute_name}}}/{}" ]]; then
-                          ln -fs ${{{attribute_name}}}/{} target/{}/{}
+                        if [[ -f "${{{}}}/{}" ]]; then
+                          ln -fs ${{{}}}/{} target/{}/{}
                         fi
-                    "#,
-                    src_name, src_name, requested_profile, dst_name
+                    "#},
+                    attribute_name, src_name, attribute_name, src_name, requested_profile, dst_name
                 ));
             }
 
