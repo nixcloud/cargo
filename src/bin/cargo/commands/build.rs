@@ -40,6 +40,18 @@ pub fn cli() -> Command {
         .arg_manifest_path()
         .arg_lockfile_path()
         .arg_ignore_rust_version()
+        .subcommand(
+            Command::new("generate")
+                .about("Generate default.nix files to build the project")
+                .arg(
+                    opt("generate-out-dir", "Where to write the generate toolchain into")
+                        .value_name("PATH"),
+                )
+                .arg(        
+                    opt("generate-upstream-url", "Make generated build system download source code from URL")
+                        .value_name("PATH"),
+                ),
+        )
         .after_help(color_print::cstr!(
             "Run `<cyan,bold>cargo help build</>` for more detailed information.\n"
         ))
@@ -49,6 +61,17 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
     let ws = args.workspace(gctx)?;
     let mut compile_opts =
         args.compile_options(gctx, CompileMode::Build, Some(&ws), ProfileChecking::Custom)?;
+
+    match args.subcommand() {
+        Some(("generate", sub_args)) => {
+            let path = sub_args.value_of_path("generate-out-dir", gctx);
+            println!("Generating `default.nix` at: {:?}", path);
+            let url = sub_args.value_of_path("generate-upstream-url", gctx);
+            println!("Upstream url is: {:?}", url);
+        },
+        Some((&_, _)) => {},
+        None => {}
+    }
 
     if let Some(artifact_dir) = args.value_of_path("artifact-dir", gctx) {
         // If the user specifies `--artifact-dir`, use that

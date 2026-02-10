@@ -50,8 +50,7 @@ impl NixBuild {
         }
 
         gctx.shell()
-            .verbose(|s| {
-                s.status(
+            .status(
                     "nix build call",
                     format!(
                         "{} {}",
@@ -63,7 +62,6 @@ impl NixBuild {
                             .join(" ")
                     ).trim(),
                 )
-            })
             .unwrap();
 
         let mut command = binding

@@ -1,7 +1,7 @@
 # generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
 { {{{function_arguments}}} }: with deps;
   pkgs.stdenv.mkDerivation rec {
-    name = "{{{fullname}}}";
+    name = "{{{nix_attribute_name}}}";
 {{{cargo_crate_info}}}
     buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
     env = fn.inject_envs meta.cargo_crate_info;
@@ -26,7 +26,7 @@
       export OUT_DIR=$out
 
       print_compiling_message "${name}"
-      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 {{{additional_build_phase_arguments}}}
 {{{command_line}}}
     '';

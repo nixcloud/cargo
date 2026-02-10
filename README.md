@@ -61,13 +61,17 @@ This project is [xkcd 927](https://xkcd.com/927/).
 
 until 1.may 2026
 
+* integrate build_parser standalone into cargo (so no additional binary)
+* add nix-prefetch-git as argument to default.nix
+    { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:
+
 * file issue that git clone is not good enough for nix (or cargo should also add a nar hash)
 
 * file https://github.com/nixcloud/cargo/issues/8 in nixpkgs
 
 * no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
 
-    --generate-buildsystem <DIR>    Output a build system to the specified directory instead of building.
+    write-nix-buildsystem <DIR>    Output a build system to the specified directory instead of building.
                                     Additional option: --upstream-repo <GIT-URL> (clone and generate from upstream repo).
 
     --upstream-repo <GIT-URL>       [Requires --generate-buildsystem]
@@ -93,7 +97,40 @@ until 1.may 2026
 
 ### mid prio
 
-* support klick 
+* build_script_build is not always the build.rs binary name:
+
+    program: "/home/nixos/cargo-leptos/target/debug/build/openssl-sys-bb979fa1fa087c4d/build-script-main",
+    command123: Command {
+        program: "rustc",
+        args: [
+            "rustc",
+            "--crate-name",
+            "build_script_main",
+            "--edition=2021",
+            "/home/nixos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/openssl-sys-0.9.110/build/main.rs",
+            "--error-format=json",
+    [package]
+    edition = "2021"
+    rust-version = "1.70.0"
+    name = "openssl-sys"
+    version = "0.9.110"
+    authors = [
+        "Alex Crichton <alex@alexcrichton.com>",
+        "Steven Fackler <sfackler@gmail.com>",
+    ]
+    build = "build/main.rs"        
+
+    # new knowledge
+
+    it seems that the crate name in legacy is usually: build_script_build but the binary name is then build-script-build
+
+    FINDING: so the binary name is probably: "build-script" + build_filename or "build" as default, since it is build.rs
+
+    * in libnix backend: i hardcoded them to "build_script_build" where it should be "build-script-build" or even "build-script-${build_filename}
+    * build_script_main is also the crate name in openssl-sys-0.9.110-script_build-bb979fa1fa087c4d.nix so maybe we just need to use name() instead of crate_name() somewhere....
+
+
+* support klick
     
     cargo zigbuild --release --target x86_64-unknown-linux-musl
 
@@ -427,6 +464,7 @@ axum                 | x | x |
 tokio                | x | x |
 lightningcss         | x | x |
 yew                  | x | x |
+klick         v0.5.7 | x | x | nix-backend: First compiling klick-infrastructure-server failed but 'just run'
 
 ```
 
@@ -532,11 +570,39 @@ ka4h2        v0.0.30 | x |   |
       --> src/pages/datenschutz.rs:3:29
       3 | const ABOUT_DE_HTML: &str = include_str!("../../target/markdown/datenschutz.html");
         |                             ^^^^^^^^^^^^^^
-klick         v0.5.7 | x | x | nix-backend: First compiling klick-infrastructure-server failed but 'just run'
       
 helix                |   |   | helix-term/build.rs:5:26:\nFailed to fetch tree-sitter grammars: 277 grammars failed to fetch
-cargo-leptos         | x |   | deps/openssl-sys-0.9.110-script_build_run-c7b5d3a81281fe1c.nix':","\n\n\n/build/openssl-src-300.5.4+3.5.4/openssl: No such fi
-                           bundled openssl won't compile (source can't be found)
+cargo-leptos         | x |   | deps/openssl-sys-0.9.110-script_build_run-c7b5d3a81281fe1c.nix'
+                           /build/openssl-src-300.5.4+3.5.4/openssl: No such file or directory (os error 2)
+                     the dep: openssl-src-300.5.4_plus_3.5.4-7c6cff061836171c seems to have this folder...
+
+       openssl-src-300.5.4_plus_3.5.4-7c6cff061836171c $out lists:
+       > 4      /nix/store/q66rcss30a7dip5i9iavfix7cflfmr88-openssl-src-300_5_4_plus_3_5_4-7c6cff061836171c/openssl_src-7c6cff061836171c.d
+       > 300  /nix/store/q66rcss30a7dip5i9iavfix7cflfmr88-openssl-src-300_5_4_plus_3_5_4-7c6cff061836171c/libopenssl_src-7c6cff061836171c.rlib
+       > 4      /nix/store/q66rcss30a7dip5i9iavfix7cflfmr88-openssl-src-300_5_4_plus_3_5_4-7c6cff061836171c/nix
+       > 20      /nix/store/q66rcss30a7dip5i9iavfix7cflfmr88-openssl-src-300_5_4_plus_3_5_4-7c6cff061836171c/libopenssl_src-7c6cff061836171c.rmeta
+       > 332   /nix/store/q66rcss30a7dip5i9iavfix7cflfmr88-openssl-src-300_5_4_plus_3_5_4-7c6cff061836171c/
+
+      for comparison, the legacy target: 
+      
+      du -a target/debug/deps/libopenssl_src-*
+      300     target/debug/deps/libopenssl_src-7c6cff061836171c.rlib
+      20      target/debug/deps/libopenssl_src-7c6cff061836171c.rmeta
+      304     target/debug/deps/libopenssl_src-9cc85fc46ed2c149.rlib
+      20      target/debug/deps/libopenssl_src-9cc85fc46ed2c149.rmeta
+      300     target/debug/deps/libopenssl_src-dfcbb6c0ca6b1d68.rlib
+      20      target/debug/deps/libopenssl_src-dfcbb6c0ca6b1d68.rmeta
+
+      this seems similar, also the ENV for both abstractions look same
+
+https://github.com/alexcrichton/openssl-src-rs
+
+cd openssl-src-300.5.4+3.5.4 -> could this be a + rename issue?!
+
+it seems that the copying from openssl-src-300.5.4_plus_3.5.4-7c6cff061836171c is not working, /openssl is empty
+
+grok thinks i forgot to add pkg-config perl into openssl-src, tried it with no different result
+
 ################################################################# /build.rs ########################################
 ################################################################# package cargo (with libnix backend) ########################################
 

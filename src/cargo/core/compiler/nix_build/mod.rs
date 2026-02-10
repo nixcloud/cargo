@@ -156,14 +156,23 @@ pub fn cargo_crate_info<'a, 'gctx>(
     let meta = build_runner.files().metadata(&unit);
     let crate_hash: String = meta.unit_id().to_string();
 
+    let crate_type: &str = match crate_build_type(&unit) {
+        CrateBuildType::LibBuild => "",
+        CrateBuildType::ScriptBuild => "(build.rs build)",
+        CrateBuildType::ScriptBuildRun => "(build.rs run)",
+        CrateBuildType::BinBuild => "(bin)",
+        CrateBuildType::Other => "(?)",
+    };
+
     let cargo_crate_info: String = format!(
         indoc! {r#"
     meta.cargo_crate_info = {{
       name = "{}";
       version = "{}";
       crate_hash = "{}";
+      type = "{}";
     }};"#},
-        crate_name, crate_version, crate_hash
+        crate_name, crate_version, crate_hash, crate_type,
     )
     .to_string()
     .indentation(4);
@@ -832,12 +841,12 @@ impl<'a, 'gctx> NixBuildRunner {
             let is_run_custom_build: bool = unit.mode == CompileMode::RunCustomBuild;
             let crate_name: String = pkg.name().to_string();
             let crate_version: String = pkg.version().to_string();
-            let fullname: String =
+            let nix_attribute_name: String =
                 create_nix_name(&unit, build_runner, NixNameMode::AttributeName, false);
             gctx.shell()
-                .verbose(|s| s.status("Generating", &fullname))?;
+                .verbose(|s| s.status("Generating", &nix_attribute_name))?;
 
-            // let s = format!("unit.profile.incremental: {} {:?}", &fullname, unit.profile.incremental);
+            // let s = format!("unit.profile.incremental: {} {:?}", &nix_attribute_name, unit.profile.incremental);
             // println!("{s}");
 
             let deps: Dependencies = create_unit_dependencies(
@@ -856,7 +865,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     &unit,
                     crate_name,
                     crate_version,
-                    fullname,
+                    nix_attribute_name,
                     &process_builder,
                     is_root,
                     &mut all_nodes,
@@ -871,7 +880,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     &unit,
                     crate_name,
                     crate_version,
-                    fullname,
+                    nix_attribute_name,
                     &process_builder,
                     is_root,
                     &mut all_nodes,
@@ -997,7 +1006,7 @@ impl<'a, 'gctx> NixBuildRunner {
         unit: &Unit,
         crate_name: String,
         crate_version: String,
-        fullname: String,
+        nix_attribute_name: String,
         process_builder: &ProcessBuilder,
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
@@ -1059,7 +1068,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 set +x -e
 
                 if [ "$build_script_build_exit_value" -ne 0 ]; then
-                    print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "{{{filename_notice_build_script_build}}}" $build_script_build_exit_value $build_script_build_output_lines
+                    print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "{{{filename_notice_build_script_build}}}" $build_script_build_exit_value $build_script_build_output_lines
                     cat "$build_script_build_output_lines"
                     exit $build_script_build_exit_value
                 fi
@@ -1071,11 +1080,11 @@ impl<'a, 'gctx> NixBuildRunner {
                 set +x -e
 
                 if [ "$build_parser_exit_value" -ne 0 ]; then
-                    print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "{{{filename_notice_build_parser}}}" $build_script_build_exit_value $build_script_build_output_lines
+                    print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "{{{filename_notice_build_parser}}}" $build_script_build_exit_value $build_script_build_output_lines
                     cat $build_parser_output_lines
                     exit $build_parser_exit_value
                 fi
-                echo "@cargo {\"type\": 3, \"crate_name\": \"{{{crate_name}}}\", \"exit_code\": 0, \"messages\": []}"
+                echo "@cargo {\"type\": 3, \"crate_name\": \"${meta.cargo_crate_info.name}\", \"crate_type\": \"${meta.cargo_crate_info.type}\", \"exit_code\": 0, \"messages\": []}"
             "#}
             .to_string().indentation(6);
 
@@ -1084,8 +1093,7 @@ impl<'a, 'gctx> NixBuildRunner {
             "command_line",
             &serde_json::json!({
                 "parent_full_name": parent_full_name,
-                "fullname": fullname,
-                "crate_name": crate_name,
+                "nix_attribute_name": nix_attribute_name,
                 "filename_notice_build_script_build": filename_notice_build_script_build,
                 "filename_notice_build_parser": filename_notice_build_parser,
             }),
@@ -1110,7 +1118,7 @@ impl<'a, 'gctx> NixBuildRunner {
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
-                "fullname": fullname,
+                "nix_attribute_name": nix_attribute_name,
                 "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
                 "nix_phases": phases.join(" "),
                 "change_directory": "cd $CARGO_MANIFEST_DIR",
@@ -1130,7 +1138,7 @@ impl<'a, 'gctx> NixBuildRunner {
         write_nix_file(file_path, &rendered)?;
 
         all_nodes.push(DefaultNixEntry {
-            name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
+            name: create_nix_name(unit, build_runner, NixNameMode::AttributeName, false), // refactor into nix_attribute_name?
             rel_file_path,
             is_root,
         });
@@ -1143,7 +1151,7 @@ impl<'a, 'gctx> NixBuildRunner {
         unit: &Unit,
         crate_name: String,
         crate_version: String,
-        fullname: String,
+        nix_attribute_name: String,
         process_builder: &ProcessBuilder,
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
@@ -1156,7 +1164,7 @@ impl<'a, 'gctx> NixBuildRunner {
     ) -> CargoResult<()> {
         // println!("unit.target: {:?}", unit.target);
         // println!(
-        //     "<<<<<<<<<<<<<<<<<<<<<< rustc {fullname} <<<<<<<<<<<<<<<<<<<<<<",
+        //     "<<<<<<<<<<<<<<<<<<<<<< rustc {nix_attribute_name} <<<<<<<<<<<<<<<<<<<<<<",
         // );
         // //println!("{:#?}", process_builder);
         // println!("{:#?}", unit);
@@ -1185,7 +1193,7 @@ impl<'a, 'gctx> NixBuildRunner {
              
         print_rustc_rendered_messages $rustc_json_output_lines
         {{{create_symlink}}}
-        print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" $rustc_exit_value $rustc_json_output_lines
+        print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
 
         if [ "$rustc_exit_value" -ne 0 ]; then
             exit $rustc_exit_value
@@ -1226,7 +1234,7 @@ impl<'a, 'gctx> NixBuildRunner {
             "command_line",
             &serde_json::json!({
                 "process_builder": assert_escapes(&process_builder),
-                "fullname": fullname,
+                "nix_attribute_name": nix_attribute_name,
                 "create_symlink": create_symlink,
                 "crate_name": crate_name,
             }),
@@ -1334,7 +1342,7 @@ impl<'a, 'gctx> NixBuildRunner {
             "rustc-call",
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
-                "fullname": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
+                "nix_attribute_name": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
                 "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
                 "nix_phases": phases.join(" "),
                 "crate_name": crate_name,

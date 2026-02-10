@@ -11,14 +11,6 @@ pub fn cli() -> Command {
             "Run `<cyan,bold>cargo help nix</>` for more detailed information.\n"
         ))
         .subcommand(
-            Command::new("generate")
-                .about("Generate default.nix files to build the project")
-                .arg(
-                    opt("generate-path", "Output path were to write the documents")
-                        .value_name("PATH"),
-                ),
-        )
-        .subcommand(
             Command::new("parse-build-script-build")
                 .about("Parse the output of a build.rs script run to inject it into the nix-build run, see https://doc.rust-lang.org/cargo/reference/build-scripts.html")
                 .arg(
@@ -38,11 +30,6 @@ pub fn cli() -> Command {
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
     match args.subcommand() {
-        Some(("generate", sub_args)) => {
-            let path = sub_args.value_of_path("generate-path", gctx);
-            println!("Generating `default.nix` at: {:?}", path);
-            Ok(())
-        }
         Some(("parse-build-script-build", sub_args)) => {
             let file_path: Option<PathBuf> = sub_args.value_of_path("path", gctx);
             if sub_args.subcommand_matches("rustc_arguments").is_some() {

@@ -49,37 +49,45 @@ let
         printf '\033[0;32mCompiling\033[0m %s\n' "$fullname"
       }
 
+      # to indicate that a crate build inside a mkDerivation has started of type
       print_cargo_message_type_0() {
-        local fullname="$1"
-        local crate_name="$2"
-        echo "@cargo { \"type\":0, \"crate_name\":\"$crate_name\", \"id\":\"$fullname\" }"
+        local fullname="$1"         # "serde-1_21_3-bfbc21afc6e0b538"
+        local name="$2"             # "serde" 
+        local type="$3"             # "(lib)"
+        echo "@cargo { \"type\":0, \"crate_name\":\"$name\", \"crate_type\":\"$type\", \"id\":\"$fullname\" }"
       }
 
+      # to indicate that a mkDerivation has finished compiling a crate of type rustc call counterpart: finishes a type 0 message
       print_cargo_message_type_2() {
-        local fullname="$1"
-        local crate_name="$2"
-        local rustc_exit_code="$3"
-        local rustc_json_output_lines="$4"
+        local fullname="$1"         # "serde-1_21_3-bfbc21afc6e0b538"
+        local name="$2"             # "serde"
+        local type="$3"             # "(lib)"
+        local rustc_exit_code="$4"
+        local rustc_json_output_lines="$5"
         output=$(${pkgs.jq}/bin/jq -s -r -c \
           --arg fullname "$fullname" \
-          --arg crate_name "$crate_name" \
+          --arg name "$name" \
+          --arg type "$type" \
           --arg exit_code "$rustc_exit_code" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
+          '{type: 2, crate_name: $name, crate_type: $type, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
           "$rustc_json_output_lines")
         printf '@cargo %s\n' "$output"
       }
 
+      # "build.rs run" calls this
       print_cargo_message_type_3() {
-        local crate_name="$1"
-        local notice="$2"
-        local exit_code="$3"
-        local build_script_build_output_lines="$4"
+        local name="$1"
+        local type="$2"
+        local notice="$3"
+        local exit_code="$4"
+        local build_script_build_output_lines="$5"
         output=$(${pkgs.jq}/bin/jq -c -n \
-          --arg crate_name "$crate_name" \
+          --arg name "$name" \
+          --arg type "$type" \
           --arg notice "$notice" \
           --arg exit_code "$exit_code" \
           --rawfile msg $build_script_build_output_lines \
-          '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
+          '{type: 3, crate_name: $name, crate_type: $type, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
         printf '@cargo %s\n' "$output"
       }
 
