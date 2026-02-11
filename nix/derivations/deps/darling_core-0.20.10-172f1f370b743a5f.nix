@@ -6,8 +6,11 @@
       name = "darling_core";
       version = "0.20.10";
       crate_hash = "172f1f370b743a5f";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [fnv-1_0_7-e86d9923dc926ea6 ident_case-1_0_1-2dc10d9b37d5f124 proc-macro2-1_0_93-cfe81a59cf98819f quote-1_0_38-12b99e3192e30e82 strsim-0_11_1-08697f8fab7ff2ae syn-2_0_98-93aa0f13dad61a07];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,15 +26,12 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "darling_core";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
     CARGO_PKG_AUTHORS = "Ted Driggs <ted.driggs@outlook.com>";
     CARGO_PKG_DESCRIPTION = "Helper crate for proc-macro library for reading attributes into structs when
-implementing custom derives. Use https://crates.io/crates/darling in your code.
-";
+implementing custom derives. Use https://crates.io/crates/darling in your code.";
     CARGO_PKG_HOMEPAGE = "";
     CARGO_PKG_LICENSE = "MIT";
     CARGO_PKG_LICENSE_FILE = "";
@@ -46,15 +46,15 @@ implementing custom derives. Use https://crates.io/crates/darling in your code.
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m darling_core-0_20_10-172f1f370b743a5f"
-      echo "@cargo { \"type\":0, \"crate_name\":\"darling_core\", \"id\":\"darling_core-0_20_10-172f1f370b743a5f\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -63,7 +63,6 @@ implementing custom derives. Use https://crates.io/crates/darling in your code.
               --edition=2021 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -75,8 +74,9 @@ implementing custom derives. Use https://crates.io/crates/darling in your code.
               -C metadata=9433e817f2fb57c3 \
               -C extra-filename=-172f1f370b743a5f \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern fnv=${fnv-1_0_7-e86d9923dc926ea6}/libfnv-e86d9923dc926ea6.rmeta \
               --extern ident_case=${ident_case-1_0_1-2dc10d9b37d5f124}/libident_case-2dc10d9b37d5f124.rmeta \
               --extern proc_macro2=${proc-macro2-1_0_93-cfe81a59cf98819f}/libproc_macro2-cfe81a59cf98819f.rmeta \
@@ -87,23 +87,10 @@ implementing custom derives. Use https://crates.io/crates/darling in your code.
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "darling_core-0_20_10-172f1f370b743a5f" \
-          --arg crate_name "darling_core" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

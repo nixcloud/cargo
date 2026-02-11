@@ -6,8 +6,11 @@
       name = "gix-command";
       version = "0.4.1";
       crate_hash = "e29484d4d4e346e8";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [bstr-1_11_3-14003bcd5b7b8103 gix-path-0_10_14-6bb928c9998da5a8 gix-trace-0_1_12-6fa342b8ee63f664 shell-words-1_1_0-584d11ea81812f9b];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,8 +26,6 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "gix_command";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
@@ -44,15 +45,15 @@
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m gix-command-0_4_1-e29484d4d4e346e8"
-      echo "@cargo { \"type\":0, \"crate_name\":\"gix-command\", \"id\":\"gix-command-0_4_1-e29484d4d4e346e8\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -61,7 +62,6 @@
               --edition=2021 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -141,8 +141,9 @@
               -C metadata=e450acdd26ae1eb3 \
               -C extra-filename=-e29484d4d4e346e8 \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern bstr=${bstr-1_11_3-14003bcd5b7b8103}/libbstr-14003bcd5b7b8103.rmeta \
               --extern gix_path=${gix-path-0_10_14-6bb928c9998da5a8}/libgix_path-6bb928c9998da5a8.rmeta \
               --extern gix_trace=${gix-trace-0_1_12-6fa342b8ee63f664}/libgix_trace-6fa342b8ee63f664.rmeta \
@@ -151,23 +152,10 @@
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "gix-command-0_4_1-e29484d4d4e346e8" \
-          --arg crate_name "gix-command" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

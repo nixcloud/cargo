@@ -6,8 +6,11 @@
       name = "globset";
       version = "0.4.15";
       crate_hash = "2a50c1c4f3461932";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [aho-corasick-1_1_3-4faf1ab2f37c32c1 bstr-1_11_3-14003bcd5b7b8103 log-0_4_25-7616f5eb69eb8f7e regex-automata-0_4_9-5e0d341bfc5bf703 regex-syntax-0_8_5-26304aacfbc68086];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,16 +26,13 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "globset";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
     CARGO_PKG_AUTHORS = "Andrew Gallant <jamslam@gmail.com>";
     CARGO_PKG_DESCRIPTION = "Cross platform single glob and glob set matching. Glob set matching is the
 process of matching one or more glob patterns against a single candidate path
-simultaneously, and returning all of the globs that matched.
-";
+simultaneously, and returning all of the globs that matched.";
     CARGO_PKG_HOMEPAGE = "https://github.com/BurntSushi/ripgrep/tree/master/crates/globset";
     CARGO_PKG_LICENSE = "Unlicense OR MIT";
     CARGO_PKG_LICENSE_FILE = "";
@@ -47,15 +47,15 @@ simultaneously, and returning all of the globs that matched.
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m globset-0_4_15-2a50c1c4f3461932"
-      echo "@cargo { \"type\":0, \"crate_name\":\"globset\", \"id\":\"globset-0_4_15-2a50c1c4f3461932\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -64,7 +64,6 @@ simultaneously, and returning all of the globs that matched.
               --edition=2021 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -77,8 +76,9 @@ simultaneously, and returning all of the globs that matched.
               -C metadata=580e93ebb0b5700d \
               -C extra-filename=-2a50c1c4f3461932 \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern aho_corasick=${aho-corasick-1_1_3-4faf1ab2f37c32c1}/libaho_corasick-4faf1ab2f37c32c1.rmeta \
               --extern bstr=${bstr-1_11_3-14003bcd5b7b8103}/libbstr-14003bcd5b7b8103.rmeta \
               --extern log=${log-0_4_25-7616f5eb69eb8f7e}/liblog-7616f5eb69eb8f7e.rmeta \
@@ -88,23 +88,10 @@ simultaneously, and returning all of the globs that matched.
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "globset-0_4_15-2a50c1c4f3461932" \
-          --arg crate_name "globset" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

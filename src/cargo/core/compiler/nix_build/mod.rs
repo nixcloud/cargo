@@ -1100,7 +1100,7 @@ impl<'a, 'gctx> NixBuildRunner {
         )?;
 
         let default_function_arguments: Vec<String> =
-            vec!["pkgs", "fn", "cargo", "rustc", "deps", "build_parser"]
+            vec!["pkgs", "fn", "cargo", "rustc", "deps", "project_root", "build_parser"]
                 .iter()
                 .map(|m| m.to_string())
                 .collect();
@@ -1224,7 +1224,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 hash
             )
             .to_string()
-            .indentation(6)
+            .indentation(3)
         } else {
             "".to_string()
         };
@@ -1240,7 +1240,7 @@ impl<'a, 'gctx> NixBuildRunner {
             }),
         )?;
 
-        let default_function_arguments: Vec<String> = vec!["fn", "pkgs", "rustc", "cargo", "deps"]
+        let default_function_arguments: Vec<String> = vec!["fn", "pkgs", "rustc", "cargo", "deps", "project_root"]
             .iter()
             .map(|m| m.to_string())
             .collect();

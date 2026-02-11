@@ -6,8 +6,11 @@
       name = "tar";
       version = "0.4.44";
       crate_hash = "1da5ced4b8e7e118";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [filetime-0_2_25-36b58a90b887714e libc-0_2_175-df0687d6868fdede];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,8 +26,6 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "tar";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
@@ -32,8 +33,7 @@
     CARGO_PKG_DESCRIPTION = "A Rust implementation of a TAR file reader and writer. This library does not
 currently handle compression, but it is abstract over all I/O readers and
 writers. Additionally, great lengths are taken to ensure that the entire
-contents are never required to be entirely resident in memory all at once.
-";
+contents are never required to be entirely resident in memory all at once.";
     CARGO_PKG_HOMEPAGE = "https://github.com/alexcrichton/tar-rs";
     CARGO_PKG_LICENSE = "MIT OR Apache-2.0";
     CARGO_PKG_LICENSE_FILE = "";
@@ -48,15 +48,15 @@ contents are never required to be entirely resident in memory all at once.
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m tar-0_4_44-1da5ced4b8e7e118"
-      echo "@cargo { \"type\":0, \"crate_name\":\"tar\", \"id\":\"tar-0_4_44-1da5ced4b8e7e118\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -65,7 +65,6 @@ contents are never required to be entirely resident in memory all at once.
               --edition=2021 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -76,31 +75,19 @@ contents are never required to be entirely resident in memory all at once.
               -C metadata=352a8ed06fb5d43f \
               -C extra-filename=-1da5ced4b8e7e118 \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern filetime=${filetime-0_2_25-36b58a90b887714e}/libfiletime-36b58a90b887714e.rmeta \
               --extern libc=${libc-0_2_175-df0687d6868fdede}/liblibc-df0687d6868fdede.rmeta \
               --cap-lints allow 2> $rustc_json_output_lines
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "tar-0_4_44-1da5ced4b8e7e118" \
-          --arg crate_name "tar" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

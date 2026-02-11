@@ -6,8 +6,11 @@
       name = "crypto-bigint";
       version = "0.5.5";
       crate_hash = "5115490596bc9280";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [generic-array-0_14_7-cf1af5fa7e31ffd0 rand_core-0_6_4-5078be04f75dc0b2 subtle-2_6_1-61dbca2d742edabc zeroize-1_8_1-9a1357fe1b2d7a82];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,16 +26,13 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "crypto_bigint";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
     CARGO_PKG_AUTHORS = "RustCrypto Developers";
     CARGO_PKG_DESCRIPTION = "Pure Rust implementation of a big integer library which has been designed from
 the ground-up for use in cryptographic applications. Provides constant-time,
-no_std-friendly implementations of modern formulas using const generics.
-";
+no_std-friendly implementations of modern formulas using const generics.";
     CARGO_PKG_HOMEPAGE = "";
     CARGO_PKG_LICENSE = "Apache-2.0 OR MIT";
     CARGO_PKG_LICENSE_FILE = "";
@@ -47,15 +47,15 @@ no_std-friendly implementations of modern formulas using const generics.
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m crypto-bigint-0_5_5-5115490596bc9280"
-      echo "@cargo { \"type\":0, \"crate_name\":\"crypto-bigint\", \"id\":\"crypto-bigint-0_5_5-5115490596bc9280\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -64,7 +64,6 @@ no_std-friendly implementations of modern formulas using const generics.
               --edition=2021 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -78,8 +77,9 @@ no_std-friendly implementations of modern formulas using const generics.
               -C metadata=30a3c1e70e148f39 \
               -C extra-filename=-5115490596bc9280 \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern generic_array=${generic-array-0_14_7-cf1af5fa7e31ffd0}/libgeneric_array-cf1af5fa7e31ffd0.rmeta \
               --extern rand_core=${rand_core-0_6_4-5078be04f75dc0b2}/librand_core-5078be04f75dc0b2.rmeta \
               --extern subtle=${subtle-2_6_1-61dbca2d742edabc}/libsubtle-61dbca2d742edabc.rmeta \
@@ -88,23 +88,10 @@ no_std-friendly implementations of modern formulas using const generics.
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "crypto-bigint-0_5_5-5115490596bc9280" \
-          --arg crate_name "crypto-bigint" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

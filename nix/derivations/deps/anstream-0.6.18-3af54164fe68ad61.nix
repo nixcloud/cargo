@@ -6,8 +6,11 @@
       name = "anstream";
       version = "0.6.18";
       crate_hash = "3af54164fe68ad61";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [anstyle-1_0_10-bf6d032cb7d79be1 anstyle-parse-0_2_6-7e3167a48452c319 anstyle-query-1_1_2-df1354162236cfa0 colorchoice-1_0_3-3fd8e2bb93f5239a is_terminal_polyfill-1_70_1-38de4a7f1aa06bfb utf8parse-0_2_2-971e9f48d47f3e38];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,8 +26,6 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "anstream";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
@@ -44,15 +45,15 @@
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m anstream-0_6_18-3af54164fe68ad61"
-      echo "@cargo { \"type\":0, \"crate_name\":\"anstream\", \"id\":\"anstream-0_6_18-3af54164fe68ad61\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -61,7 +62,6 @@
               --edition=2021 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -139,8 +139,9 @@
               -C metadata=8a86210c2aaea72a \
               -C extra-filename=-3af54164fe68ad61 \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern anstyle=${anstyle-1_0_10-bf6d032cb7d79be1}/libanstyle-bf6d032cb7d79be1.rmeta \
               --extern anstyle_parse=${anstyle-parse-0_2_6-7e3167a48452c319}/libanstyle_parse-7e3167a48452c319.rmeta \
               --extern anstyle_query=${anstyle-query-1_1_2-df1354162236cfa0}/libanstyle_query-df1354162236cfa0.rmeta \
@@ -151,23 +152,10 @@
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "anstream-0_6_18-3af54164fe68ad61" \
-          --arg crate_name "anstream" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

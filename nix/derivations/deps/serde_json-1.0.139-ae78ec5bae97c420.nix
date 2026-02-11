@@ -6,8 +6,11 @@
       name = "serde_json";
       version = "1.0.139";
       crate_hash = "ae78ec5bae97c420";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [itoa-1_0_14-6ae7bc765ab6d9fa memchr-2_7_4-3cee6db17bbe0dde ryu-1_0_19-e43e7d32117cb8d6 serde-1_0_218-472e28b9f131b02c];
     passthru.rust_crate_parent = [serde_json-1_0_139-script_build_run-0c75c9c70c6b060e];
     passthru.rust_script_build_run = [serde_json-1_0_139-script_build_run-0c75c9c70c6b060e];
@@ -23,8 +26,6 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "serde_json";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
@@ -44,31 +45,22 @@
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m serde_json-1_0_139-ae78ec5bae97c420"
-      echo "@cargo { \"type\":0, \"crate_name\":\"serde_json\", \"id\":\"serde_json-1_0_139-ae78ec5bae97c420\" }"
-      cp -r ${fn.get_rust_crate_parent passthru.rust_crate_parent}/* $OUT_DIR
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
+      copy_build_script_run_results_over_with_nix "${fn.get_rust_crate_parent passthru.rust_crate_parent}"
       for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
           if [ -f "$file" ]; then
           sed -i "s|${fn.get_rust_crate_parent passthru.rust_crate_parent}|$out|g" "$file"
           fi
       done
-      for file in ${fn.environment_variables passthru.rust_script_build_run}; do
-        if [ -f $file ]; then
-          set -a
-            while read -r line; do
-              echo -e "\033[38;5;208m$line\033[0m"
-            done < "$file"
-            source $file
-            set +a
-        fi
-      done
+      load_environment_variables_from_files "${fn.environment_variables passthru.rust_script_build_run}"
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
       ${RUSTC} \
@@ -76,7 +68,6 @@
               --edition=2021 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -90,8 +81,9 @@
               -C metadata=01f5033f039c19dc \
               -C extra-filename=-ae78ec5bae97c420 \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern itoa=${itoa-1_0_14-6ae7bc765ab6d9fa}/libitoa-6ae7bc765ab6d9fa.rmeta \
               --extern memchr=${memchr-2_7_4-3cee6db17bbe0dde}/libmemchr-3cee6db17bbe0dde.rmeta \
               --extern ryu=${ryu-1_0_19-e43e7d32117cb8d6}/libryu-e43e7d32117cb8d6.rmeta \
@@ -100,23 +92,10 @@
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "serde_json-1_0_139-ae78ec5bae97c420" \
-          --arg crate_name "serde_json" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

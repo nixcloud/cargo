@@ -1,5 +1,5 @@
 # generated from default.nix.handlebars using cargo (manual edits won't be persistent)
-{ pkgs, rustc , cargo, external_crate_dependencies, build_parser, project_root }:
+{ pkgs, rustc, cargo, external_crate_dependencies, build_parser, project_root }:
 let
   lib = pkgs.lib;
   callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo build_parser project_root; });
@@ -16,7 +16,7 @@ let
           mkdir -p $out/deps
           for lib in ${builtins.concatStringsSep " " (map (lib: "${lib}") (allCollectedInputs rust_crate_libraries))}; do
             if [ -d "$lib" ]; then
-              for f in "$lib"/*.rlib "$lib"/*.so; do
+              for f in "$lib"/*.rlib "$lib"/*.rmeta "$lib"/*.so; do
                 if [ -e "$f" ]; then
                   ln -s "$f" "$out/deps/" || true
                 fi
@@ -43,12 +43,98 @@ let
     get_rust_crate_parent = parent_list:
       assert lib.assertMsg (builtins.length parent_list == 1) "item is supposed to have exactly one parent, while it has 0 or more than 1";
       builtins.head parent_list;
-    inject = cargo_crate_info:
+    import_bash_function_helpers = ''
+      print_compiling_message() {
+        local fullname="$1"
+        printf '\033[0;32mCompiling\033[0m %s\n' "$fullname"
+      }
+
+      # to indicate that a crate build inside a mkDerivation has started of type
+      print_cargo_message_type_0() {
+        local fullname="$1"         # "serde-1_21_3-bfbc21afc6e0b538"
+        local name="$2"             # "serde" 
+        local type="$3"             # "(lib)"
+        echo "@cargo { \"type\":0, \"crate_name\":\"$name\", \"crate_type\":\"$type\", \"id\":\"$fullname\" }"
+      }
+
+      # to indicate that a mkDerivation has finished compiling a crate of type rustc call counterpart: finishes a type 0 message
+      print_cargo_message_type_2() {
+        local fullname="$1"         # "serde-1_21_3-bfbc21afc6e0b538"
+        local name="$2"             # "serde"
+        local type="$3"             # "(lib)"
+        local rustc_exit_code="$4"
+        local rustc_json_output_lines="$5"
+        output=$(${pkgs.jq}/bin/jq -s -r -c \
+          --arg fullname "$fullname" \
+          --arg name "$name" \
+          --arg type "$type" \
+          --arg exit_code "$rustc_exit_code" \
+          '{type: 2, crate_name: $name, crate_type: $type, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
+          "$rustc_json_output_lines")
+        printf '@cargo %s\n' "$output"
+      }
+
+      # "build.rs run" calls this
+      print_cargo_message_type_3() {
+        local name="$1"
+        local type="$2"
+        local notice="$3"
+        local exit_code="$4"
+        local build_script_build_output_lines="$5"
+        output=$(${pkgs.jq}/bin/jq -c -n \
+          --arg name "$name" \
+          --arg type "$type" \
+          --arg notice "$notice" \
+          --arg exit_code "$exit_code" \
+          --rawfile msg $build_script_build_output_lines \
+          '{type: 3, crate_name: $name, crate_type: $type, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
+        printf '@cargo %s\n' "$output"
+      }
+
+      # rustc outputs json, from that we extracted the .rendered part and print it to stdout 
+      # (so we see useful messages during 'nix build')
+      print_rustc_rendered_messages() {
+        local rustc_json_output_lines="$1"
+        while IFS= read -r line
+        do
+            tmpFile=$(${pkgs.mktemp}/bin/mktemp)
+            echo "$line" > $tmpFile
+            ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
+        done < $rustc_json_output_lines
+      }
+
+      # set env variables from the passthru propagation, used for DEP_* and similar from build.rs
+      load_environment_variables_from_files() {
+        local files="$1"
+        for file in $files; do
+          if [ -f $file ]; then
+            set -a
+              while read -r line; do
+                echo -e "\033[38;5;208m$line\033[0m"
+              done < "$file"
+              source $file
+              set +a
+          fi
+        done
+      }
+
+      copy_build_script_run_results_over_with_nix() {
+        local build_script_run_out_dir="$1"
+        cp -r "$build_script_run_out_dir"/* $OUT_DIR
+      }
+
+      copy_build_script_run_results_over_without_nix() {
+        local build_script_run_out_dir="$1"
+        cp -r "$build_script_run_out_dir"/* $OUT_DIR
+        rm -Rf $OUT_DIR/nix
+      }
+    '';
+    inject_deps = cargo_crate_info:
       let
         deps = external_crate_dependencies.deps;
         name = cargo_crate_info.name;
         version = cargo_crate_info.version;
-        hash= cargo_crate_info.crate_hash;
+        crate_hash = cargo_crate_info.hash;
         entry = deps.${name} or null;
       in
         if builtins.isAttrs entry then
@@ -56,7 +142,7 @@ let
             verEntry = entry.${version} or null;
           in
             if builtins.isAttrs verEntry then
-              verEntry.${hash} or (throw "No deps found for ${name} version ${version} hash ${hash}")
+              verEntry.${crate_hash} or (throw "No deps found for ${name} version ${version} hash ${crate_hash}")
             else if builtins.isList verEntry then
               verEntry
             else
@@ -70,7 +156,7 @@ let
         envs = external_crate_dependencies.envs;
         name = cargo_crate_info.name;
         version = cargo_crate_info.version;
-        hash = cargo_crate_info.crate_hash;
+        crate_hash = cargo_crate_info.crate_hash;
         entry = envs.${name} or null;
       in
         if builtins.isAttrs entry then
@@ -79,7 +165,7 @@ let
           in
             if builtins.isAttrs verEntry then
               if builtins.isAttrs verEntry then
-                if verEntry ? "${hash}" then verEntry.${hash} else verEntry
+                if verEntry ? "${crate_hash}" then verEntry.${crate_hash} else verEntry
               else
                 {}
             else
@@ -90,8 +176,8 @@ let
   };
   self = {
     target = callPackage' ./target.nix {};
-    cargo-0_88_0-27e7993d9cf32df7 = callPackage' ./cargo-0.88.0-27e7993d9cf32df7.nix { };
-    cargo-0_88_0-bin-85e09d7d8299b1ad = callPackage' ./cargo-0.88.0-bin-85e09d7d8299b1ad.nix { };
+    cargo-0_88_0-43e24c3537adc34d = callPackage' ./cargo-0.88.0-43e24c3537adc34d.nix { };
+    cargo-0_88_0-bin-fda93888b53983bf = callPackage' ./cargo-0.88.0-bin-fda93888b53983bf.nix { };
     cargo-0_88_0-script_build-cfc654fccb259515 = callPackage' ./cargo-0.88.0-script_build-cfc654fccb259515.nix { };
     cargo-0_88_0-script_build_run-f5d51778f22880c0 = callPackage' ./cargo-0.88.0-script_build_run-f5d51778f22880c0.nix { };
     cargo-credential-0_4_8-a5adc6ab9fe103b0 = callPackage' ./cargo-credential-0.4.8-a5adc6ab9fe103b0.nix { };
@@ -323,7 +409,7 @@ let
       lock_api-0_4_12-script_build-d0a80824f419daa1 = callPackage' ./deps/lock_api-0.4.12-script_build-d0a80824f419daa1.nix { };
       lock_api-0_4_12-script_build_run-a80fcfc254bcd832 = callPackage' ./deps/lock_api-0.4.12-script_build_run-a80fcfc254bcd832.nix { };
       log-0_4_25-7616f5eb69eb8f7e = callPackage' ./deps/log-0.4.25-7616f5eb69eb8f7e.nix { };
-      logone-0_2_7-1eb55177eedd2e91 = callPackage' ./deps/logone-0.2.7-1eb55177eedd2e91.nix { };
+      logone-0_2_8-13ad49cd1ad5eafb = callPackage' ./deps/logone-0.2.8-13ad49cd1ad5eafb.nix { };
       matchers-0_1_0-2e1fa76cca5e7310 = callPackage' ./deps/matchers-0.1.0-2e1fa76cca5e7310.nix { };
       maybe-async-0_2_10-3a2823bcacaa3374 = callPackage' ./deps/maybe-async-0.2.10-3a2823bcacaa3374.nix { };
       memchr-2_7_4-3cee6db17bbe0dde = callPackage' ./deps/memchr-2.7.4-3cee6db17bbe0dde.nix { };

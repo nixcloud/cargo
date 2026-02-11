@@ -153,9 +153,9 @@ impl NixBuild {
                     gctx.shell()
                         .verbose(|s| {
                             s.status(
-                                "Install",
+                                "Symlink",
                                 format!(
-                                    "Created symlink for programs using '{}'",
+                                    "Symlinking results using '{}'",
                                     activation_script
                                 ),
                             )

@@ -6,8 +6,11 @@
       name = "pasetors";
       version = "0.7.2";
       crate_hash = "0e3e06d4cbb54d3a";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [ct-codecs-1_1_3-4c4f37d16030cc7d ed25519-compact-2_1_1-1c5101fb43379bc2 getrandom-0_3_1-f98539da635491d1 orion-0_17_8-a6cc6ad3939ba568 p384-0_13_1-82d825337ebe46c2 rand_core-0_6_4-5078be04f75dc0b2 regex-1_11_1-c278e9a7e455d20f serde-1_0_218-472e28b9f131b02c serde_json-1_0_139-ae78ec5bae97c420 sha2-0_10_8-bdde0649695b7ac6 subtle-2_6_1-61dbca2d742edabc time-0_3_37-b73d8cae561973b7 zeroize-1_8_1-9a1357fe1b2d7a82];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,8 +26,6 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "pasetors";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
@@ -44,15 +45,15 @@
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m pasetors-0_7_2-0e3e06d4cbb54d3a"
-      echo "@cargo { \"type\":0, \"crate_name\":\"pasetors\", \"id\":\"pasetors-0_7_2-0e3e06d4cbb54d3a\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -61,7 +62,6 @@
               --edition=2018 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -86,8 +86,9 @@
               -C metadata=433638bcbef80458 \
               -C extra-filename=-0e3e06d4cbb54d3a \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern ct_codecs=${ct-codecs-1_1_3-4c4f37d16030cc7d}/libct_codecs-4c4f37d16030cc7d.rmeta \
               --extern ed25519_compact=${ed25519-compact-2_1_1-1c5101fb43379bc2}/libed25519_compact-1c5101fb43379bc2.rmeta \
               --extern getrandom=${getrandom-0_3_1-f98539da635491d1}/libgetrandom-f98539da635491d1.rmeta \
@@ -105,23 +106,10 @@
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "pasetors-0_7_2-0e3e06d4cbb54d3a" \
-          --arg crate_name "pasetors" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

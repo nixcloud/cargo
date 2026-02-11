@@ -6,8 +6,11 @@
       name = "tracing-subscriber";
       version = "0.3.19";
       crate_hash = "8f98042188b2d3ba";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [matchers-0_1_0-2e1fa76cca5e7310 nu-ansi-term-0_46_0-f0dd67bbc4fc7bc7 once_cell-1_20_3-60992a3834e62ae0 regex-1_11_1-c278e9a7e455d20f sharded-slab-0_1_7-10e31a831cdc1a9e smallvec-1_13_2-e5874423828ed52b thread_local-1_1_8-e251696b830b4015 tracing-0_1_41-7b5284fa1d5dcd0d tracing-core-0_1_33-a96acb2d986ff9b2 tracing-log-0_2_0-42539ffc045b2c08];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,14 +26,11 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "tracing_subscriber";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
     CARGO_PKG_AUTHORS = "Eliza Weisman <eliza@buoyant.io>:David Barsky <me@davidbarsky.com>:Tokio Contributors <team@tokio.rs>";
-    CARGO_PKG_DESCRIPTION = "Utilities for implementing and composing `tracing` subscribers.
-";
+    CARGO_PKG_DESCRIPTION = "Utilities for implementing and composing `tracing` subscribers.";
     CARGO_PKG_HOMEPAGE = "https://tokio.rs";
     CARGO_PKG_LICENSE = "MIT";
     CARGO_PKG_LICENSE_FILE = "";
@@ -45,15 +45,15 @@
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m tracing-subscriber-0_3_19-8f98042188b2d3ba"
-      echo "@cargo { \"type\":0, \"crate_name\":\"tracing-subscriber\", \"id\":\"tracing-subscriber-0_3_19-8f98042188b2d3ba\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -62,7 +62,6 @@
               --edition=2018 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -92,8 +91,9 @@
               -C metadata=aef3962e9afd83db \
               -C extra-filename=-8f98042188b2d3ba \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern matchers=${matchers-0_1_0-2e1fa76cca5e7310}/libmatchers-2e1fa76cca5e7310.rmeta \
               --extern nu_ansi_term=${nu-ansi-term-0_46_0-f0dd67bbc4fc7bc7}/libnu_ansi_term-f0dd67bbc4fc7bc7.rmeta \
               --extern once_cell=${once_cell-1_20_3-60992a3834e62ae0}/libonce_cell-60992a3834e62ae0.rmeta \
@@ -108,23 +108,10 @@
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "tracing-subscriber-0_3_19-8f98042188b2d3ba" \
-          --arg crate_name "tracing-subscriber" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

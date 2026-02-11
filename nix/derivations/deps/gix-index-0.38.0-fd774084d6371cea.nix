@@ -6,8 +6,11 @@
       name = "gix-index";
       version = "0.38.0";
       crate_hash = "fd774084d6371cea";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [bitflags-2_8_0-d8308ebf07e22afd bstr-1_11_3-14003bcd5b7b8103 filetime-0_2_25-36b58a90b887714e fnv-1_0_7-e86d9923dc926ea6 gix-bitmap-0_2_14-f354064ea405ef42 gix-features-0_40_0-7b4fa941d491da9c gix-fs-0_13_0-32f209ecf862a862 gix-hash-0_16_0-2dd06b7faad8300b gix-lock-16_0_0-c0e4d3d42bd1d641 gix-object-0_47_0-1feb494be43bf821 gix-traverse-0_44_0-2765cfa05e8b8e89 gix-utils-0_1_14-4da59f2b8afebe0a gix-validate-0_9_3-5cd523d9060c9684 hashbrown-0_14_5-0902b9e9c2cf4ed1 itoa-1_0_14-6ae7bc765ab6d9fa libc-0_2_175-df0687d6868fdede memmap2-0_9_5-74a37f7611502dc0 rustix-0_38_44-83758b3e1a43a320 smallvec-1_13_2-e5874423828ed52b thiserror-2_0_11-a57592ffa4ea41e0];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,8 +26,6 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "gix_index";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
@@ -44,15 +45,15 @@
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m gix-index-0_38_0-fd774084d6371cea"
-      echo "@cargo { \"type\":0, \"crate_name\":\"gix-index\", \"id\":\"gix-index-0_38_0-fd774084d6371cea\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -61,7 +62,6 @@
               --edition=2021 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -141,8 +141,9 @@
               -C metadata=3a993bcbc7a69e75 \
               -C extra-filename=-fd774084d6371cea \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern bitflags=${bitflags-2_8_0-d8308ebf07e22afd}/libbitflags-d8308ebf07e22afd.rmeta \
               --extern bstr=${bstr-1_11_3-14003bcd5b7b8103}/libbstr-14003bcd5b7b8103.rmeta \
               --extern filetime=${filetime-0_2_25-36b58a90b887714e}/libfiletime-36b58a90b887714e.rmeta \
@@ -167,23 +168,10 @@
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "gix-index-0_38_0-fd774084d6371cea" \
-          --arg crate_name "gix-index" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

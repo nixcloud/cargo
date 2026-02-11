@@ -28,7 +28,7 @@
             inherit project_root pkgs external_crate_dependencies build_parser;
             rustc = fenix.packages.${system}.stable.rustc;
             cargo = fenix.packages.${system}.stable.cargo;
-           }).cargo-0_88_0-bin-85e09d7d8299b1ad;
+           }).cargo-0_88_0-bin-fda93888b53983bf;
         in
         with pkgs;
         rec {

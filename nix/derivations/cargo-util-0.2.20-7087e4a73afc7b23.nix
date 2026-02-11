@@ -6,8 +6,11 @@
       name = "cargo-util";
       version = "0.2.20";
       crate_hash = "7087e4a73afc7b23";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [anyhow-1_0_96-139173be5e005a44 filetime-0_2_25-36b58a90b887714e hex-0_4_3-ccbbd905e94f34bd ignore-0_4_23-dab7af6f0867647c jobserver-0_1_32-04274db7c36dbe6c libc-0_2_175-df0687d6868fdede same-file-1_0_6-82920d733726b0a3 sha2-0_10_8-bdde0649695b7ac6 shell-escape-0_1_5-fc06a701b65fbe9d tempfile-3_17_1-94ecc3046797cc75 tracing-0_1_41-7b5284fa1d5dcd0d walkdir-2_5_0-742d7f303f7cfcda];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -29,8 +32,6 @@
     unpackPhase = "";
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "cargo_util";
     CARGO_MANIFEST_DIR = "./crates/cargo-util";
     CARGO_MANIFEST_PATH = "./crates/cargo-util/Cargo.toml";
@@ -50,60 +51,15 @@
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m cargo-util-0_2_20-7087e4a73afc7b23"
-      echo "@cargo { \"type\":0, \"crate_name\":\"cargo-util\", \"id\":\"cargo-util-0_2_20-7087e4a73afc7b23\" }"
-
-
-
-
-
-
-    #   start_time=$(date +%s%3N)
-    #   set -x +e
-    # ${RUSTC} \
-    #           --crate-name cargo_util \
-    #           --edition=2021 crates/cargo-util/src/lib.rs \
-    #           --error-format=json \
-    #           --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-    #           --diagnostic-width=170 \
-    #           --crate-type lib \
-    #           --emit=dep-info \
-    #           -C embed-bitcode=no \
-    #           -C debuginfo=2 \
-    #           --allow=clippy::all \
-    #           --warn=clippy::correctness \
-    #           --warn=clippy::self_named_module_files \
-    #           --warn=rust_2018_idioms \
-    #           --allow=rustdoc::private_intra_doc_links \
-    #           --warn=clippy::print_stdout \
-    #           --warn=clippy::print_stderr \
-    #           --warn=clippy::disallowed_methods \
-    #           --warn=clippy::dbg_macro \
-    #           ${fn.rustc_arguments passthru.rust_crate_parent} \
-    #           --check-cfg 'cfg(docsrs,test)' \
-    #           --check-cfg 'cfg(feature, values())' \
-    #           -C metadata=649d42290d04e621 \
-    #           -C extra-filename=-7087e4a73afc7b23 \
-    #           --out-dir $OUT_DIR 2>/dev/null
-    #   end_time=$(date +%s%3N)
-    #   elapsed=$(( end_time - start_time ))
-    #   echo "Elapsed time between XXX and YYY: $elapsed ms"
-    #   cat $out/*.d
-    #   exit 1
-
-
-
-
-
-
-
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -112,7 +68,6 @@
               --edition=2021 crates/cargo-util/src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -132,8 +87,10 @@
               -C metadata=649d42290d04e621 \
               -C extra-filename=-7087e4a73afc7b23 \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -C incremental=$INC_DIR \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern anyhow=${anyhow-1_0_96-139173be5e005a44}/libanyhow-139173be5e005a44.rmeta \
               --extern filetime=${filetime-0_2_25-36b58a90b887714e}/libfiletime-36b58a90b887714e.rmeta \
               --extern hex=${hex-0_4_3-ccbbd905e94f34bd}/libhex-ccbbd905e94f34bd.rmeta \
@@ -149,23 +106,10 @@
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "cargo-util-0_2_20-7087e4a73afc7b23" \
-          --arg crate_name "cargo-util" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

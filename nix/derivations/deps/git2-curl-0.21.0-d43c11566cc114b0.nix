@@ -6,8 +6,11 @@
       name = "git2-curl";
       version = "0.21.0";
       crate_hash = "d43c11566cc114b0";
+      type = "";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [curl-0_4_47-f684c2bd7b0f950d git2-0_20_0-a5a6e57aa11f1a77 log-0_4_25-7616f5eb69eb8f7e url-2_5_4-7b68be8bb56d0713];
     passthru.rust_crate_parent = [];
     passthru.rust_script_build_run = [];
@@ -23,16 +26,13 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CRATE_NAME = "git2_curl";
     CARGO_MANIFEST_DIR = "./";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
     CARGO_PKG_AUTHORS = "Josh Triplett <josh@joshtriplett.org>:Alex Crichton <alex@alexcrichton.com>";
     CARGO_PKG_DESCRIPTION = "Backend for an HTTP transport in libgit2 powered by libcurl.
 
-Intended to be used with the git2 crate.
-";
+Intended to be used with the git2 crate.";
     CARGO_PKG_HOMEPAGE = "";
     CARGO_PKG_LICENSE = "MIT OR Apache-2.0";
     CARGO_PKG_LICENSE_FILE = "";
@@ -47,15 +47,15 @@ Intended to be used with the git2 crate.
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m git2-curl-0_21_0-d43c11566cc114b0"
-      echo "@cargo { \"type\":0, \"crate_name\":\"git2-curl\", \"id\":\"git2-curl-0_21_0-d43c11566cc114b0\" }"
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
 
       rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
@@ -64,7 +64,6 @@ Intended to be used with the git2 crate.
               --edition=2018 src/lib.rs \
               --error-format=json \
               --json=diagnostic-rendered-ansi,artifacts,future-incompat \
-              --diagnostic-width=170 \
               --crate-type lib \
               --emit=dep-info,metadata,link \
               -C embed-bitcode=no \
@@ -75,8 +74,9 @@ Intended to be used with the git2 crate.
               -C metadata=80ed707a8575c645 \
               -C extra-filename=-d43c11566cc114b0 \
               --out-dir $OUT_DIR \
-              ${fn.rustc_linker_arguments passthru.rust_crate_libraries} \
+              -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \
+              ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
               --extern curl=${curl-0_4_47-f684c2bd7b0f950d}/libcurl-f684c2bd7b0f950d.rmeta \
               --extern git2=${git2-0_20_0-a5a6e57aa11f1a77}/libgit2-a5a6e57aa11f1a77.rmeta \
               --extern log=${log-0_4_25-7616f5eb69eb8f7e}/liblog-7616f5eb69eb8f7e.rmeta \
@@ -85,23 +85,10 @@ Intended to be used with the git2 crate.
       rustc_exit_value=$?
       set +x -e
            
-      # print errors
-      while IFS= read -r line
-      do
-          tmpFile=$(${pkgs.mktemp}/bin/mktemp)
-          echo "$line" > $tmpFile
-          ${pkgs.jq}/bin/jq -r -c 'select(."$message_type"=="diagnostic") | .rendered' $tmpFile
-      done < $rustc_json_output_lines
+      print_rustc_rendered_messages $rustc_json_output_lines
       
+      print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
-      # return structured formatted errors for later processing
-      output=$(${pkgs.jq}/bin/jq -s -r -c \
-          --arg fullname "git2-curl-0_21_0-d43c11566cc114b0" \
-          --arg crate_name "git2-curl" \
-          --arg exit_code "$rustc_exit_value" \
-          '{type: 2, crate_name: $crate_name, id: $fullname, rustc_exit_code: ($exit_code|tonumber), rustc_messages: .}' \
-          "$rustc_json_output_lines")
-      printf '@cargo %s\n' "$output"
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi

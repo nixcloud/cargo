@@ -6,12 +6,15 @@
       name = "libgit2-sys";
       version = "0.18.0+1.9.0";
       crate_hash = "394f4058e10471ef";
+      type = "(build.rs run)";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [];
     passthru.rust_crate_parent = [libgit2-sys-0_18_0_plus_1_9_0-script_build-df53d2b5ce2efa6a];
     passthru.rust_script_build_run = [libssh2-sys-0_3_1-7b0b3bce8fea88d8 libz-sys-1_1_21-69f52d4cc5a20a24 openssl-sys-0_9_106-adcaf6cb517a5566];
-    phases = "";
+    phases = "unpackPhase buildPhase";
 
     src = pkgs.fetchurl {
       url = "https://crates.io/api/v1/crates/libgit2-sys/0.18.0+1.9.0/download";
@@ -23,8 +26,6 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CFG_FEATURE = "https,libssh2-sys,openssl-sys,ssh";
     CARGO_CFG_PANIC = "unwind";
     CARGO_CFG_TARGET_ABI = "";
@@ -72,38 +73,24 @@
     TARGET = "x86_64-unknown-linux-gnu";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      cd $CARGO_MANIFEST_DIR
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m libgit2-sys-0_18_0_plus_1_9_0-script_build_run-394f4058e10471ef"
-      echo "@cargo { \"type\":0, \"crate_name\":\"libgit2-sys\", \"id\":\"libgit2-sys-0_18_0_plus_1_9_0-script_build_run-394f4058e10471ef\" }"
-      for file in ${fn.environment_variables passthru.rust_script_build_run}; do
-        if [ -f $file ]; then
-          set -a
-            while read -r line; do
-              echo -e "\033[38;5;208m$line\033[0m"
-            done < "$file"
-            source $file
-            set +a
-        fi
-      done
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
+      load_environment_variables_from_files "${fn.environment_variables passthru.rust_script_build_run}"
       build_script_build_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
       ${ libgit2-sys-0_18_0_plus_1_9_0-script_build-df53d2b5ce2efa6a }/build_script_build > $OUT_DIR/nix/build_script_build.out 2> $build_script_build_output_lines
       build_script_build_exit_value=$?
       set +x -e
+      
       if [ "$build_script_build_exit_value" -ne 0 ]; then
-          output=$(${pkgs.jq}/bin/jq -c -n \
-              --arg crate_name "libgit2-sys" \
-              --arg notice "There was an error executing build_script_build in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/libgit2-sys-0.18.0_plus_1.9.0-script_build_run-394f4058e10471ef.nix':" \
-              --arg exit_code "$build_script_build_exit_value" \
-              --rawfile msg $build_script_build_output_lines \
-              '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
-          printf '@cargo %s\n' "$output"
+          print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "There was an error executing build_script_build in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/libgit2-sys-0.18.0_plus_1.9.0-script_build_run-394f4058e10471ef.nix':" $build_script_build_exit_value $build_script_build_output_lines
           cat "$build_script_build_output_lines"
           exit $build_script_build_exit_value
       fi
@@ -113,18 +100,13 @@
       ${build_parser}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results 2> $build_parser_output_lines
       build_parser_exit_value=$?
       set +x -e
+      
       if [ "$build_parser_exit_value" -ne 0 ]; then
-          output=$(${pkgs.jq}/bin/jq -c -n \
-              --arg crate_name "libgit2-sys" \
-              --arg notice "There was an error executing build_parser in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/libgit2-sys-0.18.0_plus_1.9.0-script_build_run-394f4058e10471ef.nix':" \
-              --arg exit_code "$build_parser_exit_value" \
-              --rawfile msg $build_parser_output_lines \
-              '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
-          printf '@cargo %s\n' "$output"
+          print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "There was an error executing build_parser in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/libgit2-sys-0.18.0_plus_1.9.0-script_build_run-394f4058e10471ef.nix':" $build_script_build_exit_value $build_script_build_output_lines
           cat $build_parser_output_lines
           exit $build_parser_exit_value
       fi
-      echo "@cargo {\"type\": 3, \"crate_name\": \"libgit2-sys\", \"exit_code\": 0, \"messages\": []}"
+      echo "@cargo {\"type\": 3, \"crate_name\": \"${meta.cargo_crate_info.name}\", \"crate_type\": \"${meta.cargo_crate_info.type}\", \"exit_code\": 0, \"messages\": []}"
     '';
 
 }

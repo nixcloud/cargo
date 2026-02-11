@@ -6,12 +6,15 @@
       name = "libnghttp2-sys";
       version = "0.1.11+1.64.0";
       crate_hash = "b5bd9d1c0a296bf4";
+      type = "(build.rs run)";
     };
-    buildInputs = [] ++ fn.inject meta.cargo_crate_info;
+    buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    env = fn.inject_envs meta.cargo_crate_info;
+
     passthru.rust_crate_libraries = [];
     passthru.rust_crate_parent = [libnghttp2-sys-0_1_11_plus_1_64_0-script_build-0f5adb8e3f098d69];
     passthru.rust_script_build_run = [];
-    phases = "";
+    phases = "unpackPhase buildPhase";
 
     src = pkgs.fetchurl {
       url = "https://crates.io/api/v1/crates/libnghttp2-sys/0.1.11+1.64.0/download";
@@ -23,8 +26,6 @@
     '';
 
     RUSTC = "${rustc}/bin/rustc";
-    CARGO = "${cargo}/bin/cargo";
-
     CARGO_CFG_FEATURE = "";
     CARGO_CFG_PANIC = "unwind";
     CARGO_CFG_TARGET_ABI = "";
@@ -43,8 +44,7 @@
     CARGO_MANIFEST_LINKS = "nghttp2";
     CARGO_MANIFEST_PATH = "./Cargo.toml";
     CARGO_PKG_AUTHORS = "Alex Crichton <alex@alexcrichton.com>";
-    CARGO_PKG_DESCRIPTION = "FFI bindings for libnghttp2 (nghttp2)
-";
+    CARGO_PKG_DESCRIPTION = "FFI bindings for libnghttp2 (nghttp2)";
     CARGO_PKG_HOMEPAGE = "https://github.com/alexcrichton/nghttp2-rs";
     CARGO_PKG_LICENSE = "MIT/Apache-2.0";
     CARGO_PKG_LICENSE_FILE = "";
@@ -69,38 +69,24 @@
     TARGET = "x86_64-unknown-linux-gnu";
 
     buildPhase = ''
+      ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
-
+      cd $CARGO_MANIFEST_DIR
       mkdir -p $out/nix
       export OUT_DIR=$out
-      export INC_DIR=$(${pkgs.mktemp}/bin/mktemp -d)
 
-      echo -e "\e[92mCompiling\e[0m libnghttp2-sys-0_1_11_plus_1_64_0-script_build_run-b5bd9d1c0a296bf4"
-      echo "@cargo { \"type\":0, \"crate_name\":\"libnghttp2-sys\", \"id\":\"libnghttp2-sys-0_1_11_plus_1_64_0-script_build_run-b5bd9d1c0a296bf4\" }"
-      for file in ${fn.environment_variables passthru.rust_script_build_run}; do
-        if [ -f $file ]; then
-          set -a
-            while read -r line; do
-              echo -e "\033[38;5;208m$line\033[0m"
-            done < "$file"
-            source $file
-            set +a
-        fi
-      done
+      print_compiling_message "${name}"
+      print_cargo_message_type_0 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}"
+      load_environment_variables_from_files "${fn.environment_variables passthru.rust_script_build_run}"
       build_script_build_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
       ${ libnghttp2-sys-0_1_11_plus_1_64_0-script_build-0f5adb8e3f098d69 }/build_script_build > $OUT_DIR/nix/build_script_build.out 2> $build_script_build_output_lines
       build_script_build_exit_value=$?
       set +x -e
+      
       if [ "$build_script_build_exit_value" -ne 0 ]; then
-          output=$(${pkgs.jq}/bin/jq -c -n \
-              --arg crate_name "libnghttp2-sys" \
-              --arg notice "There was an error executing build_script_build in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/libnghttp2-sys-0.1.11_plus_1.64.0-script_build_run-b5bd9d1c0a296bf4.nix':" \
-              --arg exit_code "$build_script_build_exit_value" \
-              --rawfile msg $build_script_build_output_lines \
-              '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
-          printf '@cargo %s\n' "$output"
+          print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "There was an error executing build_script_build in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/libnghttp2-sys-0.1.11_plus_1.64.0-script_build_run-b5bd9d1c0a296bf4.nix':" $build_script_build_exit_value $build_script_build_output_lines
           cat "$build_script_build_output_lines"
           exit $build_script_build_exit_value
       fi
@@ -110,18 +96,13 @@
       ${build_parser}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results 2> $build_parser_output_lines
       build_parser_exit_value=$?
       set +x -e
+      
       if [ "$build_parser_exit_value" -ne 0 ]; then
-          output=$(${pkgs.jq}/bin/jq -c -n \
-              --arg crate_name "libnghttp2-sys" \
-              --arg notice "There was an error executing build_parser in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/libnghttp2-sys-0.1.11_plus_1.64.0-script_build_run-b5bd9d1c0a296bf4.nix':" \
-              --arg exit_code "$build_parser_exit_value" \
-              --rawfile msg $build_parser_output_lines \
-              '{type: 3, crate_name: $crate_name, exit_code: ($exit_code|tonumber), messages: [ $notice, $msg ] }')
-          printf '@cargo %s\n' "$output"
+          print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "There was an error executing build_parser in file: '/home/nixos/cargo/target/debug/nix/derivations/deps/libnghttp2-sys-0.1.11_plus_1.64.0-script_build_run-b5bd9d1c0a296bf4.nix':" $build_script_build_exit_value $build_script_build_output_lines
           cat $build_parser_output_lines
           exit $build_parser_exit_value
       fi
-      echo "@cargo {\"type\": 3, \"crate_name\": \"libnghttp2-sys\", \"exit_code\": 0, \"messages\": []}"
+      echo "@cargo {\"type\": 3, \"crate_name\": \"${meta.cargo_crate_info.name}\", \"crate_type\": \"${meta.cargo_crate_info.type}\", \"exit_code\": 0, \"messages\": []}"
     '';
 
 }

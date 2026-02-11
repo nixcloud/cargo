@@ -2,7 +2,7 @@
 { pkgs, rustc, cargo, external_crate_dependencies, build_parser, project_root }:
 let
   lib = pkgs.lib;
-  callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo build_parser; });
+  callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo build_parser project_root; });
   fn = rec {
     allCollectedInputs = a: lib.unique (
       builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.rust_crate_libraries)) [] a
@@ -172,6 +172,7 @@ let
               entry
         else
           {};
+    relativeFileset = project_root: relPaths: lib.fileset.unions (map (p: project_root + "/${p}") relPaths);
   };
   self = {
     target = callPackage' ./target.nix {};
