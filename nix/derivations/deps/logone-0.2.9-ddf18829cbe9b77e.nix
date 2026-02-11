@@ -1,11 +1,11 @@
 # generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
-{ fn, pkgs, rustc, cargo, deps }: with deps;
+{ fn, pkgs, rustc, cargo, deps, project_root }: with deps;
   pkgs.stdenv.mkDerivation rec {
-    name = "logone-0_2_8-13ad49cd1ad5eafb";
+    name = "logone-0_2_9-ddf18829cbe9b77e";
     meta.cargo_crate_info = {
       name = "logone";
-      version = "0.2.8";
-      crate_hash = "13ad49cd1ad5eafb";
+      version = "0.2.9";
+      crate_hash = "ddf18829cbe9b77e";
       type = "";
     };
     buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
@@ -17,12 +17,12 @@
     phases = "unpackPhase buildPhase";
 
     src = pkgs.fetchurl {
-      url = "https://crates.io/api/v1/crates/logone/0.2.8/download";
-      sha256 = "c1e9e86d803e0f0618926d522aba2ff0236111f2ce3870cd231f1c53960104e6";
+      url = "https://crates.io/api/v1/crates/logone/0.2.9/download";
+      sha256 = "6e6c48f01e67da3f8e4226dd3cf7d21ce8d74d649b8e2fd71608d3168cfdcb06";
     };
     unpackPhase = ''
       tar xf $src
-      cd logone-0.2.8
+      cd logone-0.2.9
     '';
 
     RUSTC = "${rustc}/bin/rustc";
@@ -38,10 +38,10 @@
     CARGO_PKG_README = "README.md";
     CARGO_PKG_REPOSITORY = "https://github.com/nixcloud/logone";
     CARGO_PKG_RUST_VERSION = "";
-    CARGO_PKG_VERSION = "0.2.8";
+    CARGO_PKG_VERSION = "0.2.9";
     CARGO_PKG_VERSION_MAJOR = "0";
     CARGO_PKG_VERSION_MINOR = "2";
-    CARGO_PKG_VERSION_PATCH = "8";
+    CARGO_PKG_VERSION_PATCH = "9";
     CARGO_PKG_VERSION_PRE = "";
 
     buildPhase = ''
@@ -69,8 +69,8 @@
               ${fn.rustc_arguments passthru.rust_crate_parent} \
               --check-cfg 'cfg(docsrs,test)' \
               --check-cfg 'cfg(feature, values())' \
-              -C metadata=0618b91f6fb6f200 \
-              -C extra-filename=-13ad49cd1ad5eafb \
+              -C metadata=74759f14b49df985 \
+              -C extra-filename=-ddf18829cbe9b77e \
               --out-dir $OUT_DIR \
               -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps \
               ${fn.rustc_propagated_arguments passthru.rust_script_build_run} \

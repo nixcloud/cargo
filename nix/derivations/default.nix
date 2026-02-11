@@ -409,7 +409,7 @@ let
       lock_api-0_4_12-script_build-d0a80824f419daa1 = callPackage' ./deps/lock_api-0.4.12-script_build-d0a80824f419daa1.nix { };
       lock_api-0_4_12-script_build_run-a80fcfc254bcd832 = callPackage' ./deps/lock_api-0.4.12-script_build_run-a80fcfc254bcd832.nix { };
       log-0_4_25-7616f5eb69eb8f7e = callPackage' ./deps/log-0.4.25-7616f5eb69eb8f7e.nix { };
-      logone-0_2_8-13ad49cd1ad5eafb = callPackage' ./deps/logone-0.2.8-13ad49cd1ad5eafb.nix { };
+      logone-0_2_9-ddf18829cbe9b77e = callPackage' ./deps/logone-0.2.9-ddf18829cbe9b77e.nix { };
       matchers-0_1_0-2e1fa76cca5e7310 = callPackage' ./deps/matchers-0.1.0-2e1fa76cca5e7310.nix { };
       maybe-async-0_2_10-3a2823bcacaa3374 = callPackage' ./deps/maybe-async-0.2.10-3a2823bcacaa3374.nix { };
       memchr-2_7_4-3cee6db17bbe0dde = callPackage' ./deps/memchr-2.7.4-3cee6db17bbe0dde.nix { };
