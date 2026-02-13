@@ -63,18 +63,21 @@ This project is [xkcd 927](https://xkcd.com/927/).
 
 until 1.may 2026
 
-* IFD support
-  * copy Cargo.dependencies.nix
-  * adapt external_crate_dependencies search path in cargo_build_caller.nix from ../../ to ./
-  * update documents in dest dir or
+* logone
+  * rework --json --mode cargo (both as defaults)
+  * see if i can do better error machting so it can be also used to develop with nix build from shell
 
-* refactor the codebase
-  * make /tmp/out for legacy runs more obvious, also clean directory before start
+* IFD support
+  * update documents in dest dir or
+  * create IFD support example (see if it works)
 
 * integrate
   * integrate build_parser standalone into cargo (so no additional binary)
   * add nix-prefetch-git as argument to default.nix
     { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:
+
+* refactor the codebase
+  * make /tmp/out for legacy runs more obvious, also clean directory before start
 
 * release workflow
   * how do projects use **cargo libnix** in their flake.nix so they can develop?

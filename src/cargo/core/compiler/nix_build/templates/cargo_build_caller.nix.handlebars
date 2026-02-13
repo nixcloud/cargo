@@ -23,9 +23,9 @@ let
   };
   fenix = import fenixSrc {};
   external_crate_dependencies =
-    (if builtins.pathExists ../../../Cargo.dependencies.nix
+    (if builtins.pathExists {{{project_root}}}/Cargo.dependencies.nix
     then builtins.trace "Using Cargo.dependencies.nix"
-         import ../../../Cargo.dependencies.nix { inherit pkgs; }
+         import {{{project_root}}}/Cargo.dependencies.nix { inherit pkgs; }
     else builtins.trace "No Cargo.dependencies.nix found"
          { deps = {}; envs = {}; });
   toolchain = fenix.stable.toolchain;
@@ -33,7 +33,7 @@ let
     inherit pkgs external_crate_dependencies build_parser;
     rustc = toolchain;
     cargo = toolchain;
-    project_root = ./.;
+    project_root = {{{project_root}}}/.;
   };
 in
 cargoPackages

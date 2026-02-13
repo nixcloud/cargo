@@ -23,6 +23,7 @@ use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+use std::fs;
 
 #[derive(Clone, Debug)]
 pub struct NixBuildOptions {
@@ -955,7 +956,16 @@ impl<'a, 'gctx> NixBuildRunner {
         let mut handlebars = Handlebars::new();
         let template_str = include_str!("templates/cargo_build_caller.nix.handlebars");
         handlebars.register_template_string("caller", template_str)?;
-        let rendered = handlebars.render("caller", &serde_json::json!({}))?;
+        let project_root = match write_nix_buildsystem_options {
+            Some(_) => { "." },      // exported build system via write-nix-buildsystem
+            None => { "../../.." },  // build system used in normal 'CARGO_BACKEND=nix cargo build'
+        };
+        let rendered = handlebars.render(
+            "caller",
+            &serde_json::json!({
+                "project_root": project_root,
+            }),
+        )?;
 
         let cargo_build_caller_path = nix_base_dir
             .clone()
@@ -1054,8 +1064,25 @@ impl<'a, 'gctx> NixBuildRunner {
         if write_nix_buildsystem_options.is_none() {
             NixBuild::build(nix_base_dir, &gctx, keep_going)?;
         } else {
-            // fixme: copy Cargo.dependencies.nix to nix_base_dir
-             gctx.shell()
+            let target_path = nix_base_dir
+                .clone()
+                .join("Cargo.dependencies.nix")
+                .into_path_unlocked();
+            match fs::copy("Cargo.dependencies.nix", target_path) {
+                Ok(_) => {
+                    gctx.shell().status("write-nix-buildsystem","Copied Cargo.dependencies.nix to out_dir");
+                },
+                Err(e) => {
+                    gctx.shell().status(
+                        "write-nix-buildsystem",
+                        format!(
+                            "Failed to copy Cargo.dependencies.nix to out_dir: {}",
+                            e
+                        ),
+                    ).ok();
+                }
+            };
+            gctx.shell()
             .status(
                     "write-nix-buildsystem",
                     format!(
