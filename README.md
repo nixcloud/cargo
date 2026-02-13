@@ -67,10 +67,6 @@ until 1.may 2026
   * rework --json --mode cargo (both as defaults)
   * see if i can do better error machting so it can be also used to develop with nix build from shell
 
-* IFD support
-  * update documents in dest dir or
-  * create IFD support example (see if it works)
-
 * integrate
   * integrate build_parser standalone into cargo (so no additional binary)
   * add nix-prefetch-git as argument to default.nix
@@ -96,6 +92,24 @@ until 1.may 2026
       $(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
 
 ### mid prio
+
+* IFD support
+  * update documents in dest dir or
+  * create IFD support example (see if it works)
+  * currently this is generated during the default.nix evaluation
+      [nixos@nixos:~/cargo]$ nix build --file IFD-experiment.nix -L
+      trace: Using Cargo.dependencies.nix
+      write-nix-buildsystem> Running phase: unpackPhase
+      write-nix-buildsystem> unpacking source archive /nix/store/dv6brs09hvs9hy93xqi8bgl7ck26w49y-cargo
+      write-nix-buildsystem> source root is cargo
+      write-nix-buildsystem> Running phase: buildPhase
+      write-nix-buildsystem> ❄❄❄  nixcloud edition ❄❄❄
+      write-nix-buildsystem> This is an unofficial fork of Cargo — not endorsed by the Rust Project.
+      write-nix-buildsystem> Support me: Consider a star at https://github.com/nixcloud/cargo/stargazers
+      write-nix-buildsystem> Support you: File issues at: https://github.com/nixcloud/cargo/issues/
+      write-nix-buildsystem> Using 'nix' backend to build crates
+      write-nix-buildsystem> error: no matching package named `serde` found
+
 
 * https://github.com/nixcloud/cargo/issues/10
 * https://github.com/nixcloud/cargo/issues/8
