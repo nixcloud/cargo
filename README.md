@@ -54,6 +54,8 @@ This project is [xkcd 927](https://xkcd.com/927/).
     * intermediate artefacts (crates.io libraries builds with different feature sets): target/debug/deps has been moved to the /nix/store
     * however, registry clone is still at ~/.cargo/registry
     * injecting custom dependencies or environment variables with Cargo.dependencies.nix per crate (both root crates and dependency crates)
+* export the build system:
+  * CARGO_BACKEND=nix cargo build write-nix-buildsystem --out-dir /tmp/nix --url https://github.com/nixcloud/cargo/archive/refs/tags/1.83-test-release.tar.gz --hash 1h5j1kl7q7mysa943gvd4c8ih8yxx4igqrx4akv9ixf4zf411b8l
 
 ## What still requires love
 
@@ -61,25 +63,23 @@ This project is [xkcd 927](https://xkcd.com/927/).
 
 until 1.may 2026
 
-* integrate build_parser standalone into cargo (so no additional binary)
-* add nix-prefetch-git as argument to default.nix
+* IFD support
+  * copy Cargo.dependencies.nix
+  * adapt external_crate_dependencies search path in cargo_build_caller.nix from ../../ to ./
+  * update documents in dest dir or
+
+* refactor the codebase
+  * make /tmp/out for legacy runs more obvious, also clean directory before start
+
+* integrate
+  * integrate build_parser standalone into cargo (so no additional binary)
+  * add nix-prefetch-git as argument to default.nix
     { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:
 
-* file issue that git clone is not good enough for nix (or cargo should also add a nar hash)
-
-* file https://github.com/nixcloud/cargo/issues/8 in nixpkgs
-
-* no IFD support (from nix, call 'cargo build', use produced nix files via IFD)
-
-    write-nix-buildsystem <DIR>    Output a build system to the specified directory instead of building.
-                                    Additional option: --upstream-repo <GIT-URL> (clone and generate from upstream repo).
-
-    --upstream-repo <GIT-URL>       [Requires --generate-buildsystem]
-                                    Clone and generate the buildsystem from this upstream repo, not the local directory.
-
-* release workflow of this work
-  * create a release workflow (for cargo-libnix as well as for projects using this toolchain)
-  * create something 'simple' like fenix so ppl can experiment with this toolchain
+* release workflow
+  * how do projects use **cargo libnix** in their flake.nix so they can develop?
+    * create something 'simple' like fenix so ppl can experiment with this toolchain
+  * how do projects release their code using **cargo libnix** so they can use it in their flake.nix or in nixpkgs?
 
 * no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
   * https://github.com/nixcloud/cargo/issues/3
@@ -92,10 +92,10 @@ until 1.may 2026
     * incremental target, add this to rustc call:
       $(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
 
-* refactor the codebase
-  * make /tmp/out for legacy runs more obvious, also clean directory before start
-
 ### mid prio
+
+* https://github.com/nixcloud/cargo/issues/10
+* https://github.com/nixcloud/cargo/issues/8
 
 * build_script_build is not always the build.rs binary name:
 
@@ -254,6 +254,9 @@ until 1.may 2026
   nix build --file target/debug/nix/cargo_build_caller.nix deps.adler2-2_0_0-115180b36279fc7c deps.anstyle-1_0_10-bf6d032cb7d79be1 deps.allocator-api2-0_2_21-bd3713078dfee01f -L
 
   shows that these 3 are build in parallel!
+
+  * created logone/passthru-test to experiment, seems parallel builds work there so far, logone seems to display 4 parallel builds correctly. it must be burried in the abstraction of the
+    generated nix build system
 
 * no rustdoc support
 * no testing support

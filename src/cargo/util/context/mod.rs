@@ -68,6 +68,7 @@ use std::time::Instant;
 
 use self::ConfigValue as CV;
 use crate::core::compiler::rustdoc::RustdocExternMap;
+use crate::core::compiler::nix_build::NixBuildOptions;
 use crate::core::global_cache_tracker::{DeferredGlobalLastUse, GlobalCacheTracker};
 use crate::core::shell::Verbosity;
 use crate::core::{features, CliUnstable, Shell, SourceId, Workspace, WorkspaceRootConfig};
@@ -257,6 +258,7 @@ pub struct GlobalContext {
     // Note: This should live in build_config but I didn't understand the deserializer and
     //       did not get it working properly. That why this hack is here now.
     backend: BuildBackend,
+    pub write_nix_buildsystem_options: LazyCell<Option<NixBuildOptions>>,
 }
 
 impl GlobalContext {
@@ -345,6 +347,7 @@ impl GlobalContext {
             global_cache_tracker: LazyCell::new(),
             deferred_global_last_use: LazyCell::new(),
             backend,
+            write_nix_buildsystem_options: LazyCell::new(),
         }
     }
 

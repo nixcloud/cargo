@@ -357,9 +357,6 @@
       rustc_exit_value=$?
       set +x -e
 
-      mkdir -p $out/
-      time cp -R /tmp/out/* $out/
-           
       print_rustc_rendered_messages $rustc_json_output_lines
       
       print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
@@ -367,6 +364,9 @@
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi
+
+      mkdir -p $out/
+      time cp -R /tmp/out/* $out/
     '';
 
 }

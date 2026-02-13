@@ -1,7 +1,6 @@
 use super::build_result_parser::parse_stdout_lines;
 use crate::util::Filesystem;
 use crate::util::{CargoResult, GlobalContext};
-
 use logone::{LogLevel, LogOne};
 
 pub struct NixBuild {}

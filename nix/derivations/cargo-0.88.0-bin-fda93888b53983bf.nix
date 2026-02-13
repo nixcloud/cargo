@@ -209,8 +209,6 @@
       rustc_exit_value=$?
       set +x -e
 
-      mkdir -p $out/
-      time cp -R /tmp/out/* $out/   
 
       print_rustc_rendered_messages $rustc_json_output_lines
       
@@ -219,6 +217,10 @@
       if [ "$rustc_exit_value" -ne 0 ]; then
           exit $rustc_exit_value
       fi
+
+      mkdir -p $out/
+      time cp -R /tmp/out/* $out/   
+      
     '';
     installPhase = ''
       mkdir $out/bin

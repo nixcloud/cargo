@@ -40,17 +40,24 @@ pub fn cli() -> Command {
         .arg_manifest_path()
         .arg_lockfile_path()
         .arg_ignore_rust_version()
+
+        // refactor: move to command_prelude.rs, use gctx and only display if cargo backend is "nix"
+        //           this might require to move the gctx.backend() out of gctx because that is only constructed
+        //           after the command line parameters have been created
         .subcommand(
-            Command::new("generate")
-                .about("Generate default.nix files to build the project")
+            Command::new("write-nix-buildsystem")
+                .about("Export the nix buildsystem to be called from nixpkgs or flakes, won't trigger a compile")
                 .arg(
-                    opt("generate-out-dir", "Where to write the generate toolchain into")
+                    opt("out-dir", "The directory the build system is exported to (must be new or at least empty)")
                         .value_name("PATH"),
                 )
-                .arg(        
-                    opt("generate-upstream-url", "Make generated build system download source code from URL")
-                        .value_name("PATH"),
-                ),
+                .arg(
+                    opt("url", "Use remote URL for source code download")
+                        .value_name("URI"),
+                )
+                .arg(
+                    opt("hash", "The hash (sha256), created with nix-prefetch-url")
+                )
         )
         .after_help(color_print::cstr!(
             "Run `<cyan,bold>cargo help build</>` for more detailed information.\n"
@@ -59,20 +66,45 @@ pub fn cli() -> Command {
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
     let ws = args.workspace(gctx)?;
+    let write_nix_buildsystem_options: Option<NixBuildOptions> = match args.subcommand() {
+        Some(("write-nix-buildsystem", sub_args)) => {
+            let out_dir = sub_args.value_of_path("out-dir", gctx).ok_or_else(|| {
+                CliError::new(
+                    anyhow::format_err!(
+                        "`cargo build write-nix-buildsystem` requires --out-dir\n\
+                        Please specify the --out-dir option."
+                    ),
+                    101,
+                )
+            })?.clone();
+
+            let url = sub_args.get_one::<String>("url").ok_or_else(|| {
+                CliError::new(
+                    anyhow::format_err!(
+                        "`cargo build write-nix-buildsystem` requires --url\n\
+                        Please specify the --url option."
+                    ),
+                    101,
+                )
+            })?.clone();
+
+            let hash = sub_args.get_one::<String>("hash").ok_or_else(|| {
+                CliError::new(
+                    anyhow::format_err!(
+                        "`cargo build write-nix-buildsystem` requires --hash\n\
+                        Please specify the --hash option."
+                    ),
+                    101,
+                )
+            })?.clone();
+            Some(NixBuildOptions { out_dir, url, hash })
+        },
+        Some((&_, _)) => {None},
+        None => {None}
+    };
+    gctx.write_nix_buildsystem_options.fill(write_nix_buildsystem_options).expect("fill should only be called once");
     let mut compile_opts =
         args.compile_options(gctx, CompileMode::Build, Some(&ws), ProfileChecking::Custom)?;
-
-    match args.subcommand() {
-        Some(("generate", sub_args)) => {
-            let path = sub_args.value_of_path("generate-out-dir", gctx);
-            println!("Generating `default.nix` at: {:?}", path);
-            let url = sub_args.value_of_path("generate-upstream-url", gctx);
-            println!("Upstream url is: {:?}", url);
-        },
-        Some((&_, _)) => {},
-        None => {}
-    }
-
     if let Some(artifact_dir) = args.value_of_path("artifact-dir", gctx) {
         // If the user specifies `--artifact-dir`, use that
         compile_opts.build_config.export_dir = Some(artifact_dir);
