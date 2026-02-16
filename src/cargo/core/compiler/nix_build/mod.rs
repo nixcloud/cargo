@@ -974,6 +974,30 @@ impl<'a, 'gctx> NixBuildRunner {
         let mut file = File::create(&cargo_build_caller_path)?;
         write!(file, "{}", rendered)?;
 
+        // build-rs-libnix.nix //////////////////////////////////////////////////////////////////////////////////
+        gctx.shell()
+            .verbose(|s| s.status("Generating", "build-rs-libnix.nix"))?;
+        let mut handlebars = Handlebars::new();
+        let template_str = include_str!("templates/build-rs-libnix.nix.handlebars");
+        handlebars.register_template_string("build-rs-libnix", template_str)?;
+        let project_root = match write_nix_buildsystem_options {
+            Some(_) => { "." },      // exported build system via write-nix-buildsystem
+            None => { "../../.." },  // build system used in normal 'CARGO_BACKEND=nix cargo build'
+        };
+        let rendered = handlebars.render(
+            "build-rs-libnix",
+            &serde_json::json!({
+                "project_root": project_root,
+            }),
+        )?;
+
+        let build_rs_libnix_path = nix_base_dir
+            .clone()
+            .join("build-rs-libnix.nix")
+            .into_path_unlocked();
+        let mut file = File::create(&build_rs_libnix_path)?;
+        write!(file, "{}", rendered)?;
+
         // default.nix //////////////////////////////////////////////////////////////////////////////////
         gctx.shell()
             .verbose(|s| s.status("Generating", "default.nix"))?;
@@ -1070,7 +1094,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 .into_path_unlocked();
             match fs::copy("Cargo.dependencies.nix", target_path) {
                 Ok(_) => {
-                    gctx.shell().status("write-nix-buildsystem","Copied Cargo.dependencies.nix to out_dir");
+                    let _ = gctx.shell().status("write-nix-buildsystem","Copied Cargo.dependencies.nix to out_dir");
                 },
                 Err(e) => {
                     gctx.shell().status(
@@ -1169,7 +1193,8 @@ impl<'a, 'gctx> NixBuildRunner {
                 
                 build_parser_output_lines=$(${pkgs.mktemp}/bin/mktemp)
                 set -x +e
-                ${build_parser}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results 2> $build_parser_output_lines
+                ${build_parser}/bin/build-rs-libnix --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
+                #${build_parser}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results 2> $build_parser_output_lines
                 build_parser_exit_value=$?
                 set +x -e
 

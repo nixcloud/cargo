@@ -1,5 +1,6 @@
 use crate::command_prelude::*;
 use cargo::ops;
+use build_rs_libnix::process_buildrs_output;
 
 pub fn cli() -> Command {
     subcommand("build")
@@ -59,6 +60,18 @@ pub fn cli() -> Command {
                     opt("hash", "The hash (sha256), created with nix-prefetch-url")
                 )
         )
+        .subcommand(
+            Command::new("build-rs-nix")
+                .about("Parse the output of a build.rs script for 'nix build'")
+                .arg(
+                    opt("script-output", "Absolute path to the /nix/store/...-build-script-build.out file to parse")
+                        .value_name("PATH"),
+                )
+                .arg(
+                    opt("out-dir", "A directory where the nix/* files are generated to")
+                        .value_name("PATH"),
+                )
+        )
         .after_help(color_print::cstr!(
             "Run `<cyan,bold>cargo help build</>` for more detailed information.\n"
         ))
@@ -98,6 +111,28 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
                 )
             })?.clone();
             Some(NixBuildOptions { out_dir, url, hash })
+        },
+        Some(("build-rs-nix", sub_args)) => {
+            let script_output = sub_args.value_of_path("script-output", gctx).ok_or_else(|| {
+                CliError::new(
+                    anyhow::format_err!(
+                        "`cargo build build-rs-nix` requires --script-output\n\
+                        Please specify the --script-output option."
+                    ),
+                    101,
+                )
+            })?.clone();
+            let out_dir = sub_args.value_of_path("out-dir", gctx).ok_or_else(|| {
+                CliError::new(
+                    anyhow::format_err!(
+                        "`cargo build out-dir` requires --out-dir\n\
+                        Please specify the --out-dir option."
+                    ),
+                    101,
+                )
+            })?.clone();
+            let _ = process_buildrs_output(&script_output, &out_dir);
+            return Ok(());
         },
         Some((&_, _)) => {None},
         None => {None}

@@ -31,7 +31,6 @@
         "src/bin/cargo/commands/doc.rs"
         "src/bin/cargo/commands/fetch.rs"
         "src/bin/cargo/commands/fix.rs"
-        "src/bin/cargo/commands/nix.rs"
         "src/bin/cargo/commands/generate_lockfile.rs"
         "src/bin/cargo/commands/git_checkout.rs"
         "src/bin/cargo/commands/help.rs"

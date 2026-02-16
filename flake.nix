@@ -1,8 +1,8 @@
 {
-  description = "a flake to build libnix cargo 1.89.0 (with nix backend)";
+  description = "a flake to build libnix cargo";
   inputs = {
-    nixpkgs.url      = "github:NixOS/nixpkgs/nixos-25.05";
-    fenix.url        = "github:nix-community/fenix";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    fenix.url   = "github:nix-community/fenix";
     build-parser.url = "github:nixcloud/cargo-build_script_build-parser";
   };
   outputs =
@@ -10,6 +10,7 @@
     flake-utils.lib.eachDefaultSystem
       (system:
         let
+          project_root = ./.;
           pkgs = import nixpkgs {
             inherit system;
             overlays = [
@@ -21,9 +22,9 @@
             if builtins.pathExists ./Cargo.dependencies.nix
               then import ./Cargo.dependencies.nix { inherit pkgs; }
               else { deps = {}; };
-
-          build_parser = build-parser.packages.${system}.default;
-          project_root = ./.;
+          build_parser = pkgs.callPackage ./build-rs-libnix.nix {
+            inherit project_root;
+          };
           cargo-libnix = (import nix/derivations/default.nix {
             inherit project_root pkgs external_crate_dependencies build_parser;
             rustc = fenix.packages.${system}.stable.rustc;
@@ -43,7 +44,8 @@
               # the toolchain used
               fenix.packages.${system}.stable.rustc
               #fenix.packages.${system}.stable.cargo
-              cargo-libnix
+              #cargo-libnix
+              build_parser
               fenix.packages.${system}.stable.rust-src
               fenix.packages.${system}.stable.rustfmt
               fenix.packages.${system}.stable.clippy

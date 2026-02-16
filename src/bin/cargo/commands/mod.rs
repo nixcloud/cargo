@@ -41,7 +41,6 @@ pub fn builtin() -> Vec<Command> {
         verify_project::cli(),
         version::cli(),
         yank::cli(),
-        nix::cli(),
     ]
 }
 
@@ -88,7 +87,6 @@ pub fn builtin_exec(cmd: &str) -> Option<Exec> {
         "verify-project" => verify_project::exec,
         "version" => version::exec,
         "yank" => yank::exec,
-        "nix" => nix::exec,
         _ => return None,
     };
     Some(f)
@@ -114,7 +112,6 @@ pub mod login;
 pub mod logout;
 pub mod metadata;
 pub mod new;
-pub mod nix;
 pub mod owner;
 pub mod package;
 pub mod pkgid;

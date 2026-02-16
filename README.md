@@ -57,28 +57,35 @@ This project is [xkcd 927](https://xkcd.com/927/).
 * export the build system:
   * CARGO_BACKEND=nix cargo build write-nix-buildsystem --out-dir /tmp/nix --url https://github.com/nixcloud/cargo/archive/refs/tags/1.83-test-release.tar.gz --hash 1h5j1kl7q7mysa943gvd4c8ih8yxx4igqrx4akv9ixf4zf411b8l
 
+* build-rs-libnix (as standalone tool is no inside the cargo source base), build with:
+    CARGO_BACKEND=nix cargo build -p build-rs-libnix
+  execute with
+    
 ## What still requires love
 
 ### high prio
 
 until 1.may 2026
 
+ln -s /nix/store/4j0l2icwf2rdgi0rarswk4vmsmxs5ar6-cargo-0_88_0-bin-fda93888b53983bf/bin/cargo target/debug/cargo
+
+* integrate
+  * integrate build_parser standalone into cargo (so no additional binary) - for users of libnix cargo
+    * still find to find a way to bootstrap cargo from nix, which means: a standalone program for only that purpose
+
+* x
+  * add nix-prefetch-git as argument to default.nix
+    { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:
+  * remove build_parser as argument to default.nix
+    { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:    
+
 * logone
   * rework --json --mode cargo (both as defaults)
   * see if i can do better error machting so it can be also used to develop with nix build from shell
 
-* integrate
-  * integrate build_parser standalone into cargo (so no additional binary)
-  * add nix-prefetch-git as argument to default.nix
-    { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:
-
-* refactor the codebase
-  * make /tmp/out for legacy runs more obvious, also clean directory before start
-
 * release workflow
-  * how do projects use **cargo libnix** in their flake.nix so they can develop?
+  * README.md: "how do projects use **cargo libnix** in their flake.nix or from nixpkgs so they can develop & deploy?
     * create something 'simple' like fenix so ppl can experiment with this toolchain
-  * how do projects release their code using **cargo libnix** so they can use it in their flake.nix or in nixpkgs?
 
 * no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
   * https://github.com/nixcloud/cargo/issues/3
@@ -90,6 +97,14 @@ until 1.may 2026
 
     * incremental target, add this to rustc call:
       $(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
+    * add 
+
+* refactor the codebase
+  * rewrite to drop_println
+  * make /tmp/out for legacy runs more obvious, also clean directory before start
+  * rebase libnix into libnix-1.89.0 and release
+
+* do a release libnix-1.89.0 tag
 
 ### mid prio
 
@@ -492,7 +507,10 @@ klick         v0.5.7 | x | x | nix-backend: First compiling klick-infrastructure
 
 ```
 ######################### error generating nix build system #######################################################
-
+rust                |   |   |    Compiling smallvec
+        error[E0554]: `#![feature]` may not be used on the stable release channel
+          --> src/lib.rs:96:37
+96 | #![cfg_attr(feature = "may_dangle", feature(dropck_eyepatch))]
 leptos               | x |   | fails to create build system (target)
   ./or_poisoned/src/lib.rs a lib in the workspace lacks a nix attribute to compile and include it
 bevy                 |   |   | fails to create build system (target)
