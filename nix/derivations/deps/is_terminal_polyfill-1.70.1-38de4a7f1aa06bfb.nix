@@ -1,5 +1,5 @@
 # generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
-{ fn, pkgs, rustc, cargo, deps }: with deps;
+{ fn, pkgs, rustc, cargo, deps, project_root }: with deps;
   pkgs.stdenv.mkDerivation rec {
     name = "is_terminal_polyfill-1_70_1-38de4a7f1aa06bfb";
     meta.cargo_crate_info = {

@@ -1,5 +1,5 @@
 # generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
-{ fn, pkgs, rustc, cargo, deps }: with deps;
+{ fn, pkgs, rustc, cargo, deps, project_root }: with deps;
   pkgs.stdenv.mkDerivation rec {
     name = "unicode-normalization-0_1_24-d55d29ecb6c4fe97";
     meta.cargo_crate_info = {

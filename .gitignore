@@ -1,6 +1,5 @@
 result
 result-*
-default.nix
 release.nix
 .continue/*
 /target

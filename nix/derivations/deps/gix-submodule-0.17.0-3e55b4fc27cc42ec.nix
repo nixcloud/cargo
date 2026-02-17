@@ -1,5 +1,5 @@
 # generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
-{ fn, pkgs, rustc, cargo, deps }: with deps;
+{ fn, pkgs, rustc, cargo, deps, project_root }: with deps;
   pkgs.stdenv.mkDerivation rec {
     name = "gix-submodule-0_17_0-3e55b4fc27cc42ec";
     meta.cargo_crate_info = {

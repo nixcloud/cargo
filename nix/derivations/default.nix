@@ -176,8 +176,9 @@ let
   };
   self = {
     target = callPackage' ./target.nix {};
-    cargo-0_88_0-43e24c3537adc34d = callPackage' ./cargo-0.88.0-43e24c3537adc34d.nix { };
-    cargo-0_88_0-bin-fda93888b53983bf = callPackage' ./cargo-0.88.0-bin-fda93888b53983bf.nix { };
+    build-rs-libnix-0_1_10-c4222d9c28b5ac49 = callPackage' ./build-rs-libnix-0.1.10-c4222d9c28b5ac49.nix { };
+    cargo-0_88_0-46cd318ceff9739d = callPackage' ./cargo-0.88.0-46cd318ceff9739d.nix { };
+    cargo-0_88_0-bin-25c525326f58ed30 = callPackage' ./cargo-0.88.0-bin-25c525326f58ed30.nix { };
     cargo-0_88_0-script_build-cfc654fccb259515 = callPackage' ./cargo-0.88.0-script_build-cfc654fccb259515.nix { };
     cargo-0_88_0-script_build_run-f5d51778f22880c0 = callPackage' ./cargo-0.88.0-script_build_run-f5d51778f22880c0.nix { };
     cargo-credential-0_4_8-a5adc6ab9fe103b0 = callPackage' ./cargo-credential-0.4.8-a5adc6ab9fe103b0.nix { };
@@ -230,6 +231,7 @@ let
       color-print-0_3_7-4ae3eda36d442220 = callPackage' ./deps/color-print-0.3.7-4ae3eda36d442220.nix { };
       color-print-proc-macro-0_3_7-37e3c528ba1c98b5 = callPackage' ./deps/color-print-proc-macro-0.3.7-37e3c528ba1c98b5.nix { };
       colorchoice-1_0_3-3fd8e2bb93f5239a = callPackage' ./deps/colorchoice-1.0.3-3fd8e2bb93f5239a.nix { };
+      colored-3_1_1-c3f17f7b73321ed9 = callPackage' ./deps/colored-3.1.1-c3f17f7b73321ed9.nix { };
       console-0_15_11-5031eeae5635e303 = callPackage' ./deps/console-0.15.11-5031eeae5635e303.nix { };
       const-oid-0_9_6-78dc06c180518cb4 = callPackage' ./deps/const-oid-0.9.6-78dc06c180518cb4.nix { };
       constant_time_eq-0_3_1-52e5576b18736f3b = callPackage' ./deps/constant_time_eq-0.3.1-52e5576b18736f3b.nix { };

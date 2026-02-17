@@ -8,13 +8,6 @@ let
   pkgs = import (nixpkgsSrc + "/pkgs/top-level/default.nix") {
     localSystem = { inherit system; };
   };
-  build_parser_sources = pkgs.fetchFromGitHub {
-    owner = "nixcloud";
-    repo = "cargo-build_script_build-parser";
-    rev = "96be633fe91c960955af2edfdaa5720345b7948f";
-    sha256 = "sha256-5O5EfOcN4DG4tpcZDMvz47+USxaUZ+f+a3OsOlFJuuc=";
-  };
-  build_parser = pkgs.callPackage build_parser_sources {};
   fenixSrc = pkgs.fetchFromGitHub {
     owner = "nix-community";
     repo = "fenix";
@@ -28,9 +21,10 @@ let
          import ../Cargo.dependencies.nix { inherit pkgs; }
     else builtins.trace "No Cargo.dependencies.nix found"
          { deps = {}; });
-  #toolchain = fenix.latest.toolchain;
+  build_parser = pkgs.callPackage build-rs-libnix/default.nix {
+    inherit pkgs;
+  };
   toolchain = fenix.stable.toolchain;
-  #toolchain = fenix.packages.${system}.nightly-2024-06-01.toolchain;
   cargoPackages = import ./derivations/default.nix {
     inherit pkgs external_crate_dependencies build_parser;
     rustc = toolchain;

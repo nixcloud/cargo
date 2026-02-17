@@ -1,21 +1,36 @@
 # generated from target.nix.handlebars using cargo (manual edits won't be persistent)
-{ pkgs, cargo-0_88_0-43e24c3537adc34d, cargo-credential-0_4_8-a5adc6ab9fe103b0, cargo-credential-libsecret-0_4_13-4e698a0b35f72d06, cargo-platform-0_2_0-c5f768769f22a333, cargo-util-0_2_20-7087e4a73afc7b23, cargo-util-schemas-0_8_1-bce7b79eff35b46a, crates-io-0_40_10-cb0425982b906266, rustfix-0_9_0-9f1c66820d29e14a, cargo-0_88_0-bin-fda93888b53983bf }:
+{ pkgs, cargo-0_88_0-46cd318ceff9739d, build-rs-libnix-0_1_10-c4222d9c28b5ac49, cargo-credential-0_4_8-a5adc6ab9fe103b0, cargo-credential-libsecret-0_4_13-4e698a0b35f72d06, cargo-platform-0_2_0-c5f768769f22a333, cargo-util-0_2_20-7087e4a73afc7b23, cargo-util-schemas-0_8_1-bce7b79eff35b46a, crates-io-0_40_10-cb0425982b906266, rustfix-0_9_0-9f1c66820d29e14a, cargo-0_88_0-bin-25c525326f58ed30 }:
 
 pkgs.writeShellScriptBin "create-symlinks" ''
-  if [[ -f "${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.rlib" ]]; then
-    ln -fs ${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.rlib target/debug/libcargo.rlib
+  if [[ -f "${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.rlib" ]]; then
+    ln -fs ${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.rlib target/debug/libcargo.rlib
   fi
-  if [[ -f "${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.so" ]]; then
-    ln -fs ${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.so target/debug/libcargo.so
+  if [[ -f "${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.so" ]]; then
+    ln -fs ${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.so target/debug/libcargo.so
   fi
-  if [[ -f "${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.a" ]]; then
-    ln -fs ${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.a target/debug/libcargo.a
+  if [[ -f "${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.a" ]]; then
+    ln -fs ${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.a target/debug/libcargo.a
   fi
-  if [[ -f "${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.rmeta" ]]; then
-    ln -fs ${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.rmeta target/debug/libcargo.rmeta
+  if [[ -f "${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.rmeta" ]]; then
+    ln -fs ${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.rmeta target/debug/libcargo.rmeta
   fi
-  if [[ -f "${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.d" ]]; then
-    ln -fs ${cargo-0_88_0-43e24c3537adc34d}/libcargo-43e24c3537adc34d.d target/debug/libcargo.d
+  if [[ -f "${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.d" ]]; then
+    ln -fs ${cargo-0_88_0-46cd318ceff9739d}/libcargo-46cd318ceff9739d.d target/debug/libcargo.d
+  fi
+  if [[ -f "${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.rlib" ]]; then
+    ln -fs ${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.rlib target/debug/libbuild_rs_libnix.rlib
+  fi
+  if [[ -f "${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.so" ]]; then
+    ln -fs ${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.so target/debug/libbuild_rs_libnix.so
+  fi
+  if [[ -f "${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.a" ]]; then
+    ln -fs ${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.a target/debug/libbuild_rs_libnix.a
+  fi
+  if [[ -f "${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.rmeta" ]]; then
+    ln -fs ${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.rmeta target/debug/libbuild_rs_libnix.rmeta
+  fi
+  if [[ -f "${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.d" ]]; then
+    ln -fs ${build-rs-libnix-0_1_10-c4222d9c28b5ac49}/libbuild_rs_libnix-c4222d9c28b5ac49.d target/debug/libbuild_rs_libnix.d
   fi
   if [[ -f "${cargo-credential-0_4_8-a5adc6ab9fe103b0}/libcargo_credential-a5adc6ab9fe103b0.rlib" ]]; then
     ln -fs ${cargo-credential-0_4_8-a5adc6ab9fe103b0}/libcargo_credential-a5adc6ab9fe103b0.rlib target/debug/libcargo_credential.rlib
@@ -123,5 +138,5 @@ pkgs.writeShellScriptBin "create-symlinks" ''
     ln -fs ${rustfix-0_9_0-9f1c66820d29e14a}/librustfix-9f1c66820d29e14a.d target/debug/librustfix.d
   fi
   rm -f target/debug/cargo
-  ln -s ${cargo-0_88_0-bin-fda93888b53983bf}/bin/cargo target/debug/
+  ln -s ${cargo-0_88_0-bin-25c525326f58ed30}/bin/cargo target/debug/
 ''

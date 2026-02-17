@@ -1,0 +1,7 @@
+cargo:rustc-cfg=libc_const_extern_fn
+cargo:rustc-cfg=freebsd11
+cargo:rustc-check-cfg=cfg(espidf_time32)
+cargo:rustc-check-cfg=cfg(target_arch,values("mips64r6"))
+cargo:rustc-env=VAR=VALUE
+cargo:rustc-env=VAR2=
+cargo:warning=This is a custom build warning from build.rs!

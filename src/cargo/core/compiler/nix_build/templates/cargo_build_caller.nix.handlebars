@@ -8,9 +8,6 @@ let
   pkgs = import (nixpkgsSrc + "/pkgs/top-level/default.nix") {
     localSystem = { inherit system; };
   };
-  build_parser = pkgs.callPackage ./build-rs-libnix.nix {
-    project_root = {{{project_root}}}/.;
-  };
   fenixSrc = pkgs.fetchFromGitHub {
     owner = "nix-community";
     repo = "fenix";
@@ -24,6 +21,9 @@ let
          import {{{project_root}}}/Cargo.dependencies.nix { inherit pkgs; }
     else builtins.trace "No Cargo.dependencies.nix found"
          { deps = {}; envs = {}; });
+  build_parser = pkgs.callPackage build-rs-libnix/default.nix {
+    inherit pkgs;
+  };         
   toolchain = fenix.stable.toolchain;
   cargoPackages = import ./derivations/default.nix {
     inherit pkgs external_crate_dependencies build_parser;

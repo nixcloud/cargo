@@ -873,15 +873,15 @@ impl<'a, 'gctx> NixBuildRunner {
         nix_derivations_dir.create_dir()?;
         // println!("nix_derivations_dir: {}", nix_derivations_dir.display());
 
-        gctx.shell().verbose(|s| {
-            s.status(
+        gctx.shell()
+            .status(
                 "Nix",
                 format!(
                     "Creating nix build system for {} cargo units.",
                     all_units_with_process_builder.len()
                 ),
             )
-        })?;
+        .unwrap();
 
         for (process_builder, unit) in all_units_with_process_builder.clone() {
             if visited_units.contains(&unit) {
@@ -1194,7 +1194,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 build_parser_output_lines=$(${pkgs.mktemp}/bin/mktemp)
                 set -x +e
                 ${build_parser}/bin/build-rs-libnix --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
-                #${build_parser}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results 2> $build_parser_output_lines
+                #${cargo}/bin/cargo build build-rs-nix --script-output $OUT_DIR/nix/build_script_build.out --out-path $out/nix 2> $build_parser_output_lines
                 build_parser_exit_value=$?
                 set +x -e
 

@@ -1,5 +1,5 @@
 # generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
-{ pkgs, fn, cargo, rustc, deps, build_parser }: with deps;
+{ pkgs, fn, cargo, rustc, deps, project_root, build_parser }: with deps;
   pkgs.stdenv.mkDerivation rec {
     name = "openssl-sys-0_9_106-script_build_run-c8c90d54d12f4385";
     meta.cargo_crate_info = {
@@ -93,7 +93,8 @@
       
       build_parser_output_lines=$(${pkgs.mktemp}/bin/mktemp)
       set -x +e
-      ${build_parser}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results 2> $build_parser_output_lines
+      ${build_parser}/bin/build-rs-libnix --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
+      #${build_parser}/bin/cargo-build_script_build-parser $OUT_DIR/nix/build_script_build.out --out-path $out/nix write-results 2> $build_parser_output_lines
       build_parser_exit_value=$?
       set +x -e
       

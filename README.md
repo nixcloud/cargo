@@ -72,12 +72,14 @@ ln -s /nix/store/4j0l2icwf2rdgi0rarswk4vmsmxs5ar6-cargo-0_88_0-bin-fda93888b5398
 * integrate
   * integrate build_parser standalone into cargo (so no additional binary) - for users of libnix cargo
     * still find to find a way to bootstrap cargo from nix, which means: a standalone program for only that purpose
-
-* x
-  * add nix-prefetch-git as argument to default.nix
-    { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:
-  * remove build_parser as argument to default.nix
-    { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:    
+    * rework cargo nix code generation like:
+      * cargo build: add 'build-rs-libnix' for bootstrapping 'cargo' (with nix-backend)
+      * any other build: use cargo internal
+  * while at it, rework nix code    
+    * add nix-prefetch-git as argument to default.nix
+      { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:
+    * remove build_parser as argument to default.nix
+      { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:    
 
 * logone
   * rework --json --mode cargo (both as defaults)

@@ -1,5 +1,5 @@
 # generated from rustc-call.nix.handlebars using cargo (manual edits won't be persistent)
-{ fn, pkgs, rustc, cargo, deps }: with deps;
+{ fn, pkgs, rustc, cargo, deps, project_root }: with deps;
   pkgs.stdenv.mkDerivation rec {
     name = "typeid-1_0_2-script_build-8b627282cced2319";
     meta.cargo_crate_info = {
@@ -79,7 +79,7 @@
       set +x -e
            
       print_rustc_rendered_messages $rustc_json_output_lines
-            ln -s $OUT_DIR/"$CARGO_CRATE_NAME"-8b627282cced2319 $OUT_DIR/build_script_build
+         ln -s $OUT_DIR/"$CARGO_CRATE_NAME"-8b627282cced2319 $OUT_DIR/build_script_build
       print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
       if [ "$rustc_exit_value" -ne 0 ]; then

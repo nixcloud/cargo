@@ -92,7 +92,7 @@
       set +x -e
            
       print_rustc_rendered_messages $rustc_json_output_lines
-      ln -s $OUT_DIR/"$CARGO_CRATE_NAME"-cfc654fccb259515 $OUT_DIR/build_script_build
+         ln -s $OUT_DIR/"$CARGO_CRATE_NAME"-cfc654fccb259515 $OUT_DIR/build_script_build
       print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
       
       if [ "$rustc_exit_value" -ne 0 ]; then
