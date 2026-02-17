@@ -22,12 +22,12 @@ let
          import ../Cargo.dependencies.nix { inherit pkgs; }
     else builtins.trace "No Cargo.dependencies.nix found"
          { deps = {}; });
-  build_parser = pkgs.callPackage build-rs-libnix/default.nix {
+  build_rs_libnix = pkgs.callPackage build-rs-libnix/default.nix {
     inherit pkgs;
   };
   toolchain = fenix.stable.toolchain;
   cargoPackages = import ./derivations/default.nix {
-    inherit pkgs external_crate_dependencies build_parser project_root;
+    inherit pkgs external_crate_dependencies build_rs_libnix project_root;
     rustc = toolchain;
     cargo = toolchain;
   };

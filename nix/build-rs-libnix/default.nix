@@ -1,4 +1,4 @@
-{pkgs, lib ? pkgs.lib}:
+{ pkgs, lib ? pkgs.lib }:
 let
   project_root = ./.;
   relativeFileset = project_root: relPaths: lib.fileset.unions (map (p: project_root + "/${p}") relPaths);
@@ -17,12 +17,12 @@ pkgs.rustPlatform.buildRustPackage {
         "src/tests.rs"
       ];
     };
-   
+
     cargoLock = {
       lockFile = ./Cargo.lock;
     };
     
     doCheck = false;
-    nativeBuildInputs = [  ];
-    buildInputs = with pkgs; [ openssl pkg-config ];
+    nativeBuildInputs = [];
+    buildInputs = [];
 }

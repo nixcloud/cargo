@@ -960,10 +960,28 @@ impl<'a, 'gctx> NixBuildRunner {
             Some(_) => { "." },      // exported build system via write-nix-buildsystem
             None => { "../../.." },  // build system used in normal 'CARGO_BACKEND=nix cargo build'
         };
+
+        // FIXME make this optional, could be: build_rs_libnix = null; if build target is other than cargo itself
+        // let build_rs_libnix = format!(indoc! {
+        //     r#"
+        //         build_rs_libnix = pkgs.callPackage build-rs-libnix/default.nix {
+        //           inherit pkgs;
+        //         };
+        //     "#})
+        //     .to_string()
+        //     .indentation(2),
+        let build_rs_libnix = format!(indoc! {
+            r#"
+                build_rs_libnix = null;
+            "#})
+            .to_string()
+            .indentation(2);
+        
         let rendered = handlebars.render(
             "caller",
             &serde_json::json!({
                 "project_root": project_root,
+                "build_rs_libnix": build_rs_libnix,
             }),
         )?;
 
@@ -972,30 +990,6 @@ impl<'a, 'gctx> NixBuildRunner {
             .join("cargo_build_caller.nix")
             .into_path_unlocked();
         let mut file = File::create(&cargo_build_caller_path)?;
-        write!(file, "{}", rendered)?;
-
-        // build-rs-libnix.nix //////////////////////////////////////////////////////////////////////////////////
-        gctx.shell()
-            .verbose(|s| s.status("Generating", "build-rs-libnix.nix"))?;
-        let mut handlebars = Handlebars::new();
-        let template_str = include_str!("templates/build-rs-libnix.nix.handlebars");
-        handlebars.register_template_string("build-rs-libnix", template_str)?;
-        let project_root = match write_nix_buildsystem_options {
-            Some(_) => { "." },      // exported build system via write-nix-buildsystem
-            None => { "../../.." },  // build system used in normal 'CARGO_BACKEND=nix cargo build'
-        };
-        let rendered = handlebars.render(
-            "build-rs-libnix",
-            &serde_json::json!({
-                "project_root": project_root,
-            }),
-        )?;
-
-        let build_rs_libnix_path = nix_base_dir
-            .clone()
-            .join("build-rs-libnix.nix")
-            .into_path_unlocked();
-        let mut file = File::create(&build_rs_libnix_path)?;
         write!(file, "{}", rendered)?;
 
         // default.nix //////////////////////////////////////////////////////////////////////////////////
@@ -1031,6 +1025,7 @@ impl<'a, 'gctx> NixBuildRunner {
             })
             .collect::<Vec<_>>()
             .join("\n");
+
         let rendered = handlebars.render(
             "default",
             &serde_json::json!({
@@ -1193,8 +1188,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 
                 build_parser_output_lines=$(${pkgs.mktemp}/bin/mktemp)
                 set -x +e
-                ${build_parser}/bin/build-rs-libnix --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
-                #${cargo}/bin/cargo build build-rs-nix --script-output $OUT_DIR/nix/build_script_build.out --out-path $out/nix 2> $build_parser_output_lines
+                ${fn.build_rs_libnix} --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
                 build_parser_exit_value=$?
                 set +x -e
 
@@ -1219,7 +1213,7 @@ impl<'a, 'gctx> NixBuildRunner {
         )?;
 
         let default_function_arguments: Vec<String> =
-            vec!["pkgs", "fn", "cargo", "rustc", "deps", "project_root", "build_parser"]
+            vec!["pkgs", "fn", "cargo", "rustc", "deps", "project_root"]
                 .iter()
                 .map(|m| m.to_string())
                 .collect();

@@ -207,7 +207,6 @@
         "src/cargo/core/compiler/nix_build/templates/default.nix.handlebars"
         "src/cargo/core/compiler/nix_build/templates/target.nix.handlebars"
         "src/cargo/core/compiler/nix_build/templates/rustc-call.nix.handlebars"
-        "src/cargo/core/compiler/nix_build/templates/build-rs-libnix.nix.handlebars"
         "src/cargo/core/compiler/timings.js"
         "crates/build-rs-libnix/src/lib.rs"
         "crates/build-rs-libnix/src/main.rs"
