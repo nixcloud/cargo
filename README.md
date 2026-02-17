@@ -67,8 +67,6 @@ This project is [xkcd 927](https://xkcd.com/927/).
 
 until 1.may 2026
 
-ln -s /nix/store/4j0l2icwf2rdgi0rarswk4vmsmxs5ar6-cargo-0_88_0-bin-fda93888b53983bf/bin/cargo target/debug/cargo
-
 * integrate
   * integrate build_parser standalone into cargo (so no additional binary) - for users of libnix cargo
     * still find to find a way to bootstrap cargo from nix, which means: a standalone program for only that purpose

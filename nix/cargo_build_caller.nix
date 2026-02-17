@@ -1,6 +1,7 @@
 # generated from cargo_build_caller.nix.handlebars using cargo (manual edits won't be persistent)
 { system ? builtins.currentSystem }:
 let
+  project_root = ../.;
   nixpkgsSrc = builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/25.05.tar.gz";
     sha256 = "sha256:1915r28xc4znrh2vf4rrjnxldw2imysz819gzhk9qlrkqanmfsxd";
@@ -26,10 +27,9 @@ let
   };
   toolchain = fenix.stable.toolchain;
   cargoPackages = import ./derivations/default.nix {
-    inherit pkgs external_crate_dependencies build_parser;
+    inherit pkgs external_crate_dependencies build_parser project_root;
     rustc = toolchain;
     cargo = toolchain;
-    project_root = ../.;
   };
 in
 cargoPackages
