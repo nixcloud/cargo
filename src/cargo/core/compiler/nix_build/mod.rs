@@ -1188,7 +1188,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 
                 build_parser_output_lines=$(${pkgs.mktemp}/bin/mktemp)
                 set -x +e
-                ${fn.build_rs_libnix} --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
+                ${fn.build_rs_libnix'} --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
                 build_parser_exit_value=$?
                 set +x -e
 

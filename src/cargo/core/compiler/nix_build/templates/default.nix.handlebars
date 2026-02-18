@@ -4,8 +4,8 @@ let
   lib = pkgs.lib;
   callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo project_root; });
   fn = rec {
-    build_rs_libnix =
-      if build_rs_libnix then
+    build_rs_libnix' =
+      if build_rs_libnix != null then
         "${build_rs_libnix}/bin/build-rs-libnix"
       else
         "${cargo}/bin/cargo build build-rs-nix";

@@ -78,6 +78,7 @@ until 1.may 2026
       { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:
     * remove build_parser as argument to default.nix
       { pkgs, rustc, cargo, external_crate_dependencies, build_parser, nix_prefetch_git, project_root }:    
+  * sync flake and none-flake cargo to use same deps    
 
 * logone
   * rework --json --mode cargo (both as defaults)

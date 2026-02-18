@@ -3,6 +3,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     fenix.url   = "github:nix-community/fenix";
+    flake-utils.url = "github:numtide/flake-utils";
   };
   outputs =
   { self, nixpkgs, flake-utils, fenix } @ inputs:
@@ -29,6 +30,13 @@
             rustc = fenix.packages.${system}.stable.rustc;
             cargo = fenix.packages.${system}.stable.cargo;
            }).cargo-0_88_0-bin-25c525326f58ed30;
+          # src = builtins.fetchTarball {
+          #   url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0-rc1/libnix-1.87.0-rc1.tar.bz2";
+          #   sha256 = "sha256:03lfx59j1kpbkcwx7pnbrwdyh2s8wzmsbnsrf0kla9gpsshdffmc";
+          # };
+          # libnix = (import (src + "/cargo_build_caller.nix"){ inherit system; }).cargo-0_88_0-bin-114d5ce240d74699;
+          #libnix = (import ( "/home/nixos/cargo/"  + "libnix-1.87.0-rc1/cargo_build_caller.nix"){ inherit system; }).cargo-0_88_0-bin-114d5ce240d74699;
+
         in
         with pkgs;
         rec {
@@ -44,6 +52,8 @@
               fenix.packages.${system}.stable.rustc
               #fenix.packages.${system}.stable.cargo
               cargo-libnix
+              #libnix
+              #(libnix).cargo-0_88_0-bin-114d5ce240d74699
               fenix.packages.${system}.stable.rust-src
               fenix.packages.${system}.stable.rustfmt
               fenix.packages.${system}.stable.clippy
