@@ -859,6 +859,12 @@ impl<'a, 'gctx> NixBuildRunner {
         let workspace: &Workspace<'gctx> = build_runner.bcx.ws;
         let gctx: &'gctx GlobalContext = bcx.gctx;
 
+        let root_manifest = workspace.root_manifest();
+        let root_pkg = workspace.members()
+            .find(|p| p.manifest_path() == root_manifest)
+            .expect("root manifest should always be a member");
+        let root_pkg_name = root_pkg.name();
+
         let unit_graph: &UnitGraph = &bcx.unit_graph;
         let requested_profile = if build_runner.bcx.build_config.requested_profile == "release" {
             "release"
@@ -866,7 +872,13 @@ impl<'a, 'gctx> NixBuildRunner {
             "debug"
         };
 
-        let bootstrap_build_rs_libnix_required: bool = true; // FIXME need to check if top level Crate project name is cargo
+        let require_build_rs_libnix_bootstrapping: bool = 
+            if root_pkg_name == "cargo" {
+                gctx.shell().status("Nix", format!("Requires cargo bootstrapping for building: '{}'", root_pkg_name))?;
+                true
+            } else {
+                false
+            };
 
         let mut visited_units = BTreeSet::new();
         let mut all_nodes: Vec<DefaultNixEntry> = Vec::new();
@@ -994,25 +1006,25 @@ impl<'a, 'gctx> NixBuildRunner {
             None => { "../../.." },  // build system used in normal 'CARGO_BACKEND=nix cargo build'
         };
 
-        let build_rs_libnix = if bootstrap_build_rs_libnix_required {
+        let build_rs_libnix = if require_build_rs_libnix_bootstrapping {
             indoc! {
-            r#"
-              build_rs_libnix = null;
-            "#}
-            .to_string()
-            .indentation(0)
+                r#"
+                build_rs_libnix = pkgs.callPackage build-rs-libnix.nix {
+                    inherit pkgs;
+                };
+                "#}
+                .to_string()
+                .indentation(0)
         } else {
             indoc! {
-            r#"
-              build_rs_libnix = pkgs.callPackage build-rs-libnix.nix {
-                inherit pkgs;
-              };
-            "#}
-            .to_string()
-            .indentation(0)
+                r#"
+                  build_rs_libnix = null;
+                "#}
+                .to_string()
+                .indentation(0)
         };
 
-        let selected_cargo = if bootstrap_build_rs_libnix_required {
+        let selected_cargo = if require_build_rs_libnix_bootstrapping {
             "toolchain"
         } else {
             "libnix_cargo"
@@ -1035,7 +1047,7 @@ impl<'a, 'gctx> NixBuildRunner {
         write!(file, "{}", rendered)?;
 
         // build_rs_libnix.nix //////////////////////////////////////////////////////////////////////////////////
-        if bootstrap_build_rs_libnix_required {
+        if require_build_rs_libnix_bootstrapping {
             let src: Option<String> = src_for_cargo_crate(&workspace, &gctx, &all_units_with_process_builder, &write_nix_buildsystem_options);
             match src {
                 None => {
