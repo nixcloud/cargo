@@ -431,6 +431,36 @@ fn find_lib_build_target<'a, 'gctx>(
     return passthru_rust_script_build_run.clone();
 }
 
+// hack: find one of the 'cargo' crates to extract the source location since we build this hacky bootstrapper as a 
+//       standalone program to bootstrap cargo from nix tools:
+//       * buildRustPackage (for build-rs-libnix, the build.rs binary interpreter for nix build)
+//       * libnix exported toolchain (to build cargo using rustc)
+fn src_for_cargo_crate<'a, 'gctx>(
+    workspace: &Workspace<'gctx>,
+    gctx: &'gctx GlobalContext,
+    all_units_with_process_builder: &Vec<(ProcessBuilder, Unit)>,
+    write_nix_buildsystem_options: &Option<NixBuildOptions>,
+) -> Option<String> {
+    for (_, unit) in all_units_with_process_builder.clone() {
+        let pkg = unit.pkg.package_id();
+        let crate_name: String = pkg.name().to_string();
+        let crate_version: String = pkg.version().to_string();
+        let target_kind: &TargetKind = unit.target.kind();
+        let compile_mode: CompileMode = unit.mode;
+
+        if crate_name == "cargo" && compile_mode == CompileMode::Build && (matches!(*target_kind, TargetKind::Lib(_)) || *target_kind == TargetKind::Bin) {
+            if let Ok(src) = generate_src(&workspace, &unit, &crate_name, &crate_version, &gctx, &write_nix_buildsystem_options) {
+                // println!("-------------------------------");
+                // println!("src_for_cargo_crate: {:#?}", unit);
+                // println!("src: {:#?}", src);
+                // println!("-------------------------------");
+                return Some(src)
+            }
+        }
+    }
+    return None;
+}
+
 /// a unit in cargo has several dependencies like build.rs but also crates used for linking (rlib)
 /// this function splits these dependencies into said groups so that the nix scripts have an
 /// easy time working with the filtered subsets
@@ -835,6 +865,9 @@ impl<'a, 'gctx> NixBuildRunner {
         } else {
             "debug"
         };
+
+        let bootstrap_build_rs_libnix_required: bool = true; // FIXME need to check if top level Crate project name is cargo
+
         let mut visited_units = BTreeSet::new();
         let mut all_nodes: Vec<DefaultNixEntry> = Vec::new();
         let all_units_with_process_builder: Vec<(ProcessBuilder, Unit)> =
@@ -961,27 +994,36 @@ impl<'a, 'gctx> NixBuildRunner {
             None => { "../../.." },  // build system used in normal 'CARGO_BACKEND=nix cargo build'
         };
 
-        // FIXME make this optional, could be: build_rs_libnix = null; if build target is other than cargo itself
-        // let build_rs_libnix = format!(indoc! {
-        //     r#"
-        //         build_rs_libnix = pkgs.callPackage build-rs-libnix/default.nix {
-        //           inherit pkgs;
-        //         };
-        //     "#})
-        //     .to_string()
-        //     .indentation(2),
-        let build_rs_libnix = format!(indoc! {
+        let build_rs_libnix = if bootstrap_build_rs_libnix_required {
+            indoc! {
             r#"
-                build_rs_libnix = null;
-            "#})
+              build_rs_libnix = null;
+            "#}
             .to_string()
-            .indentation(2);
-        
+            .indentation(0)
+        } else {
+            indoc! {
+            r#"
+              build_rs_libnix = pkgs.callPackage build-rs-libnix.nix {
+                inherit pkgs;
+              };
+            "#}
+            .to_string()
+            .indentation(0)
+        };
+
+        let selected_cargo = if bootstrap_build_rs_libnix_required {
+            "toolchain"
+        } else {
+            "libnix_cargo"
+        };
+
         let rendered = handlebars.render(
             "caller",
             &serde_json::json!({
                 "project_root": project_root,
                 "build_rs_libnix": build_rs_libnix,
+                "selected_cargo": selected_cargo,
             }),
         )?;
 
@@ -991,6 +1033,58 @@ impl<'a, 'gctx> NixBuildRunner {
             .into_path_unlocked();
         let mut file = File::create(&cargo_build_caller_path)?;
         write!(file, "{}", rendered)?;
+
+        // build_rs_libnix.nix //////////////////////////////////////////////////////////////////////////////////
+        if bootstrap_build_rs_libnix_required {
+            let src: Option<String> = src_for_cargo_crate(&workspace, &gctx, &all_units_with_process_builder, &write_nix_buildsystem_options);
+            match src {
+                None => {
+                    gctx.shell().verbose(|s| s.status("Generating", "build_rs_libnix.nix not required (not bootstrapping 'cargo' build)"))?;
+                },
+                Some(src) => {
+                    gctx.shell().verbose(|s| s.status("Generating", "build_rs_libnix.nix"))?;
+                    let mut handlebars = Handlebars::new();
+                    let template_str = include_str!("templates/build_rs_libnix.nix.handlebars");
+                    handlebars.register_template_string("build_rs_libnix", template_str)?;
+
+                    // hack: override to reduce rebuilds
+                    let src: String = match write_nix_buildsystem_options {
+                        None => {
+                            indoc! {
+                            r#"
+                            src = pkgs.lib.fileset.toSource rec {
+                              root = project_root;
+                              fileset = relativeFileset project_root [
+                                "Cargo.toml"
+                                "Cargo.lock"
+                                "src/lib.rs"
+                                "src/main.rs"
+                                "src/tests.rs"
+                              ];
+                            };
+                            "#}
+                            .to_string()
+                            .indentation(4)
+                        }
+                        Some(_) => src
+                    };
+
+                    let rendered = handlebars.render(
+                        "build_rs_libnix",
+                        &serde_json::json!({
+                            "src": src,
+                        }),
+                    )?;
+
+                    let build_rs_libnix_path = nix_base_dir
+                        .clone()
+                        .join("build_rs_libnix.nix")
+                        .into_path_unlocked();
+                    let mut file = File::create(&build_rs_libnix_path)?;
+                    write!(file, "{}", rendered)?;
+                }
+            };
+        }
 
         // default.nix //////////////////////////////////////////////////////////////////////////////////
         gctx.shell()

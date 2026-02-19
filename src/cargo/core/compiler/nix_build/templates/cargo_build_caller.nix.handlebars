@@ -32,7 +32,7 @@ let
   cargoPackages = import ./derivations/default.nix {
     inherit pkgs external_crate_dependencies project_root build_rs_libnix;
     rustc = toolchain;
-    cargo = libnix_cargo;
+    cargo = {{{selected_cargo}}};
   };
 in
   cargoPackages

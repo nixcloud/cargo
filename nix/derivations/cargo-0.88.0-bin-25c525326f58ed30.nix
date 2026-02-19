@@ -61,9 +61,6 @@
         "src/bin/cargo/commands/verify_project.rs"
         "src/bin/cargo/commands/version.rs"
         "src/bin/cargo/commands/yank.rs"
-        #"crates/build-rs-libnix/src/lib.rs"
-        #"crates/build-rs-libnix/src/main.rs"
-        #"crates/build-rs-libnix/src/tests.rs"
       ];
     };
     unpackPhase = "";

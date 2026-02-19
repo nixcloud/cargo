@@ -1,0 +1,24 @@
+# This build-rs-libnix target is used for bootstrapping cargo (libnix)'s generated source code from nixpkgs.
+
+{ pkgs, lib ? pkgs.lib }:
+let
+  project_root = ./.;
+  relativeFileset = project_root: relPaths: lib.fileset.unions (map (p: project_root + "/${p}") relPaths);
+in
+pkgs.rustPlatform.buildRustPackage {
+    pname = "build-rs-libnix";
+    version = "0.1.10";
+    
+    nativeBuildInputs = [];
+    buildInputs = [];
+
+    {{{src}}}
+
+    cargoBuildFlags = ["-p" "build-rs-libnix"];
+
+    cargoLock = {
+      lockFile = ./Cargo.lock;
+    };
+
+    doCheck = false;
+}

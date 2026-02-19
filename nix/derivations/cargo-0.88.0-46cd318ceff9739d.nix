@@ -204,6 +204,7 @@
         "src/cargo/util/workspace.rs"
         "src/cargo/version.rs"
         "src/cargo/core/compiler/nix_build/templates/cargo_build_caller.nix.handlebars"
+        "src/cargo/core/compiler/nix_build/templates/build_rs_libnix.nix.handlebars"
         "src/cargo/core/compiler/nix_build/templates/default.nix.handlebars"
         "src/cargo/core/compiler/nix_build/templates/target.nix.handlebars"
         "src/cargo/core/compiler/nix_build/templates/rustc-call.nix.handlebars"

@@ -50,8 +50,8 @@
               tig
               # the toolchain used
               fenix.packages.${system}.stable.rustc
-              #fenix.packages.${system}.stable.cargo
-              cargo-libnix
+              fenix.packages.${system}.stable.cargo
+              #cargo-libnix
               #libnix
               #(libnix).cargo-0_88_0-bin-114d5ce240d74699
               fenix.packages.${system}.stable.rust-src
