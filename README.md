@@ -128,7 +128,7 @@ After you finished work with `cargo build` and `cargo run` you might want to cre
 
 Note: Instead of calling `./nix/cargo_build_caller.nix` one can also call into `./nix/derivations/default.nix` and provide the required arguments for the build:
 
-    ```bash
+    ```nix
       {
         description = "a flake to build libnix cargo";
         inputs = {

@@ -1,6 +1,5 @@
 result
 result-*
-release.nix
 .continue/*
 /target
 /Cargo.lock

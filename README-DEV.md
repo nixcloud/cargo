@@ -38,10 +38,6 @@ This fork is intended as a PR to contribute this to the official cargo project a
 * export the build system:
   * CARGO_BACKEND=nix cargo build write-nix-buildsystem --out-dir /tmp/nix --url https://github.com/nixcloud/cargo/archive/refs/tags/1.83-test-release.tar.gz --hash 1h5j1kl7q7mysa943gvd4c8ih8yxx4igqrx4akv9ixf4zf411b8l
 
-* build-rs-libnix (as standalone tool is no inside the cargo source base), build with:
-    CARGO_BACKEND=nix cargo build -p build-rs-libnix
-  execute with
-    
 ## What still requires love
 
 ### high prio
@@ -49,18 +45,19 @@ This fork is intended as a PR to contribute this to the official cargo project a
 until 1.may 2026
 
 * bootstrap
+  * build_rs_libnix needs proper source (similar to cargo)
 
-* do another pre release to test release workflow
+* refactor the codebase
+  * rewrite to drop_println
+  * make /tmp/out for legacy runs more obvious, also clean directory before start
+  * do a release libnix-1.89.0 tag
 
-* git swtich to 'master'
+
+* git rebase & swtich to 'master'
 
 * logone
   * rework --json --mode cargo (both as defaults)
   * see if i can do better error machting so it can be also used to develop with nix build from shell
-
-* release workflow
-  * README.md: "how do projects use **cargo libnix** in their flake.nix or from nixpkgs so they can develop & deploy?
-    * create something 'simple' like fenix so ppl can experiment with this toolchain
 
 * no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
   * https://github.com/nixcloud/cargo/issues/3
@@ -72,14 +69,6 @@ until 1.may 2026
 
     * incremental target, add this to rustc call:
       $(if [ -d /incremental-target ]; then echo "-C incremental=/incremental-target"; fi) \
-    * add 
-
-* refactor the codebase
-  * rewrite to drop_println
-  * make /tmp/out for legacy runs more obvious, also clean directory before start
-  * rebase libnix into libnix-1.89.0 and release
-
-* do a release libnix-1.89.0 tag
 
 ### mid prio
 
