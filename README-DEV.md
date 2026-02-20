@@ -69,6 +69,8 @@ until 1.may 2026
 
 ### mid prio
 
+* figure a way to sync flake and cargo_build_caller.nix builds so they share their artifacts for builds (right now they have different nixpkgs and similar)
+
 * add nix-prefetch-git as argument to default.nix
 
 * IFD support

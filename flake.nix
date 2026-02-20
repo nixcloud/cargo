@@ -22,11 +22,13 @@
             if builtins.pathExists ./Cargo.dependencies.nix
               then import ./Cargo.dependencies.nix { inherit pkgs; }
               else { deps = {}; };
+          #cargo-libnix    
+          # most recent development    
           cargo-libnix = (import nix/derivations/default.nix {
             inherit project_root pkgs external_crate_dependencies;
             rustc = fenix.packages.${system}.stable.rustc;
             cargo = fenix.packages.${system}.stable.cargo;
-           }).cargo-0_88_0-bin-25c525326f58ed30;
+           }).cargo-0_88_0-b9aa49f38b781d3e;
           # src = builtins.fetchTarball {
           #   url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0-rc1/libnix-1.87.0-rc1.tar.bz2";
           #   sha256 = "sha256:03lfx59j1kpbkcwx7pnbrwdyh2s8wzmsbnsrf0kla9gpsshdffmc";
@@ -47,14 +49,17 @@
               tig
               # the toolchain used
               fenix.packages.${system}.stable.rustc
-              fenix.packages.${system}.stable.cargo
-              #cargo-libnix
+              #fenix.packages.${system}.stable.cargo
+              cargo-libnix
               #libnix
               #(libnix).cargo-0_88_0-bin-114d5ce240d74699
               fenix.packages.${system}.stable.rust-src
               fenix.packages.${system}.stable.rustfmt
               fenix.packages.${system}.stable.clippy
             ];
+            shellHook = ''
+              export CARGO_BACKEND=nix
+            '';
           };
         }
       );
