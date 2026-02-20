@@ -44,9 +44,6 @@ This fork is intended as a PR to contribute this to the official cargo project a
 
 until 1.may 2026
 
-* bootstrap
-  * build_rs_libnix needs proper source (similar to cargo)
-
 * refactor the codebase
   * rewrite to drop_println
   * make /tmp/out for legacy runs more obvious, also clean directory before start

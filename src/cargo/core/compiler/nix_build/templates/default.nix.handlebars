@@ -1,14 +1,12 @@
 # generated from default.nix.handlebars using cargo (manual edits won't be persistent)
-{ pkgs, rustc, cargo, external_crate_dependencies, build_rs_libnix ? null, project_root }:
+{ pkgs, lib ? pkgs.lib, rustc, cargo, external_crate_dependencies, project_root }:
 let
-  lib = pkgs.lib;
+  build_rs_libnix' = pkgs.callPackage ./build_rs_libnix.nix {
+    inherit pkgs;
+  };
   callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo project_root; });
   fn = rec {
-    build_rs_libnix' =
-      if build_rs_libnix != null then
-        "${build_rs_libnix}/bin/build-rs-libnix"
-      else
-        "${cargo}/bin/cargo build build-rs-nix";
+    build_rs_libnix = "${build_rs_libnix'}/bin/build-rs-libnix";
     allCollectedInputs = a: lib.unique (
       builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.rust_crate_libraries)) [] a
     );

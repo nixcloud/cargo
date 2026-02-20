@@ -181,7 +181,7 @@ let
   };
   self = {
     target = callPackage' ./target.nix {};
-    build-rs-libnix-0_1_10-c4222d9c28b5ac49 = callPackage' ./build-rs-libnix-0.1.10-c4222d9c28b5ac49.nix { };
+    #build-rs-libnix-0_1_10-c4222d9c28b5ac49 = callPackage' ./build-rs-libnix-0.1.10-c4222d9c28b5ac49.nix { };
     cargo-0_88_0-46cd318ceff9739d = callPackage' ./cargo-0.88.0-46cd318ceff9739d.nix { };
     cargo-0_88_0-bin-25c525326f58ed30 = callPackage' ./cargo-0.88.0-bin-25c525326f58ed30.nix { };
     cargo-0_88_0-script_build-cfc654fccb259515 = callPackage' ./cargo-0.88.0-script_build-cfc654fccb259515.nix { };

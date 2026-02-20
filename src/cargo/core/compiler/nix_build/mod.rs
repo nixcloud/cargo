@@ -859,26 +859,12 @@ impl<'a, 'gctx> NixBuildRunner {
         let workspace: &Workspace<'gctx> = build_runner.bcx.ws;
         let gctx: &'gctx GlobalContext = bcx.gctx;
 
-        let root_manifest = workspace.root_manifest();
-        let root_pkg = workspace.members()
-            .find(|p| p.manifest_path() == root_manifest)
-            .expect("root manifest should always be a member");
-        let root_pkg_name = root_pkg.name();
-
         let unit_graph: &UnitGraph = &bcx.unit_graph;
         let requested_profile = if build_runner.bcx.build_config.requested_profile == "release" {
             "release"
         } else {
             "debug"
         };
-
-        let require_build_rs_libnix_bootstrapping: bool = 
-            if root_pkg_name == "cargo" {
-                gctx.shell().status("Nix", format!("Requires cargo bootstrapping for building: '{}'", root_pkg_name))?;
-                true
-            } else {
-                false
-            };
 
         let mut visited_units = BTreeSet::new();
         let mut all_nodes: Vec<DefaultNixEntry> = Vec::new();
@@ -1006,36 +992,10 @@ impl<'a, 'gctx> NixBuildRunner {
             None => { "../../.." },  // build system used in normal 'CARGO_BACKEND=nix cargo build'
         };
 
-        let build_rs_libnix = if require_build_rs_libnix_bootstrapping {
-            indoc! {
-                r#"
-                build_rs_libnix = pkgs.callPackage ./derivations/build_rs_libnix.nix {
-                    inherit pkgs;
-                };
-                "#}
-                .to_string()
-                .indentation(0)
-        } else {
-            indoc! {
-                r#"
-                  build_rs_libnix = null;
-                "#}
-                .to_string()
-                .indentation(0)
-        };
-
-        let selected_cargo = if require_build_rs_libnix_bootstrapping {
-            "toolchain"
-        } else {
-            "libnix_cargo"
-        };
-
         let rendered = handlebars.render(
             "caller",
             &serde_json::json!({
                 "project_root": project_root,
-                "build_rs_libnix": build_rs_libnix,
-                "selected_cargo": selected_cargo,
             }),
         )?;
 
@@ -1047,56 +1007,23 @@ impl<'a, 'gctx> NixBuildRunner {
         write!(file, "{}", rendered)?;
 
         // build_rs_libnix.nix //////////////////////////////////////////////////////////////////////////////////
-        if require_build_rs_libnix_bootstrapping {
-            let src: Option<String> = src_for_cargo_crate(&workspace, &gctx, &all_units_with_process_builder, &write_nix_buildsystem_options);
-            match src {
-                None => {
-                    gctx.shell().verbose(|s| s.status("Generating", "build_rs_libnix.nix not required (not bootstrapping 'cargo' build)"))?;
-                },
-                Some(src) => {
-                    gctx.shell().verbose(|s| s.status("Generating", "build_rs_libnix.nix"))?;
-                    let mut handlebars = Handlebars::new();
-                    let template_str = include_str!("templates/build_rs_libnix.nix.handlebars");
-                    handlebars.register_template_string("build_rs_libnix", template_str)?;
+           
+        gctx.shell().verbose(|s| s.status("Generating", "build_rs_libnix.nix"))?;
+        let mut handlebars = Handlebars::new();
+        let template_str = include_str!("templates/build_rs_libnix.nix.handlebars");
+        handlebars.register_template_string("build_rs_libnix", template_str)?;
 
-                    // hack: override to reduce rebuilds
-                    let src: String = match write_nix_buildsystem_options {
-                        None => {
-                            indoc! {
-                            r#"
-                            src = pkgs.lib.fileset.toSource rec {
-                              root = project_root;
-                              fileset = relativeFileset project_root [
-                                "Cargo.toml"
-                                "Cargo.lock"
-                                "src/lib.rs"
-                                "src/main.rs"
-                                "src/tests.rs"
-                              ];
-                            };
-                            "#}
-                            .to_string()
-                            .indentation(4)
-                        }
-                        Some(_) => src
-                    };
+        let rendered = handlebars.render(
+            "build_rs_libnix",
+            &serde_json::json!({}),
+        )?;
 
-                    let rendered = handlebars.render(
-                        "build_rs_libnix",
-                        &serde_json::json!({
-                            "src": src,
-                        }),
-                    )?;
-
-                    let build_rs_libnix_path = nix_derivations_dir
-                        .clone()
-                        .join("build_rs_libnix.nix")
-                        .into_path_unlocked();
-                    let mut file = File::create(&build_rs_libnix_path)?;
-                    write!(file, "{}", rendered)?;
-                }
-            };
-        }
+        let build_rs_libnix_path = nix_derivations_dir
+            .clone()
+            .join("build_rs_libnix.nix")
+            .into_path_unlocked();
+        let mut file = File::create(&build_rs_libnix_path)?;
+        write!(file, "{}", rendered)?;
 
         // default.nix //////////////////////////////////////////////////////////////////////////////////
         gctx.shell()
@@ -1294,7 +1221,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 
                 build_parser_output_lines=$(${pkgs.mktemp}/bin/mktemp)
                 set -x +e
-                ${fn.build_rs_libnix'} --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
+                ${fn.build_rs_libnix} --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
                 build_parser_exit_value=$?
                 set +x -e
 

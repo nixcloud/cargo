@@ -1,28 +1,31 @@
+# This build-rs-libnix target is used for bootstrapping cargo (libnix)'s generated source code from nixpkgs.
+
 { pkgs, lib ? pkgs.lib }:
-let
-  project_root = ./.;
-  relativeFileset = project_root: relPaths: lib.fileset.unions (map (p: project_root + "/${p}") relPaths);
-in
-pkgs.rustPlatform.buildRustPackage {
-    pname = "build-rs-libnix";
-    version = "0.1.10";
 
-    src = pkgs.lib.fileset.toSource rec {
-      root = project_root;
-      fileset = relativeFileset project_root [
-        "Cargo.toml"
-        "Cargo.lock"
-        "src/lib.rs"
-        "src/main.rs"
-        "src/tests.rs"
-      ];
-    };
+pkgs.rustPlatform.buildRustPackage rec {
+  pname = "build-rs-libnix-cli";
+  version = "0.1.11";
 
-    cargoLock = {
-      lockFile = ./Cargo.lock;
-    };
-    
-    doCheck = false;
-    nativeBuildInputs = [];
-    buildInputs = [];
+  src = pkgs.fetchFromGitHub {
+    owner = "nixcloud";
+    repo = "build-rs-libnix";
+    rev = "8b5b8adad644a842429ca8fe060325630789ea5a";
+    sha256 = "sha256-s/2C5G36uCNIoHDz6sNadZLcG3OoKihqWB1UZAq7+qQ=";
+  };
+
+  cargoHash = "sha256-gJ35ScjnwgBMux4i4oHOyxcNc3jqolMkGhoJGEA1On4=";
+
+  nativeBuildInputs = [];
+  buildInputs = [];
+
+  cargoBuildFlags = [ "-p cli" ];
+
+  doCheck = true;
+
+  meta = with lib; {
+    description = "A command-line utility that extracts `--cfg` and `--check-cfg` flags from `cargo:`";
+    license = licenses.mit;
+    maintainers = with maintainers; [ ];
+    platforms = platforms.all;
+  };
 }

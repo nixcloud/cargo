@@ -22,11 +22,8 @@
             if builtins.pathExists ./Cargo.dependencies.nix
               then import ./Cargo.dependencies.nix { inherit pkgs; }
               else { deps = {}; };
-          build_rs_libnix = pkgs.callPackage nix/build-rs-libnix/default.nix {
-            inherit pkgs;
-          };
           cargo-libnix = (import nix/derivations/default.nix {
-            inherit project_root pkgs external_crate_dependencies build_rs_libnix;
+            inherit project_root pkgs external_crate_dependencies;
             rustc = fenix.packages.${system}.stable.rustc;
             cargo = fenix.packages.${system}.stable.cargo;
            }).cargo-0_88_0-bin-25c525326f58ed30;
