@@ -1009,7 +1009,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let build_rs_libnix = if require_build_rs_libnix_bootstrapping {
             indoc! {
                 r#"
-                build_rs_libnix = pkgs.callPackage build-rs-libnix.nix {
+                build_rs_libnix = pkgs.callPackage ./derivations/build_rs_libnix.nix {
                     inherit pkgs;
                 };
                 "#}
@@ -1088,7 +1088,7 @@ impl<'a, 'gctx> NixBuildRunner {
                         }),
                     )?;
 
-                    let build_rs_libnix_path = nix_base_dir
+                    let build_rs_libnix_path = nix_derivations_dir
                         .clone()
                         .join("build_rs_libnix.nix")
                         .into_path_unlocked();
