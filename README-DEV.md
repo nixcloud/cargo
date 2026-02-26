@@ -59,8 +59,6 @@ https://github.com/qknight/cargo-experiments
 
 until 1.may 2026
 
-* release libnix-1.89.0 tag
-
 * no .fingerprint support yet, so no fast iteration on builds, __LOTS__ of unnecessary recompiles
   * https://github.com/nixcloud/cargo/issues/3
 
@@ -78,22 +76,6 @@ until 1.may 2026
 
   * add `rustc` file-list (--emit=dep-info) generator for for root crates (experimental)
 
-* write cargo summary post on blog with new things added
-  * compiles more software
-  * improved build.rs handling
-  * build-rs-libnix as build-script-build interpreter
-  * releases (which can be mixed with fenix)
-  * build system export feature
-  * environment variables mixins into crates
-  * logone improvements
-    * show build type: (build.rs, ...)
-  * huge progress in build.rs understanding
-    * mention GH issue on OUT_DIR vs. BUILD_OUT_DIR
-    * mention multiple build.rs files and that they got it right form the start
-    * mention 'permission' concept
-  * official release
-  * incremental build results
-  * outlook
 
 ### mid prio
 
@@ -202,13 +184,13 @@ until 1.may 2026
     error: aborting due to 1 previous error
 
 
-* BUG: on `cargo build` garbage-collect .nix files in target/debug/nix/* which are not used anymore
 * FEATURE: add fixup_out_path_build_rs_paths() function
     for file in $out/environment-variables $out/rustc-arguments $out/rustc-propagated-arguments; do
         if [ -f "$file" ]; then
         sed -i "s|${fn.get_rust_crate_parent passthru.rust_crate_parent}|$out|g" "$file"
         fi
     done
+
 * REFACTOR:
   * BUG: Cargo.dependencies.nix pickup is not working or shown up with `~/tests/influxdb]$ time CARGO_BACKEND=nix /home/nixos/cargo/cargo build -v`
     but it works with: nix build --file target/debug/nix/cargo_build_caller.nix target -L --keep-going
@@ -228,13 +210,6 @@ until 1.may 2026
 
 * REFACTOR:
   * use  https://nix.dev/manual/nix/2.18/language/constructs (asserts) on function calls arguments
-  * make cargo_parser a direct argument and don't inject into pkgs and later compile so we can override it easily
-  * pass "src" / "project_root" as argument to target/debug/nix/cargo_build_caller.nix so we can use
-    external_crate_dependencies =
-        (if builtins.pathExists ${project_root}/Cargo.dependencies.nix
-        then builtins.trace "Using Cargo.dependencies.nix"
-            import ${project_root}/Cargo.dependencies.nix { inherit pkgs; }
-
 
 * BUG: if there is a problem with a rustc call which lacks the openssl DEP_ env variables, errors are
   very hard to understand. i think it did not even print an error, had this with
@@ -254,7 +229,7 @@ until 1.may 2026
 
 * cargo build vs. cargo build -v vs. cargo build -vv (nix-backend should work similar)
 
-* RUSTFLAGS might not be supported ATM (nix-backend)
+* RUSTFLAGS in libnix works differently
 
   i looked at the cargo source code for RUSTFLAGS mentions but did not find a function which appends the RUSTFLAGS and 
   my generated nix files don't do it either. so did it get lost in translation?
@@ -279,42 +254,7 @@ until 1.may 2026
     * https://github.com/NixOS/nix/issues/13910
   * https://github.com/NixOS/nix/issues?q=is%3Aissue%20state%3Aopen%20author%3Aqknight (the tickets with "internal-json logger improvements" in the title)
 
-* figure max cpu utilization:
-  * `nix build` has such a minor cpu utilization, i only see a load of 25% at max 
-  * `cargo build` basically goes to 100%
-  it seems in this video it was doing much more parallel builds: https://asciinema.org/a/742433
-  
-  nix build --file target/debug/nix/cargo_build_caller.nix deps.adler2-2_0_0-115180b36279fc7c deps.anstyle-1_0_10-bf6d032cb7d79be1 deps.allocator-api2-0_2_21-bd3713078dfee01f -L
-
-  shows that these 3 are build in parallel!
-
-  * created logone/passthru-test to experiment, seems parallel builds work there so far, logone seems to display 4 parallel builds correctly. it must be burried in the abstraction of the
-    generated nix build system
-  * using this passthru-test it shows that if this line is present:
-    ${fn.rustc_propagated_arguments passthru.rust_crate_libraries} \
-    then the build will not parallel, but if it is commented out, it will
-
-    1. rustc_propagated_arguments = rust_crate_libraries: lib.replaceStrings ["\n"] [""] (builtins.concatStringsSep " " (map (crate:
-    2.   if builtins.pathExists "${crate}/nix/rustc-propagated-arguments" then
-    3.    builtins.readFile "${crate}/nix/rustc-propagated-arguments"
-    4.  else
-    5.    ""
-    6.  ) (allCollectedInputs rust_crate_libraries)));
-
-    if line 2+3 is replaced by "" it is fast, so it blocks because of the pathExists/readFile
-
-    solution ideas:
-    * replace builtins.pathExists/builtins.readFile and built the rustc command from bash. i tried this for a while but
-      ran in into the problem with empty spaces ' ':
-        proc-macro2> Compiling proc-macro2-1_0_97-script_build-b0e673af67401d13
-        proc-macro2> @cargo { "type":0, "crate_name":"proc-macro2", "crate_type":"(build.rs build)", "id":"proc-macro2-1_0_97-script_build-b0e673af67401d13" }
-        proc-macro2> +++ /nix/store/h1c2imj0dpfyyfrd0i6195xznqxcar8x-rust-stable-2025-08-07/bin/rustc --crate-name build_script_build --edition=2021 build.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type bin --emit=dep-info,link -C embed-bitcode=no --cfg 'feature="default"' --cfg 'feature="proc-macro"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("default", "nightly", "proc-macro", "span-locations"))' -C metadata=800301207300bbac -C extra-filename=-b0e673af67401d13 --out-dir /nix/store/rdjqd65zqgxkydyb4nl217423539nqn2-proc-macro2-1_0_97-script_build-b0e673af67401d13 -L dependency=/nix/store/46wmzlzs30vcq83wbm1q516cpd0p0zqx-rustc-linker-arguments-dir/deps collect_rustc_propagated_arguments ' ' --cap-lints allow
-        proc-macro2> +++ rustc_exit_value=1
-        proc-macro2> +++ set +x -e
-        proc-macro2> error: multiple input filenames provided (first two filenames are `build.rs` and `collect_rustc_propagated_arguments`)
-        proc-macro2> 
-
-      doing this with bash is hard  
+* figure max cpu utilization https://github.com/nixcloud/cargo/issues/11
 
 * no rustdoc support
 * no testing support
