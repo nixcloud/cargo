@@ -17,14 +17,14 @@
               fenix.overlay
             ];
           };
-          # cargo-libnix-1_87_0_rc2_src
-          cargo-libnix-1_87_0_rc2_src = builtins.fetchTarball {
-            url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0-rc2/libnix-1.87.0-rc2.tar.bz2";
-            sha256 = "sha256:07rgml2wd0jg1xn818swiknhwp21qvs5xpzrn30p3wx0jicrgpq3";
+          # 1_87_0_plus_v1_src
+          cargo-libnix-1_87_0_plus_v1_src = builtins.fetchTarball {
+            url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv1/libnix-1.87.0+v1.tar.bz2";
+            sha256 = "sha256:1pa5yg6i5rk0f50f0syv3ci0864ca3w9ch60rx2q6mp7fy86h086";
           };
-          cargo-libnix-1_87_0_rc2 = (import (cargo-libnix-1_87_0_rc2_src + "/derivations/default.nix"){ 
+          cargo-libnix-1_87_0_plus_v1 = (import (cargo-libnix-1_87_0_plus_v1_src + "/derivations/default.nix"){ 
             inherit project_root pkgs;
-            external_crate_dependencies = import (cargo-libnix-1_87_0_rc2_src + "/Cargo.dependencies.nix") { inherit pkgs; };
+            external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v1_src + "/Cargo.dependencies.nix") { inherit pkgs; };
             rustc = fenix.packages.${system}.stable.rustc;
             cargo = fenix.packages.${system}.stable.cargo;
           }).cargo-0_88_0-bin-b4cc6eeacb818d24;
@@ -37,7 +37,7 @@
         in
         with pkgs;
         rec {
-          packages = { inherit cargo-libnix cargo-libnix-1_87_0_rc2; };
+          packages = { inherit cargo-libnix-1_87_0_plus_v1; };
           devShells.default = mkShell {
             buildInputs = [
               # to build cargo with 'CARGO_BACKEND=legacy cargo build' 
@@ -49,7 +49,7 @@
               fenix.packages.${system}.stable.rustc
               # your cargo compiler
               #fenix.packages.${system}.stable.cargo
-              cargo-libnix-1_87_0_rc2
+              cargo-libnix-1_87_0_plus_v1
               # comfy tools
               fenix.packages.${system}.stable.rust-src
               fenix.packages.${system}.stable.rustfmt
