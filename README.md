@@ -4,6 +4,10 @@ This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 
 This fork is intended as a PR to contribute this to the official cargo project and to engineer the solution and to get feedback on the work from the nix community.
 
+# Experimental
+
+This branch contains incremental build system experiments.
+
 # What is this?
 
 This project aims to integrate nix as a backend into cargo (libnix) so we can benefit from the nix advantages during development and deployment. Detailed technical status in [README-DEV.md](README-DEV.md).
