@@ -1183,10 +1183,6 @@ fn build_base_args(
 
     let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
 
-    if is_nix_build {
-        cmd.arg("\\\n        ${fn.rustc_arguments passthru.rust_crate_parent}");
-    }
-
     cmd.args(&features_args(unit, is_nix_build));
     cmd.args(&check_cfg_args(unit, is_nix_build));
 
@@ -1528,10 +1524,11 @@ fn build_deps_args(
             deps
         });
     } else {
+        cmd.arg("@rustc-extra.rsp");
         //cmd.arg("\\\n        ${fn.rustc_linker_arguments passthru.rust_crate_libraries}");
         cmd.arg("\\\n        -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps");
-        cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_script_build_run}");
-        cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_crate_libraries}");
+        // cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_script_build_run}");
+        // cmd.arg("\\\n        ${fn.rustc_propagated_arguments passthru.rust_crate_libraries}");
     }
 
     // Be sure that the host path is also listed. This'll ensure that proc macro
