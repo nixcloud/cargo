@@ -16,12 +16,21 @@
 {{{unpack_phase}}}
 
     RUSTC = "${rustc}/bin/rustc";
+    RUST_CRATE_PARENT = fn.parent_store_paths passthru.rust_crate_parent;
+    RUST_SCRIPT_BUILD_RUN = fn.propagated_store_paths passthru.rust_script_build_run;
+    RUST_CRATE_LIBRARIES_ALL = fn.propagated_store_paths passthru.rust_crate_libraries;
 {{{environment_variables}}}
 
     buildPhase = ''
       ${fn.import_bash_function_helpers}
       export CARGO_MANIFEST_DIR=$(realpath $PWD/$CARGO_MANIFEST_DIR)
       export CARGO_MANIFEST_PATH=$(realpath $PWD/$CARGO_MANIFEST_PATH)
+
+      collect_flagfile rustc-parent.rsp rustc-arguments "$RUST_CRATE_PARENT"
+      collect_flagfile rustc-script.rsp rustc-propagated-arguments "$RUST_SCRIPT_BUILD_RUN"
+      collect_flagfile rustc-libs.rsp rustc-propagated-arguments "$RUST_CRATE_LIBRARIES_ALL"
+      cat rustc-parent.rsp rustc-script.rsp rustc-libs.rsp > rustc-extra.rsp
+
       {{{change_directory}}}
       mkdir -p $out/nix
       export OUT_DIR=$out
