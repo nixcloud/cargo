@@ -1,7 +1,7 @@
 {
   description = "a flake to build libnix cargo";
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     fenix.url   = "github:nix-community/fenix";
     flake-utils.url = "github:numtide/flake-utils";
   };
@@ -17,6 +17,10 @@
               fenix.overlays.default
             ];
           };
+          rustc_1_87_vanilla_pin = (fenix.packages.${system}.toolchainOf {
+            channel = "1.87.0";
+            sha256 = "sha256-KUm16pHj+cRedf8vxs/Hd2YWxpOrWZ7UOrwhILdSJBU=";
+          }).rustc;
           # 1_87_0_plus_v1_src
           cargo-libnix-1_87_0_plus_v1_src = builtins.fetchTarball {
             url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv1/libnix-1.87.0+v1.tar.bz2";
@@ -25,7 +29,7 @@
           cargo-libnix-1_87_0_plus_v1 = (import (cargo-libnix-1_87_0_plus_v1_src + "/derivations/default.nix"){ 
             inherit project_root pkgs;
             external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v1_src + "/Cargo.dependencies.nix") { inherit pkgs; };
-            rustc = fenix.packages.${system}.stable.rustc;
+            rustc = rustc_1_87_vanilla_pin;
             cargo = fenix.packages.${system}.stable.cargo;
           }).cargo-0_88_0-bin-b4cc6eeacb818d24;
 
@@ -34,28 +38,29 @@
               then import ./Cargo.dependencies.nix { inherit pkgs; }
               else { });
           # most recent development    
+          cargo-libnix = (import nix/derivations/default.nix {
+            inherit project_root pkgs external_crate_dependencies;
+            rustc = rustc_1_87_vanilla_pin;
+            cargo = fenix.packages.${system}.stable.cargo;
+           }).cargo-0_88_0-bin-b4cc6eeacb818d24;
         in
         with pkgs;
         rec {
-          packages = { inherit cargo-libnix-1_87_0_plus_v1; };
+          packages = { inherit cargo-libnix cargo-libnix-1_87_0_plus_v1; inherit rustc_1_87_vanilla_pin; };
           devShells.default = mkShell {
             buildInputs = [
-              # to build cargo with 'CARGO_BACKEND=legacy cargo build' 
-              openssl
-              pkg-config
               # git helper
-              tig
-              # the toolchain used
-              fenix.packages.${system}.stable.rustc
-              # your cargo compiler
-              #fenix.packages.${system}.stable.cargo
+              #tig
+              # rust toolchain
+              rustc_1_87_vanilla_pin
               cargo-libnix-1_87_0_plus_v1
+              # used by cargo (libnix)
+              nix-prefetch-scripts
+
               # comfy tools
               fenix.packages.${system}.stable.rust-src
               fenix.packages.${system}.stable.rustfmt
               fenix.packages.${system}.stable.clippy
-              # used by cargo (libnix)
-              nix-prefetch-scripts
             ];
             shellHook = ''
               export CARGO_BACKEND=nix
