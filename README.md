@@ -14,7 +14,7 @@ Ideally you type these commands: 🚀
     nix develop
     cargo build
 
-[![asciicast](https://asciinema.org/a/742433.svg)](https://asciinema.org/a/742433)
+[![asciicast](https://asciinema.org/a/1267784.svg)](https://asciinema.org/a/1267784)
 
 You can easily add it to your project's flake.nix and use it, too!
 
@@ -92,81 +92,49 @@ x builds out of the box
 
 # Using cargo (libnix)
 
-There are two ways to install cargo (libnix) on your system:
+There are several ways to use cargo+libnix on your system:
 
-1. integrate cargo (libnix) it into your flake.nix
-2. integrate cargo (libnix) it into your nix documents
+1. cargo+libnix used via **devshell**
+2. cargo+libnix used via **flake**
+3. cargo+libnix used via **traditional nix code**
 
-## 1. cargo (libnix) with flake.nix
+## 1. cargo+libnix used via **devshell**
+
+```bash  
+nix develop github:nixcloud/cargo
+```
+
+This adds the `cargo` and `rustc` binary into your environment and you can start to build software.
+
+## 2. cargo+libnix used via **flake**
 
 When you use fenix to manage your Rust installation, simply add a few lines to extend the installation with the custom cargo binary as shown below:
 
 ```nix
 {
-  description = "a flake to build libnix cargo";
+  description = "myproject";
+
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
-    fenix.url   = "github:nix-community/fenix";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    libnix-flake.url = "github:nixcloud/cargo";
     flake-utils.url = "github:numtide/flake-utils";
   };
-  outputs =
-  { self, nixpkgs, flake-utils, fenix } @ inputs:
-    flake-utils.lib.eachDefaultSystem
-      (system:
-        let
-          project_root = ./.;
-          pkgs = import nixpkgs {
-            inherit system;
-            overlays = [
-              fenix.overlay
-            ];
-          };
 
-+# 1_87_0_plus_v1_src
-+          cargo-libnix-1_87_0_plus_v1_src = builtins.fetchTarball {
-+            url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv1/libnix-1.87.0+v1.tar.bz2";
-+            sha256 = "sha256:1pa5yg6i5rk0f50f0syv3ci0864ca3w9ch60rx2q6mp7fy86h086";
-+          };
-+          cargo-libnix-1_87_0_plus_v1 = (import (cargo-libnix-1_87_0_plus_v1_src + "/derivations/default.nix"){ 
-+            inherit project_root pkgs;
-+            external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v1_src + "/Cargo.dependencies.nix") { inherit pkgs; };
-+            rustc = fenix.packages.${system}.stable.rustc;
-+            cargo = fenix.packages.${system}.stable.cargo;
-+          }).cargo-0_88_0-bin-b4cc6eeacb818d24;
-
-          external_crate_dependencies = { envs = {}; deps = {}; } // (
-            if builtins.pathExists ./Cargo.dependencies.nix
-              then import ./Cargo.dependencies.nix { inherit pkgs; }
-              else { });
-        in
-        with pkgs;
-        rec {
-          packages = { inherit cargo-libnix-1_87_0_plus_v1; };
-          devShells.default = mkShell {
-            buildInputs = [
-              # to build cargo with 'CARGO_BACKEND=legacy cargo build' 
-              openssl
-              pkg-config
-              # git helper
-              tig
-              # the toolchain used
-              fenix.packages.${system}.stable.rustc
-              # your cargo compiler
-              #fenix.packages.${system}.stable.cargo
-+             cargo-libnix-1_87_0_plus_v1
-              # comfy tools
-              fenix.packages.${system}.stable.rust-src
-              fenix.packages.${system}.stable.rustfmt
-              fenix.packages.${system}.stable.clippy
-              # used by cargo (libnix)
-              nix-prefetch-scripts
-            ];
-            shellHook = ''
-              export CARGO_BACKEND=nix
-            '';
-          };
-        }
-      );
+  outputs = { self, nixpkgs, flake-utils, libnix-flake }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs { inherit system; };
+      in {
+        devShells.default = pkgs.mkShell {
+          buildInputs = [
+            libnix-flake.packages.${system}.rustc_1_87_vanilla_pin
+            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v1
+          ];
+          shellHook = ''
+            export CARGO_BACKEND=nix
+          '';
+        };
+      });
 }
 ```
 
@@ -175,7 +143,7 @@ Afterwards check with `which cargo` that it points to the right path.
     which cargo
     /nix/store/dpihj64vqhxir9bmdj3aciv5sf1myx7b-cargo-0_88_0-bin-b4cc6eeacb818d24/bin/cargo
 
-## 2. cargo (libnix) in your nix documents
+## 3. cargo+libnix used via **traditional nix code**
 
 With this you can extend your build system with a `cargo` (libnix) binary, you need to add a `rustc` and other rust toolchain parts in addition similar to the flake setup:
 
@@ -188,6 +156,8 @@ libnix_cargo = (import (libnix_cargo_src + "/cargo_build_caller.nix"){ inherit s
 ...
 systemPackages = [ libnix_cargo ];
 ```
+
+NOTE: You will also need a suitable rustc of the same version so probably use fenix as well.
 
 WARNING: **cargo_build_caller.nix** acts like a flake.nix since it has its own input section and uses a different nixpkgs because this way we can share the build artifacts between machines. Feel free to also use the **nix/derivations/default.nix** as entry point while providing your own `cargo`, `rustc` and `pkgs`.
 
@@ -231,7 +201,7 @@ How to use it:
 
 Note: The name / version of a crate can be copied from `Cargo.lock` (version is optional).
 
-# Release workflow
+# Workflow for using cargo+libnix in your project
 
 The command `cargo build` creates a nix toolchain on the fly in _target/debug/nix_ but you can also write it with `cargo build write-nix-buildsystem ...` so it can be used from a _flake_ or _nixpkgs_. When using _write-nix-buildsystem_ a URL/HASH is used with `builtins.fetchTarball` instead of the local source.
 

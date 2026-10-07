@@ -46,17 +46,14 @@
         in
         with pkgs;
         rec {
-          packages = { inherit cargo-libnix cargo-libnix-1_87_0_plus_v1; inherit rustc_1_87_vanilla_pin; };
+          packages = { inherit cargo-libnix-1_87_0_plus_v1; inherit rustc_1_87_vanilla_pin; };
           devShells.default = mkShell {
             buildInputs = [
-              # git helper
-              #tig
               # rust toolchain
               rustc_1_87_vanilla_pin
               cargo-libnix-1_87_0_plus_v1
               # used by cargo (libnix)
               nix-prefetch-scripts
-
               # comfy tools
               fenix.packages.${system}.stable.rust-src
               fenix.packages.${system}.stable.rustfmt
