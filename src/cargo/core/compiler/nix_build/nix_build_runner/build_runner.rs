@@ -65,6 +65,8 @@ impl NixBuild {
 
         let mut command = binding
             .env_clear()
+            // keep PATH so `nix` is found where it is installed, not only in /bin:/usr/bin
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .spawn()
             .map_err(|e| anyhow::format_err!("Failed to execute nix-build: {}", e))?;
 
