@@ -37,7 +37,7 @@ pub struct VersionInfo {
 
 impl fmt::Display for VersionInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.version)?;
+        write!(f, "{} +libnix", self.version)?;
 
         if let Some(ref ci) = self.commit_info {
             write!(f, " ({} {})", ci.short_commit_hash, ci.commit_date)?;
