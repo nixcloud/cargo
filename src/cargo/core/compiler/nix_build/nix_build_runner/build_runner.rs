@@ -1,172 +1,184 @@
-use super::build_result_parser::parse_stdout_lines;
+//! Builds the generated build system over the nix-daemon protocol (see FINDINGS.md / INTEGRATION.md):
+//! `nix-instantiate` evaluates `target`, then ONE BuildPathsWithResults request builds it together with every
+//! derivation it needs. The daemon client runs on the calling thread, logone renders its `Event`s on another.
+use super::daemon::{self, BuildOptions, Daemon, PathResult};
+use super::event::Event;
+use super::logone;
 use crate::util::Filesystem;
 use crate::util::{CargoResult, GlobalContext};
-use logone::{LogLevel, LogOne};
+use std::collections::{HashMap, HashSet};
+use std::io::IsTerminal;
+use std::path::Path;
+use std::process::Command;
+use std::sync::mpsc::{self, Sender};
+use std::time::Instant;
 
 pub struct NixBuild {}
 
+/// The environment `nix-instantiate` keeps; everything else is cleared.
+const ENV_PASSTHROUGH: &[&str] = &[
+    "PATH",
+    "HOME",
+    "XDG_CACHE_HOME",
+    "NIX_SSL_CERT_FILE",
+    "SSL_CERT_FILE",
+    "NIX_REMOTE",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+];
+
+/// Why `run` failed; logone has already shown the details.
+enum Failure {
+    Eval,
+    Daemon,
+    Build,
+}
+
+
 impl NixBuild {
+    /// `units`: derivation names of the generated units, so logone prints `Building` only for other derivations.
     pub fn build<'gctx>(
         nix_base_dir: Filesystem,
         gctx: &'gctx GlobalContext,
         keep_going: bool,
+        jobs: u32,
+        units: HashSet<String>,
     ) -> CargoResult<()> {
-        use std::io::{BufRead, BufReader, Write};
-        use std::process::{Command, Stdio};
-        let keep_going: &str = match keep_going {
-            true => "--keep-going",
-            false => "",
+        let base = nix_base_dir.into_path_unlocked();
+        let caller = base.join("cargo_build_caller.nix");
+        gctx.shell().status("Evaluating", caller.display())?;
+
+        let (tx, rx) = mpsc::channel();
+        let color = std::io::stderr().is_terminal();
+        let renderer = std::thread::spawn(move || logone::run(rx, color, units));
+        let opts = BuildOptions { keep_going, max_jobs: u64::from(jobs) };
+        let result = run(&caller, &base.join("gc"), &opts, &tx);
+        // `tx` is gone after this, so logone drains the channel, prints the summary and returns.
+        drop(tx);
+        renderer
+            .join()
+            .map_err(|e| anyhow::format_err!("logone thread panicked: {:?}", e))?;
+
+        let out = match result {
+            Ok(out) => out,
+            Err(Failure::Eval) => anyhow::bail!("could not evaluate {}", caller.display()),
+            Err(Failure::Daemon) => anyhow::bail!("could not build target (nix-daemon)"),
+            Err(Failure::Build) => anyhow::bail!("could not compile target"),
         };
-
-        std::io::stdout()
-            .flush()
-            .map_err(|e| anyhow::format_err!("Failed to flush stdout: {}", e))?;
-
-        let mut binding = Command::new("nix");
-                binding
-            .arg("build")
-            .arg("target")
-            .arg("--file")
-            .arg(format!(
-                "{}/cargo_build_caller.nix",
-                nix_base_dir.display().to_string()
-            ))
-            .arg("--out-link")
-            .arg(format!(
-                "{}/gc/result",
-                nix_base_dir.display().to_string()
-            ))
-            .arg("--json")
-            .arg("--log-format")
-            .arg("internal-json")
-            //.arg("--option extra-sandbox-paths")
-            //.arg("'/incremental-target=/cargo-incremental-target'")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        if !keep_going.is_empty() {
-            binding.arg(keep_going);
+        let activation_script = format!("{out}/bin/create-symlinks");
+        gctx.shell().verbose(|s| {
+            s.status("Symlink", format!("Symlinking results using '{activation_script}'"))
+        })?;
+        let status = Command::new(&activation_script)
+            .status()
+            .map_err(|e| anyhow::format_err!("failed to execute {activation_script}: {e}"))?;
+        if !status.success() {
+            anyhow::bail!("{activation_script} failed: {status}");
         }
+        Ok(())
+    }
+}
 
-        gctx.shell()
-            .status(
-                    "nix build call",
-                    format!(
-                        "{} {}",
-                        binding.get_program().to_string_lossy(),
-                        binding
-                            .get_args()
-                            .map(|arg| arg.to_string_lossy().into_owned())
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    ).trim(),
-                )
-            .unwrap();
+/// Evaluates and builds `target`; returns its `out` path, rooted at `gc_dir/result`.
+fn run(caller: &Path, gc_dir: &Path, opts: &BuildOptions, tx: &Sender<Event>) -> Result<String, Failure> {
+    let target = instantiate(caller, gc_dir, tx)?;
+    let daemon_err = |e: daemon::Error| {
+        let _ = tx.send(Event::Error { msg: e.to_string() });
+        Failure::Daemon
+    };
+    let mut d = Daemon::connect(tx).map_err(daemon_err)?;
+    d.set_options(opts, tx).map_err(daemon_err)?;
 
-        let mut command = binding
-            .env_clear()
-            // keep PATH so `nix` is found where it is installed, not only in /bin:/usr/bin
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-            .spawn()
-            .map_err(|e| anyhow::format_err!("Failed to execute nix-build: {}", e))?;
+    // `target` only depends on the crates, and op 46 answers only for requested paths (FINDINGS Q3): request
+    // everything that will build, so every crate and non-crate dependency gets its own BuildResult.
+    let missing = d.query_missing(&[target.clone()], tx).map_err(daemon_err)?;
+    let mut request = vec![target.clone()];
+    request.extend(missing.will_build.iter().filter(|p| **p != target).cloned());
+    // One round trip per drv, before building, so failed and skipped drvs have their paths too.
+    let mut outputs = HashMap::new();
+    for drv in &request {
+        let map = d.query_derivation_output_map(drv, tx).map_err(daemon_err)?;
+        let _ = tx.send(Event::Outputs { drv: drv.clone(), outputs: map.clone() });
+        outputs.insert(drv.clone(), map);
+    }
+    let _ = tx.send(Event::Plan {
+        will_build: missing.will_build,
+        will_substitute: missing.will_substitute,
+        download_size: missing.download_size,
+    });
 
-        std::io::stdout()
-            .flush()
-            .map_err(|e| anyhow::format_err!("Failed to flush stdout: {}", e))?;
+    let results = d.build_paths_with_results(&request, tx).map_err(daemon_err)?;
+    let target_ok = results.iter().any(|r| r.drv == target && r.status.is_success());
+    let all_ok = results.iter().all(|r| r.status.is_success());
+    for PathResult { drv, status, error_msg } in results {
+        let _ = tx.send(Event::BuildResult { drv, status, error_msg });
+    }
+    if !(target_ok && all_ok) {
+        return Err(Failure::Build);
+    }
 
-        // Handle stdout in a separate thread → JSON capture only
-        let stdout = command
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow::format_err!("Failed to capture stdout"))?;
-        let stdout_reader = BufReader::new(stdout);
-        let stdout_handle = std::thread::spawn(move || {
-            let mut json_string: Vec<String> = vec![];
+    let out = outputs
+        .get(&target)
+        .and_then(|m| m.iter().find(|(name, _)| name == "out"))
+        .and_then(|(_, path)| path.clone())
+        .ok_or_else(|| daemon_err(daemon::Error::Daemon(format!("{target} has no `out` path"))))?;
+    // like `nix build --out-link gc/result`: keeps the outputs create-symlinks points to alive
+    let link = gc_dir.join("result");
+    let link_err = |e: std::io::Error| daemon_err(daemon::Error::Io(e));
+    match std::fs::remove_file(&link) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(link_err(e)),
+        _ => {}
+    }
+    std::os::unix::fs::symlink(&out, &link).map_err(link_err)?;
+    d.add_indirect_root(&link.to_string_lossy(), tx).map_err(daemon_err)?;
+    Ok(out)
+}
 
-            for line in stdout_reader.lines() {
-                match line {
-                    Ok(line) => {
-                        json_string.push(line);
-                        let _ = std::io::stdout().flush();
-                    }
-                    Err(e) => eprintln!("Error reading stdout: {}", e),
-                }
-            }
-            json_string
-        });
-
-        // Handle stderr in a separate thread → use logone
-        let stderr = command
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow::format_err!("Failed to capture stderr"))?;
-        let stderr_reader = BufReader::new(stderr);
-        let stderr_handle = std::thread::spawn(move || {
-            let mut logone = LogOne::new(true, LogLevel::Cargo);
-
-            for line in stderr_reader.lines() {
-                match line {
-                    Ok(line) => {
-                        let _ = logone::parser::parse_nix_line(&line, &mut logone);
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading stderr: {}", e);
-                        return;
-                    }
-                }
-            }
-        });
-
-        // Wait for the command to complete
-        let status = command
-            .wait()
-            .map_err(|e| anyhow::format_err!("Failed to wait for process: {}", e));
-
-        std::io::stdout()
-            .flush()
-            .map_err(|e| anyhow::format_err!("Failed to flush stdout: {}", e))?;
-
-        // Ensure threads complete
-        let stdout_lines: Vec<String> = stdout_handle
-            .join()
-            .map_err(|e| anyhow::format_err!("Failed to join stdout thread: {:?}", e))?;
-        stderr_handle
-            .join()
-            .map_err(|e| anyhow::format_err!("Failed to join stderr thread: {:?}", e))?;
-
-        if status?.success() {
-            let build_records = parse_stdout_lines(stdout_lines);
-
-            if build_records.len() != 1 {
-                anyhow::bail!("Can't create result symlink because too many results were created".to_string())
-            }
-
-            for record in build_records {
-                if let Some(out) = record.outputs.get("out") {
-                    let activation_script = format!("{}/bin/create-symlinks", out);
-                    let _ = Command::new(&activation_script).output().expect(
-                        format!(
-                            "failed to execute create-symlinks for: {}",
-                            &activation_script
-                        )
-                        .as_str(),
-                    );
-                    gctx.shell()
-                        .verbose(|s| {
-                            s.status(
-                                "Symlink",
-                                format!(
-                                    "Symlinking results using '{}'",
-                                    activation_script
-                                ),
-                            )
-                        })
-                        .unwrap();
-                }
-            }
-            Ok(())
-        } else {
-            anyhow::bail!("could not compile target".to_string())
+/// `nix-instantiate` prints the drv of `target`. `--add-root` makes it a GC root (`gc_dir/target.drv`) until the
+/// next build, so it can't be collected between evaluation and build. With `--add-root` Nix prints the root
+/// instead of the drv, so it is resolved.
+fn instantiate(caller: &Path, gc_dir: &Path, tx: &Sender<Event>) -> Result<String, Failure> {
+    let root = gc_dir.join("target.drv");
+    let file = caller.display().to_string();
+    let eval_err = |msg: String| {
+        let _ = tx.send(Event::EvalError { file: file.clone(), msg });
+        Failure::Eval
+    };
+    let mut cmd = Command::new("nix-instantiate");
+    cmd.arg(caller).arg("-A").arg("target").arg("--add-root").arg(&root).env_clear();
+    // Evaluation fetches (builtins.fetchTarball) run in this process, not in the daemon, so it needs the CA
+    // certificates, proxies and its cache dir; PATH so `nix-instantiate` is found where it is installed.
+    for var in ENV_PASSTHROUGH {
+        if let Some(v) = std::env::var_os(var) {
+            cmd.env(var, v);
         }
     }
+    let t0 = Instant::now();
+    let out = cmd
+        .output()
+        .map_err(|e| eval_err(format!("failed to execute nix-instantiate: {e}")))?;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() {
+        return Err(eval_err(stderr.trim_end().to_string()));
+    }
+    // `trace: …` and warnings from a successful evaluation
+    for line in stderr.lines() {
+        let _ = tx.send(Event::Message { text: line.to_string() });
+    }
+    let printed = String::from_utf8_lossy(&out.stdout);
+    let printed = printed.lines().next().unwrap_or_default();
+    let drv = std::fs::canonicalize(printed)
+        .map_err(|e| eval_err(format!("nix-instantiate printed `{printed}`: {e}")))?;
+    let drv = drv.to_string_lossy().into_owned();
+    if !drv.ends_with(".drv") {
+        return Err(eval_err(format!("nix-instantiate printed `{printed}`, not a derivation")));
+    }
+    let _ = tx.send(Event::Evaluated { elapsed: t0.elapsed() });
+    Ok(drv)
 }

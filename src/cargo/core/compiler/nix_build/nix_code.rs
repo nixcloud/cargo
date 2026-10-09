@@ -435,6 +435,9 @@ pub fn generate_src<'gctx>(
                 let template_str = indoc! {
                 r#"
                   src = pkgs.fetchurl {
+                    # named like nixpkgs' importCargoLock, so the store path matches (and cache.nixos.org may have it);
+                    # without a name it would be `download`, after the last URL segment
+                    name = "crate-{{{crate_name}}}-{{{crate_version}}}.tar.gz";
                     url = "https://crates.io/api/v1/crates/{{{crate_name}}}/{{{crate_version}}}/download";
                     sha256 = "{{{hash}}}";
                   };

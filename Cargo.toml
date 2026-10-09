@@ -221,7 +221,6 @@ url.workspace = true
 walkdir.workspace = true
 handlebars.workspace = true
 indoc = "2.0.6"
-logone = "0.2.9"
 colored.workspace = true
 build-rs-libnix.workspace = true
 

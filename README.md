@@ -44,7 +44,6 @@ Using `cargo-libnix-1_87_0_rc2` it can compile these projects out of the box. Oc
                        /- cargo legacy    (both use the same cargo / rustc so we know it is buildable)
 name                 |   | /-cargo libnix
 cargo          v1.87 | + | + |   "openssl-sys" = [ pkg-config openssl ];
-logone         0.2.9 | x | x |
 build-rs-libnix 0.1.11 x | x | 
 build_rs_example     | x | x |   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
 rust-analyzer        | x | x | requires deps = { "proc-macro-test" = [ cargo ]; }; envs = { "proc-macro-test" = { "PROC_MACRO_TEST_LOCATION" = ""; }; };

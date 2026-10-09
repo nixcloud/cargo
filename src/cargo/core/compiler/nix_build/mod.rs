@@ -9,7 +9,7 @@ pub mod nix_build_runner;
 use cargo_util::ProcessBuilder;
 use handlebars::Handlebars;
 use indoc::indoc;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -133,6 +133,9 @@ impl<'a, 'gctx> NixBuildRunner {
             build_runner.raw_process_builder.lock().unwrap().clone();
 
         let mut symlinked_targets: Vec<SymlinkedTargets> = vec![];
+        // derivation names of the generated units and their helpers (target.nix, default.nix), for logone
+        let mut unit_drv_names: HashSet<String> =
+            HashSet::from(["create-symlinks", "rustc-linker-arguments-dir"].map(String::from));
 
         let write_nix_buildsystem_options: Option<NixBuildOptions> = gctx.write_nix_buildsystem_options.borrow().unwrap_or(&None).clone();
         let nix_base_dir: Filesystem = match write_nix_buildsystem_options {
@@ -184,6 +187,8 @@ impl<'a, 'gctx> NixBuildRunner {
                 create_nix_name(&unit, build_runner, NixNameMode::AttributeName, false);
             gctx.shell()
                 .verbose(|s| s.status("Generating", &nix_attribute_name))?;
+            // the drv name is the attribute name (rustc-call.nix)
+            unit_drv_names.insert(nix_attribute_name.clone());
 
             // let s = format!("unit.profile.incremental: {} {:?}", &nix_attribute_name, unit.profile.incremental);
             // println!("{s}");
@@ -368,7 +373,8 @@ impl<'a, 'gctx> NixBuildRunner {
         write!(file, "{}", rendered)?;
 
         if write_nix_buildsystem_options.is_none() {
-            NixBuild::build(nix_base_dir, &gctx, keep_going)?;
+            let jobs = bcx.build_config.jobs;
+            NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names)?;
         } else {
             let target_path: PathBuf = nix_base_dir
                 .clone()
