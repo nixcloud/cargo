@@ -1,5 +1,5 @@
 //! nix-daemon worker-protocol client (sync), from nix-daemon-client-example.
-//! Implements only what cargo needs: handshake, SetOptions (19), AddIndirectRoot (12), QueryMissing (40),
+//! Implements only what cargo needs: handshake, SetOptions (19), AddToStore (7), AddIndirectRoot (12), QueryMissing (40),
 //! QueryDerivationOutputMap (41), BuildPathsWithResults (46), and the stderr loop, which decodes activity
 //! messages directly into `Event`s. Wire format checked against Nix 2.34.8 (protocol 1.38).
 use super::event::{Activity, ActivityId, Event, Status};
@@ -20,6 +20,7 @@ const STDERR_ERROR: u64 = 0x63787470;
 const STDERR_START_ACTIVITY: u64 = 0x53545254;
 const STDERR_STOP_ACTIVITY: u64 = 0x53544f50;
 const STDERR_RESULT: u64 = 0x52534c54;
+const OP_ADD_TO_STORE: u64 = 7;
 const OP_ADD_INDIRECT_ROOT: u64 = 12;
 const OP_SET_OPTIONS: u64 = 19;
 const OP_QUERY_MISSING: u64 = 40;
@@ -121,6 +122,35 @@ impl Daemon {
         }
         self.w.flush()?;
         self.stderr_loop(tx)
+    }
+
+    /// Adds `text` as a text-hashed path named `name` without references (e.g. a `.drv` with no inputs) and
+    /// returns its store path. Proto >= 1.25: name, content address method, references, repair, then the
+    /// contents as a framed stream; the answer is a ValidPathInfo.
+    pub fn add_text_to_store(&mut self, name: &str, text: &str, tx: &Sender<Event>) -> Result<String> {
+        self.put(OP_ADD_TO_STORE)?;
+        self.put_str(name)?;
+        self.put_str("text:sha256")?;
+        self.put(0)?; // references
+        self.put(0)?; // repair
+        // framed: (length, unpadded bytes)*, then 0
+        if !text.is_empty() {
+            self.put(text.len() as u64)?;
+            self.w.write_all(text.as_bytes())?;
+        }
+        self.put(0)?;
+        self.w.flush()?;
+        self.stderr_loop(tx)?;
+        let path = self.string()?;
+        let _deriver = self.string()?;
+        let _nar_hash = self.string()?;
+        let _references = self.strings()?;
+        let _registration_time = self.u64()?;
+        let _nar_size = self.u64()?;
+        let _ultimate = self.u64()?;
+        let _sigs = self.strings()?;
+        let _ca = self.string()?;
+        Ok(path)
     }
 
     /// Registers the symlink `path` (absolute, outside the store) as a GC root, like `nix build --out-link`.

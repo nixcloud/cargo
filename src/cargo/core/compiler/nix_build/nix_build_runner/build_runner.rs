@@ -4,6 +4,7 @@
 use super::daemon::{self, BuildOptions, Daemon, PathResult};
 use super::event::Event;
 use super::logone;
+use crate::core::shell::Verbosity;
 use crate::util::Filesystem;
 use crate::util::{CargoResult, GlobalContext};
 use std::collections::{HashMap, HashSet};
@@ -56,7 +57,8 @@ impl NixBuild {
 
         let (tx, rx) = mpsc::channel();
         let color = std::io::stderr().is_terminal();
-        let renderer = std::thread::spawn(move || logone::run(rx, color, units));
+        let verbose = gctx.shell().verbosity() == Verbosity::Verbose;
+        let renderer = std::thread::spawn(move || logone::run(rx, color, units, true, verbose));
         let opts = BuildOptions { keep_going, max_jobs: u64::from(jobs) };
         let result = run(&caller, &base.join("gc"), &opts, &tx);
         // `tx` is gone after this, so logone drains the channel, prints the summary and returns.

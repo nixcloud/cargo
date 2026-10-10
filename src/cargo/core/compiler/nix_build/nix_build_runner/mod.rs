@@ -1,4 +1,5 @@
 pub mod build_runner;
+pub mod crate_store;
 mod daemon;
 mod event;
 mod logone;

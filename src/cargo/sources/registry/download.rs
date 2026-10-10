@@ -16,7 +16,8 @@ use crate::sources::registry::RegistryConfig;
 use crate::util::auth;
 use crate::util::cache_lock::CacheLockMode;
 use crate::util::errors::CargoResult;
-use crate::util::{Filesystem, GlobalContext};
+use crate::core::compiler::nix_build::nix_build_runner::crate_store::CrateTarball;
+use crate::util::{BuildBackend, Filesystem, GlobalContext};
 use std::fmt::Write as FmtWrite;
 use std::fs::{self, File, OpenOptions};
 use std::io::prelude::*;
@@ -41,6 +42,14 @@ pub(super) fn download(
     checksum: &str,
     registry_config: RegistryConfig,
 ) -> CargoResult<MaybeLock> {
+    if gctx.backend()? == BuildBackend::Nix && pkg.source_id().is_crates_io() {
+        // nix mode never downloads a `.crate` itself: PackageSet::download_accessible fetched it into the
+        // nix store, at the path the generated build system's fetchurl uses
+        let tarball = CrateTarball::new(pkg, checksum);
+        return File::open(&tarball.store_path).map(MaybeLock::Ready).with_context(|| {
+            format!("`{pkg}` is not in the nix store at {} (nix mode doesn't download crates)", tarball.store_path)
+        });
+    }
     let path = cache_path.join(&pkg.tarball_name());
     let path = gctx.assert_package_cache_locked(CacheLockMode::DownloadExclusive, &path);
 

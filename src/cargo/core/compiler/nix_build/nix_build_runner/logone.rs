@@ -8,7 +8,7 @@
 //! - Success/failure comes from the daemon's BuildResult, not from guessing on stop/msg text.
 //! - Status line: `[ 51 Done | 613 Expected | 8 Running | 0 Failed ] fiat-crypto, jiff (×2), libc (build.rs build)`
 //!
-//! Not yet: verbose/errors levels, `@cargo` type 1, timing per build.
+//! Not yet: errors level, `@cargo` type 1, timing per build.
 use super::event::{store_name, Activity, ActivityId, Event, Status};
 use super::status_line::StatusLine;
 use serde::Deserialize;
@@ -61,6 +61,12 @@ pub struct LogOne {
     color: bool,
     /// Derivation names of cargo's own units (see `run`).
     units: HashSet<String>,
+    /// Print the closing summary (`Finished …`/`Failed …`); off when only fetching crates into the store.
+    summary: bool,
+    /// `-v`: show the store path a download is written to
+    verbose: bool,
+    /// drv -> its `out` path (Event::Outputs), for `Downloading … (<path>)` in verbose mode
+    out_paths: HashMap<String, String>,
     t0: Instant,
     acts: HashMap<ActivityId, Act>,
     build_by_drv: HashMap<String, ActivityId>,
@@ -83,11 +89,15 @@ pub struct LogOne {
 
 /// Renders until every `Sender` is dropped, then prints the summary.
 /// `units`: derivation names cargo generated itself (crates, build scripts, the create-symlinks aggregate);
-/// they get no `Building` line.
-pub fn run(rx: Receiver<Event>, color: bool, units: HashSet<String>) {
+/// they get no `Building` line. `summary`: print the closing summary line. `verbose` (`-v`): show the store
+/// paths downloads are written to.
+pub fn run(rx: Receiver<Event>, color: bool, units: HashSet<String>, summary: bool, verbose: bool) {
     let mut l = LogOne {
         color,
         units,
+        summary,
+        verbose,
+        out_paths: HashMap::new(),
         t0: Instant::now(),
         acts: HashMap::new(),
         build_by_drv: HashMap::new(),
@@ -147,7 +157,8 @@ impl LogOne {
                     Activity::Build { drv } => {
                         let name = store_name(drv);
                         if let Some(krate) = crate_tarball(name) {
-                            self.label("Downloading", &krate, false);
+                            let path = self.out_paths.get(drv).cloned();
+                            self.downloading(&krate, path.as_deref());
                         } else if !self.units.contains(name) {
                             self.label("Building", name, false);
                         }
@@ -156,7 +167,7 @@ impl LogOne {
                     }
                     Activity::Substitute { path } => {
                         let name = crate_tarball(store_name(path)).unwrap_or_else(|| store_name(path).to_string());
-                        self.label("Downloading", &name, false);
+                        self.downloading(&name, Some(path));
                         // substituted dependencies aren't requested, so no BuildResult counts them
                         *self.counts.entry("fetched").or_default() += 1;
                     }
@@ -197,7 +208,11 @@ impl LogOne {
                 }
             }
             Event::BuildResult { drv, status, error_msg } => self.result(&drv, status, &error_msg),
-            Event::Outputs { .. } => {} // not rendered yet
+            Event::Outputs { drv, outputs } => {
+                if let Some(path) = outputs.into_iter().find(|(name, _)| name == "out").and_then(|(_, p)| p) {
+                    self.out_paths.insert(drv, path);
+                }
+            }
             Event::Interrupted => self.interrupted = true,
         }
     }
@@ -303,6 +318,9 @@ impl LogOne {
                 self.out(&self.ansi(&m));
             }
         }
+        if !self.summary {
+            return;
+        }
         if !self.skipped.is_empty() {
             let msg = format!("{} (a dependency failed)", self.skipped.join(", "));
             self.label("Skipped", &msg, true);
@@ -375,6 +393,14 @@ impl LogOne {
     /// All output goes through here, so the status line is cleared before and redrawn after.
     fn out(&mut self, s: &str) {
         self.bar.println(s);
+    }
+
+    /// `Downloading serde 1.0.218`, with `-v` followed by the store path it is written to
+    fn downloading(&mut self, what: &str, path: Option<&str>) {
+        match path.filter(|_| self.verbose) {
+            Some(path) => self.label("Downloading", &format!("{what} ({path})"), false),
+            None => self.label("Downloading", what, false),
+        }
     }
 
     /// cargo-style right-aligned label
