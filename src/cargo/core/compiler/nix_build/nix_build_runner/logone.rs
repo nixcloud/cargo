@@ -222,6 +222,18 @@ impl LogOne {
     }
 
     fn result(&mut self, drv: &str, status: Status, error_msg: &str) {
+        // A drv downstream of a content-addressed one (script_build_run) is built as its *resolved* drv, which
+        // we didn't request. When that build fails, the requested drv only gets DependencyFailed with
+        // `build of resolved derivation '<resolved>' failed`: attribute it to the resolved drv's build activity
+        // by its exact path, as a failure of this unit rather than a skip.
+        if status == Status::DependencyFailed {
+            let resolved = self.build_by_drv.keys().find(|d| d.as_str() != drv && error_msg.contains(d.as_str()));
+            if let Some(resolved) = resolved.cloned() {
+                *self.counts.entry("failed").or_default() += 1;
+                self.failed += 1;
+                return self.failure(&resolved, "", error_msg);
+            }
+        }
         let key = match status {
             Status::Built => "built",
             Status::Substituted => "fetched",

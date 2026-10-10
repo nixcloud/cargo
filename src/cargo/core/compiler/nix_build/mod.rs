@@ -537,6 +537,9 @@ impl<'a, 'gctx> NixBuildRunner {
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": command_line,
+                // the output path follows the content, so a rerun with the same outcome (same env vars, flags,
+                // generated files) doesn't rebuild the units that depend on it
+                "append": "__contentAddressed = true;".to_string().indentation(4),
             }),
         )?;
 

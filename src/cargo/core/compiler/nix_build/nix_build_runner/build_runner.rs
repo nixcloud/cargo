@@ -116,17 +116,23 @@ fn run(caller: &Path, gc_dir: &Path, opts: &BuildOptions, tx: &Sender<Event>) ->
     let results = d.build_paths_with_results(&request, tx).map_err(daemon_err)?;
     let target_ok = results.iter().any(|r| r.drv == target && r.status.is_success());
     let all_ok = results.iter().all(|r| r.status.is_success());
-    for PathResult { drv, status, error_msg } in results {
+    // `target` depends on content-addressed build script runs, so its path is only known after the build
+    let mut out = None;
+    for PathResult { drv, status, error_msg, outputs } in results {
+        if drv == target {
+            out = outputs.into_iter().find(|(name, _)| name == "out").map(|(_, path)| path);
+        }
         let _ = tx.send(Event::BuildResult { drv, status, error_msg });
     }
     if !(target_ok && all_ok) {
         return Err(Failure::Build);
     }
 
-    let out = outputs
-        .get(&target)
-        .and_then(|m| m.iter().find(|(name, _)| name == "out"))
-        .and_then(|(_, path)| path.clone())
+    let out = out
+        .or_else(|| {
+            let map = outputs.get(&target)?;
+            map.iter().find(|(name, _)| name == "out").and_then(|(_, path)| path.clone())
+        })
         .ok_or_else(|| daemon_err(daemon::Error::Daemon(format!("{target} has no `out` path"))))?;
     // like `nix build --out-link gc/result`: keeps the outputs create-symlinks points to alive
     let link = gc_dir.join("result");
@@ -152,6 +158,8 @@ fn instantiate(caller: &Path, gc_dir: &Path, tx: &Sender<Event>) -> Result<Strin
     };
     let mut cmd = Command::new("nix-instantiate");
     cmd.arg(caller).arg("-A").arg("target").arg("--add-root").arg(&root).env_clear();
+    // script_build_run units are `__contentAddressed`; the daemon needs the feature in its nix.conf too
+    cmd.arg("--extra-experimental-features").arg("ca-derivations");
     // Evaluation fetches (builtins.fetchTarball) run in this process, not in the daemon, so it needs the CA
     // certificates, proxies and its cache dir; PATH so `nix-instantiate` is found where it is installed.
     for var in ENV_PASSTHROUGH {

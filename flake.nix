@@ -49,6 +49,8 @@
           packages = { inherit cargo-libnix-1_87_0_plus_v1; inherit rustc_1_87_vanilla_pin; };
           devShells.default = mkShell {
             buildInputs = [
+              pkg-config 
+              openssl
               # rust toolchain
               rustc_1_87_vanilla_pin
               cargo-libnix-1_87_0_plus_v1

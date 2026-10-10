@@ -69,6 +69,9 @@ pub struct PathResult {
     pub drv: String,
     pub status: Status,
     pub error_msg: String,
+    /// output name -> store path, from builtOutputs; the only source for content-addressed and deferred
+    /// derivations, whose paths QueryDerivationOutputMap doesn't know before building
+    pub outputs: Vec<(String, String)>,
 }
 
 enum Field {
@@ -189,12 +192,21 @@ impl Daemon {
                     self.u64()?;
                 }
             }
+            let mut outputs = Vec::new();
             for _ in 0..self.u64()? {
-                self.string()?; // DrvOutput id
-                self.string()?; // Realisation (JSON)
+                let id = self.string()?; // DrvOutput `sha256:<drv hash>!<output name>`
+                let realisation = self.string()?; // JSON, `outPath` is the path without the store dir
+                let name = id.rsplit_once('!').map_or(id.as_str(), |(_, n)| n).to_string();
+                let out_path = serde_json::from_str::<serde_json::Value>(&realisation)
+                    .ok()
+                    .and_then(|v| v.get("outPath")?.as_str().map(str::to_string))
+                    .ok_or_else(|| Error::Daemon(format!("bad realisation for {id}: {realisation}")))?;
+                let out_path =
+                    if out_path.starts_with('/') { out_path } else { format!("/nix/store/{out_path}") };
+                outputs.push((name, out_path));
             }
             let drv = path.strip_suffix("!*").unwrap_or(&path).to_string();
-            out.push(PathResult { drv, status, error_msg });
+            out.push(PathResult { drv, status, error_msg, outputs });
         }
         Ok(out)
     }
