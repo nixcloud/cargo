@@ -47,7 +47,20 @@ pub fn ensure_managed_directory(dir: &Path) -> CargoResult<PathBuf> {
         if marker.exists() {
             Ok(dir.to_path_buf())
         } else {
-            Err(anyhow::anyhow!("directory '{}' exists but is not managed by us: missing \".cargo-libnix-managed\"", &dir.display()))
+            Err(anyhow::anyhow!(
+            "Directory '{}' exists but is not managed by cargo-libnix.
+
+            Motivation:
+              To prevent accidental deletion of files, cargo-libnix only operates removes on
+              directories that contain a marker file named '.cargo-libnix-managed'.
+
+            To continue:
+              Create an empty file named '.cargo-libnix-managed' in this directory and
+              start cargo again. For example:
+                touch '{}/.cargo-libnix-managed'",
+            &dir.display(),
+            &dir.display()
+        ))
         }
     } else {
         // create the directory and marker file
