@@ -33,50 +33,65 @@
             cargo = fenix.packages.${system}.stable.cargo;
           }).cargo-0_88_0-bin-b4cc6eeacb818d24;
 
-          # external_crate_dependencies = { envs = {}; deps = {}; } // (
-          #   if builtins.pathExists ./Cargo.dependencies.nix
-          #     then import ./Cargo.dependencies.nix { inherit pkgs; }
-          #     else { });
-          # # the cargo binary unit of a generated build system; its hash isn't known in advance
-          # cargoBin = units: units.${pkgs.lib.findFirst (n: pkgs.lib.hasPrefix "cargo-0_88_0-bin-" n)
-          #   (throw "no cargo-0_88_0-bin-* unit in the generated build system") (builtins.attrNames units)};
+          cargo-libnix-1_87_0_plus_v2_src = builtins.fetchTarball {
+            url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv2/libnix-1.87.0+v2-release.tar.bz2";
+            sha256 = "sha256:1w3hksx45jdr11l1ccs8i34h98ll5pf9ldc3mdv7sp94p7zs9168";
+          };
+          cargo-libnix-1_87_0_plus_v2 = (import (cargo-libnix-1_87_0_plus_v2_src + "/derivations/default.nix"){ 
+            inherit project_root pkgs;
+            external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v2_src + "/Cargo.dependencies.nix") { inherit pkgs; };
+            rustc = rustc_1_87_vanilla_pin;
+            cargo = fenix.packages.${system}.stable.cargo;
+          }).cargo-0_88_0-bin-8cad88ffd54a16db;
 
-          # # most recent development: bootstrap cargo from the build system committed in nix/
-          # # (regenerate with `cargo build write-nix-buildsystem --out-dir nix` when the units change)
-          # cargo-libnix = cargoBin (import nix/derivations/default.nix {
-          #   inherit project_root pkgs external_crate_dependencies;
-          #   rustc = rustc_1_87_vanilla_pin;
-          #   cargo = fenix.packages.${system}.stable.cargo;
-          # });
+          ######################## cargo-libnix-master-via-ifd ###########################
 
-          # src = builtins.filterSource
-          #   (path: type:
-          #       let base = baseNameOf path;
-          #       in !(base == "target" || base == "result" || builtins.match "result-*" base != null)
-          #   ) project_root;
-          # cargoVendor = pkgs.rustPlatform.importCargoLock { lockFile = ./Cargo.lock; };
-          # generated = pkgs.runCommand "cargo-nix-generated" { nativeBuildInputs = [ pkgs.openssl pkgs.pkg-config cargo-libnix rustc_1_87_vanilla_pin ]; } ''
-          #   export HOME=$TMPDIR CARGO_BACKEND=nix
-          #   cp -r ${src} project && chmod -R u+w project && cd project
-          #   cat >> .cargo/config.toml <<EOF
-          #   [source.crates-io]
-          #   replace-with = "vendored-sources"
-          #   [source.vendored-sources]
-          #   directory = "${cargoVendor}"
-          #   EOF
-          #   ${cargo-libnix}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
-          # '';
-          # libnix-master-via-ifd = cargoBin (import "${generated}/cargo_build_caller.nix" { inherit system; project_root = src; });
+          external_crate_dependencies = { envs = {}; deps = {}; } // (
+            if builtins.pathExists ./Cargo.dependencies.nix
+              then import ./Cargo.dependencies.nix { inherit pkgs; }
+              else { });
+
+          # the cargo binary unit of a generated build system; its hash isn't known in advance
+          cargoBin = units: units.${pkgs.lib.findFirst (n: pkgs.lib.hasPrefix "cargo-0_88_0-bin-" n)
+            (throw "no cargo-0_88_0-bin-* unit in the generated build system") (builtins.attrNames units)};
+
+          src = builtins.filterSource
+            (path: type:
+                let base = baseNameOf path;
+                in !(base == "target" || base == "result" || builtins.match "result-*" base != null)
+            ) project_root;
+          cargoVendor = pkgs.rustPlatform.importCargoLock { lockFile = ./Cargo.lock; };
+          generated = pkgs.runCommand "cargo-nix-generated" { nativeBuildInputs = [ pkgs.openssl pkgs.pkg-config cargo-libnix-1_87_0_plus_v2 rustc_1_87_vanilla_pin ]; } ''
+            export HOME=$TMPDIR CARGO_BACKEND=nix
+            cp -r ${src} project && chmod -R u+w project && cd project
+            cat >> .cargo/config.toml <<EOF
+            [source.crates-io]
+            replace-with = "vendored-sources"
+            [source.vendored-sources]
+            directory = "${cargoVendor}"
+            EOF
+            ${cargo-libnix-1_87_0_plus_v2}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
+          '';
+          cargo-libnix-master-via-ifd = cargoBin (import "${generated}/cargo_build_caller.nix" { inherit system; project_root = src; });
         in
         with pkgs;
         rec {
-          packages = { inherit cargo-libnix-1_87_0_plus_v1; inherit rustc_1_87_vanilla_pin; };
+          packages = {
+            inherit cargo-libnix-1_87_0_plus_v2 rustc_1_87_vanilla_pin cargo-libnix-master-via-ifd;
+            default = pkgs.symlinkJoin {
+              name = "cargo-libnix-1_87_0_plus_v2-with-rustc";
+              paths = [
+                cargo-libnix-1_87_0_plus_v2
+                rustc_1_87_vanilla_pin
+              ];
+            };
+          };
           devShells.default = mkShell {
             buildInputs = [
               # rust toolchain
               rustc_1_87_vanilla_pin
-              cargo-libnix-1_87_0_plus_v1
-              #libnix-master-via-ifd
+              cargo-libnix-1_87_0_plus_v2
+              #cargo-libnix-master-via-ifd
               # used by cargo (libnix)
               nix-prefetch-scripts
               # comfy tools
