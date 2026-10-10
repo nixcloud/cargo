@@ -31,6 +31,14 @@ use crate::util::{CargoResult, Filesystem, GlobalContext};
 #[derive(Clone, Debug)]
 pub struct NixBuildOptions {
     pub out_dir: PathBuf,
+    /// `None`: the workspace's path crates are taken from `project_root`, a local directory (relative to
+    /// `out_dir` by default, overridable when importing the build system, e.g. via IFD).
+    pub remote_src: Option<RemoteSrc>,
+}
+
+/// Tarball the workspace's path crates are fetched from (`--url`/`--hash`).
+#[derive(Clone, Debug)]
+pub struct RemoteSrc {
     pub url: String,
     pub hash: String,
 }
@@ -193,7 +201,7 @@ impl<'a, 'gctx> NixBuildRunner {
             // let s = format!("unit.profile.incremental: {} {:?}", &nix_attribute_name, unit.profile.incremental);
             // println!("{s}");
 
-            let src: String = generate_src(&workspace, &unit, &crate_name, &crate_version, &gctx, &write_nix_buildsystem_options)?;
+            let src: String = generate_src(&unit, &crate_name, &crate_version, &gctx, &write_nix_buildsystem_options)?;
 
             let deps: Dependencies = deps::create_unit_dependencies(
                 &unit,
@@ -246,9 +254,16 @@ impl<'a, 'gctx> NixBuildRunner {
         let mut handlebars = Handlebars::new();
         let template_str = include_str!("templates/cargo_build_caller.nix.handlebars");
         handlebars.register_template_string("caller", template_str)?;
-        let project_root = match write_nix_buildsystem_options {
-            Some(_) => { "." },      // exported build system via write-nix-buildsystem
-            None => { "../../.." },  // build system used in normal 'CARGO_BACKEND=nix cargo build'
+        // default of cargo_build_caller.nix's `project_root` argument, the directory path crates are built from
+        let project_root: String = match &write_nix_buildsystem_options {
+            // exported with --url/--hash: sources are fetched; it only holds the Cargo.dependencies.nix copy
+            Some(NixBuildOptions { remote_src: Some(_), .. }) => ".".to_string(),
+            // exported for the local checkout: the workspace root, relative to --out-dir
+            Some(NixBuildOptions { remote_src: None, .. }) => {
+                relative_nix_path(&nix_base_dir_path, workspace.root())?
+            }
+            // build system used in normal 'CARGO_BACKEND=nix cargo build', in target/<profile>/nix
+            None => "../../..".to_string(),
         };
 
         let rendered = handlebars.render(
@@ -375,6 +390,16 @@ impl<'a, 'gctx> NixBuildRunner {
         if write_nix_buildsystem_options.is_none() {
             let jobs = bcx.build_config.jobs;
             NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names)?;
+        } else if write_nix_buildsystem_options.as_ref().is_some_and(|o| o.remote_src.is_none()) {
+            // project_root is the workspace itself, so its Cargo.dependencies.nix is used in place
+            gctx.shell().status(
+                "write-nix-buildsystem",
+                format!(
+                    "Successfully exported build system to '{}', building from '{}'.",
+                    nix_base_dir.display(),
+                    workspace.root().display()
+                ),
+            )?;
         } else {
             let target_path: PathBuf = nix_base_dir
                 .clone()
@@ -774,4 +799,21 @@ impl<'a, 'gctx> NixBuildRunner {
         });
         Ok(())
     }
+}
+
+/// `to` relative to `from` as a nix path literal without trailing slash (`..`, `../..`, `./sub`), so the
+/// exported build system keeps working when the project is moved or checked out elsewhere.
+fn relative_nix_path(from: &std::path::Path, to: &std::path::Path) -> CargoResult<String> {
+    let (from, to) = (fs::canonicalize(from)?, fs::canonicalize(to)?);
+    let rel = pathdiff::diff_paths(&to, &from)
+        .ok_or_else(|| anyhow::format_err!("no relative path from {} to {}", from.display(), to.display()))?;
+    let rel = rel.to_str().ok_or_else(|| anyhow::format_err!("non-UTF-8 path {}", rel.display()))?;
+    if rel.contains(|c: char| c.is_whitespace() || c == '"' || c == '$') {
+        anyhow::bail!("the path from {} to {} can't be a nix path literal: `{rel}`", from.display(), to.display());
+    }
+    Ok(match rel {
+        "" => ".".to_string(),
+        r if r.starts_with("..") => r.to_string(),
+        r => format!("./{r}"),
+    })
 }

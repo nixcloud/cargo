@@ -342,7 +342,6 @@ pub fn generate_manifest_environment_variables<'gctx>(
 }
 
 pub fn generate_src<'gctx>(
-    workspace: &Workspace<'gctx>,
     unit: &Unit,
     crate_name: &String,
     crate_version: &String,
@@ -352,8 +351,9 @@ pub fn generate_src<'gctx>(
     let source_id = unit.pkg.package_id().source_id();
     match source_id.kind() {
         SourceKind::Path => {
-            match write_nix_buildsystem_options {
-                Some(ref write_nix_buildsystem_options) => {
+            let remote_src = write_nix_buildsystem_options.as_ref().and_then(|o| o.remote_src.as_ref());
+            match remote_src {
+                Some(remote_src) => {
                     let mut handlebars = Handlebars::new();
                     let template_str = indoc! {
                     r#"
@@ -366,35 +366,27 @@ pub fn generate_src<'gctx>(
                     let rendered: String = handlebars.render(
                         "fetch",
                         &serde_json::json!({
-                            "url": &write_nix_buildsystem_options.url,
-                            "hash": &write_nix_buildsystem_options.hash
+                            "url": &remote_src.url,
+                            "hash": &remote_src.hash
                         }),
                     )?;
                     return Ok(rendered.indentation(4));
                 },
                 None => {
-                    let src = workspace.root().display().to_string();
-                    let mut handlebars = Handlebars::new();
-                    let template_str = 
+                    // `project_root` (cargo_build_caller.nix) is the workspace root: `../../..` from target/<profile>/nix,
+                    // or for write-nix-buildsystem the path from --out-dir, overridable when importing (IFD)
+                    let template_str =
                         indoc! {
                             r#"
                                 src = builtins.filterSource
                                 (path: type:
                                     let base = baseNameOf path;
                                     in !(base == "target" || base == "result" || builtins.match "result-*" base != null)
-                                ) {{{src}}};
+                                ) project_root;
                             "#};
-
-                    handlebars.register_template_string("fetch", template_str)?;
-                    let rendered: String = handlebars.render(
-                        "fetch",
-                        &serde_json::json!({
-                            "src": src,
-                        }),
-                    )?;
-                    return Ok(rendered.indentation(4));
+                    return Ok(template_str.to_string().indentation(4));
                 }
-            }; 
+            };
         }
         SourceKind::Git(_git_ref) => {
             if let Some(precise_rev) = source_id.precise_git_fragment() {

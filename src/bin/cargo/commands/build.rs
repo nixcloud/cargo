@@ -50,11 +50,11 @@ pub fn cli() -> Command {
                         .value_name("PATH"),
                 )
                 .arg(
-                    opt("url", "Use remote URL for source code download")
+                    opt("url", "Fetch the project source from this tarball URL (with --hash); default: the local project directory")
                         .value_name("URI"),
                 )
                 .arg(
-                    opt("hash", "The hash (sha256), created with nix-prefetch-url")
+                    opt("hash", "The hash (sha256) of the --url tarball, created with nix-prefetch-url")
                 )
         )
         .after_help(color_print::cstr!(
@@ -76,26 +76,21 @@ pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
                 )
             })?.clone();
 
-            let url = sub_args.get_one::<String>("url").ok_or_else(|| {
-                CliError::new(
-                    anyhow::format_err!(
-                        "`cargo build write-nix-buildsystem` requires --url\n\
-                        Please specify the --url option."
-                    ),
-                    101,
-                )
-            })?.clone();
-
-            let hash = sub_args.get_one::<String>("hash").ok_or_else(|| {
-                CliError::new(
-                    anyhow::format_err!(
-                        "`cargo build write-nix-buildsystem` requires --hash\n\
-                        Please specify the --hash option."
-                    ),
-                    101,
-                )
-            })?.clone();
-            Some(NixBuildOptions { out_dir, url, hash })
+            // without --url/--hash the build system references the local project directory
+            let remote_src = match (sub_args.get_one::<String>("url"), sub_args.get_one::<String>("hash")) {
+                (Some(url), Some(hash)) => Some(RemoteSrc { url: url.clone(), hash: hash.clone() }),
+                (None, None) => None,
+                _ => {
+                    return Err(CliError::new(
+                        anyhow::format_err!(
+                            "`cargo build write-nix-buildsystem` requires --url and --hash together\n\
+                            Omit both to reference the local project directory."
+                        ),
+                        101,
+                    ))
+                }
+            };
+            Some(NixBuildOptions { out_dir, remote_src })
         },
         Some((&_, _)) => {None},
         None => {None}

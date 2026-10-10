@@ -1,8 +1,8 @@
 # generated from cargo_build_caller.nix.handlebars using cargo (manual edits won't be persistent)
-{ system ? builtins.currentSystem }:
+# project_root: the directory the workspace's path crates are built from; pass your own to build another
+# checkout, e.g. `import "${generated}/cargo_build_caller.nix" { project_root = ./.; }` (IFD)
+{ system ? builtins.currentSystem, project_root ? {{{project_root}}}/. }:
 let
-  project_root = {{{project_root}}}/.;
-
   nixpkgsSrc = builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/26.05.tar.gz";
     sha256 = "sha256:0am8xx09fx5yf2p0wb001v0jx1g5hrfb76h4r37xph378jgk7pcr";
@@ -17,13 +17,14 @@ let
     rev = "6ed03ef4c8ec36d193c18e06b9ecddde78fb7e42";
     sha256 = "sha256-tl/0cnsqB/Yt7DbaGMel2RLa7QG5elA8lkaOXli6VdY=";
   };
-  fenix = import fenixSrc {};
+  # fenix defaults to builtins.currentSystem, which pure (flake) evaluation lacks
+  fenix = import fenixSrc { inherit system; };
   toolchain = fenix.stable.toolchain;
 
   external_crate_dependencies = { deps = {}; envs = {}; } //
-    (if builtins.pathExists {{{project_root}}}/Cargo.dependencies.nix
+    (if builtins.pathExists (project_root + "/Cargo.dependencies.nix")
     then builtins.trace "Using Cargo.dependencies.nix"
-         import {{{project_root}}}/Cargo.dependencies.nix { inherit pkgs; }
+         import (project_root + "/Cargo.dependencies.nix") { inherit pkgs; }
     else builtins.trace "No Cargo.dependencies.nix found" {});
 
   cargoPackages = import ./derivations/default.nix {
