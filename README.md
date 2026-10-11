@@ -14,7 +14,7 @@ Ideally you type these commands: 🚀
     nix develop
     cargo build
 
-[![asciicast](https://asciinema.org/a/1267784.svg)](https://asciinema.org/a/1267784)
+[![asciicast](https://asciinema.org/a/1268068.svg)](https://asciinema.org/a/1268068)
 
 You can easily add it to your project's flake.nix and use it, too!
 
@@ -127,7 +127,7 @@ When you use fenix to manage your Rust installation, simply add a few lines to e
         devShells.default = pkgs.mkShell {
           buildInputs = [
             libnix-flake.packages.${system}.rustc_1_87_vanilla_pin
-            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v1
+            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v3
           ];
           shellHook = ''
             export CARGO_BACKEND=nix
@@ -147,16 +147,19 @@ Afterwards check with `which cargo` that it points to the right path.
 With this you can extend your build system with a `cargo` (libnix) binary, you need to add a `rustc` and other rust toolchain parts in addition similar to the flake setup:
 
 ```nix
-libnix_cargo_src = builtins.fetchTarball {
-  url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv1/libnix-1.87.0+v1.tar.bz2";
-  sha256 = "sha256:1pa5yg6i5rk0f50f0syv3ci0864ca3w9ch60rx2q6mp7fy86h086";
+cargo-libnix-1_87_0_plus_v3_src = builtins.fetchTarball {
+  url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv3/libnix-1.87.0+v3.tar.bz2";
+  sha256 = "sha256:00cqp5s8gdzz2abwlggz3v9qhizln7f06nilkb34fvkr9hywgk2v";
 };
-libnix_cargo = (import (libnix_cargo_src + "/cargo_build_caller.nix"){ inherit system;}).cargo-0_88_0-bin-b4cc6eeacb818d24;
+cargo-libnix-1_87_0_plus_v3 = (import (cargo-libnix-1_87_0_plus_v3_src + "/derivations/default.nix"){ 
+  inherit project_root pkgs;
+  external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v3_src + "/Cargo.dependencies.nix") { inherit pkgs; };
+  rustc = rustc_1_87_vanilla_pin;
+  cargo = cargo_1_87_vanilla_pin;
+}).cargo-0_88_0-bin-8cad88ffd54a16db;
 ...
-systemPackages = [ libnix_cargo ];
+systemPackages = [ cargo-libnix-1_87_0_plus_v3 rustc_1_87_vanilla_pin ];
 ```
-
-NOTE: You will also need a suitable rustc of the same version so probably use fenix as well.
 
 WARNING: **cargo_build_caller.nix** acts like a flake.nix since it has its own input section and uses a different nixpkgs because this way we can share the build artifacts between machines. Feel free to also use the **nix/derivations/default.nix** as entry point while providing your own `cargo`, `rustc` and `pkgs`.
 
