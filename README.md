@@ -30,7 +30,7 @@ This project is [xkcd 927](https://xkcd.com/927/).
 
 We use these resources:
 
-* https://github.com/nixcloud/cargo - branch **master-libnix** - exists as a PR to incorperate nix into cargo
+* https://github.com/nixcloud/cargo - branch **master-libnix** - exists as a PR to incorperate nix into cargo (see [Branches and releases](#branches-and-releases-))
 * https://github.com/nixcloud/cargo/issues - for issues, do not report issues on the original cargo tracker (or their formus)!
 * https://link.excalidraw.com/l/3QhpSMKuoZA/6eoC5kkanvL - diagrams
 * https://link.excalidraw.com/p/readonly/HTEjH2WpzNJExWK81BaN - slides
@@ -265,6 +265,31 @@ Finally you can create a tar.bz2 of the build system and add it to the release s
 * source code (zip)
 * source code (tar.gz)
 * libnix-1.87.0-rc2.tar.bz2 (the build system)
+
+# Branches and releases 🌿
+
+cargo (libnix) does not follow every upstream cargo release, only selected Rust toolchains. Each supported toolchain is a patch stack on top of upstream's release of that toolchain.
+
+| branch | what it is |
+|---|---|
+| `master-libnix` | the main line, on the newest supported toolchain (currently Rust 1.87.0) |
+| `rust-<version>-libnix` | one maintenance branch per supported toolchain, e.g. `rust-1.87.0-libnix`; mirrors upstream's `rust-<version>` branch |
+| `master` | upstream cargo, untouched |
+
+The naming follows upstream: cargo has a release branch per toolchain (`rust-1.87.0`, `rust-1.99.0`) and tags the cargo crate version (`0.88.0` is the cargo of Rust 1.87.0, `0.100.0` the one of Rust 1.99.0).
+
+Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87.0+v1`, `libnix-1.87.0+v2`, … The tags stay valid no matter what happens to the branches; flakes and nix code should pin a tag or a release tarball, not a branch.
+
+## supporting a new toolchain
+
+1. base on upstream's release of that toolchain (the cargo crate tag, e.g. `0.100.0`, or the `rust-<version>` branch), not on an upstream `master` commit, so the upstream backports are included
+2. rebase the libnix patch stack onto it on a work branch; squashing the stack into a few logical patches first (nix backend, daemon/runner, templates, write-nix-buildsystem, crate store/GC roots, flake) keeps the conflicts manageable and `git diff <upstream tag>..` readable
+3. once cargo builds itself with `CARGO_BACKEND=nix` and the example projects work, the previous toolchain's state is kept in its `rust-<version>-libnix` branch and the work branch becomes the main line
+4. tag the first release of the new line, e.g. `libnix-1.99.0+v1`
+
+## maintenance branches
+
+`rust-<version>-libnix` branches only get fixes (cherry-picked), no new features; a fix released there gets the next tag of that line, e.g. `libnix-1.87.0+v4`.
 
 # Similar projects 📚
 
