@@ -7,6 +7,8 @@
 //!   themselves with `@cargo` type 0 (`Compiling`).
 //! - Success/failure comes from the daemon's BuildResult, not from guessing on stop/msg text.
 //! - Status line: `[ 51 Done | 613 Expected | 8 Running | 0 Failed ] fiat-crypto, jiff (×2), libc (build.rs build)`
+//! - Failures are printed after all builds are done, each under a `──── error 1/2: <crate> ────` header;
+//!   warnings of successful builds are shown right away.
 //!
 //! Not yet: errors level, `@cargo` type 1, timing per build.
 use super::event::{store_name, Activity, ActivityId, Event, Status};
@@ -23,8 +25,20 @@ struct Act {
     phase: Option<String>,
     /// Set once the builder sent `@cargo` type 0.
     crate_label: Option<String>,
-    /// Set once `@cargo` type 2/3 printed rustc diagnostics or build.rs output; a failure then needs no log.
-    diagnostics: bool,
+    /// rustc diagnostics of a failed rustc run (`@cargo` type 2) and build.rs failure output (type 3),
+    /// held back until the end; a failure with these needs no log.
+    diagnostics: Vec<String>,
+}
+
+/// A failed build, printed with a header after all builds are done so its output can't interleave with
+/// other builds and is easy to attribute to its crate.
+struct Failure {
+    /// `openssl-sys (build.rs run)`, or the derivation name for builds that aren't cargo units
+    what: String,
+    /// the derivation name if it says more than `what` (version, unit hash)
+    drv_name: Option<String>,
+    headline: String,
+    body: Option<String>,
 }
 
 /// The builder's own structured messages, from the generated cargo toolchain (logone README).
@@ -40,6 +54,9 @@ struct CargoMsg {
     rustc_messages: Vec<Rendered>,
     #[serde(default)]
     messages: Vec<String>,
+    /// type 2 only
+    #[serde(default)]
+    rustc_exit_code: i64,
 }
 
 #[derive(Deserialize)]
@@ -84,6 +101,8 @@ pub struct LogOne {
     failed: usize,
     /// DependencyFailed units, shown in one line before the summary
     skipped: Vec<String>,
+    /// printed after all builds are done (`print_failures`)
+    failures: Vec<Failure>,
     interrupted: bool,
 }
 
@@ -110,6 +129,7 @@ pub fn run(rx: Receiver<Event>, color: bool, units: HashSet<String>, summary: bo
         counts: HashMap::new(),
         failed: 0,
         skipped: Vec::new(),
+        failures: Vec::new(),
         interrupted: false,
     };
     // The timeout picks up status changes that the redraw throttle skipped while no further events came in.
@@ -173,7 +193,7 @@ impl LogOne {
                     }
                     _ => {}
                 }
-                self.acts.insert(id, Act { parent, activity, log: Vec::new(), phase: None, crate_label: None, diagnostics: false });
+                self.acts.insert(id, Act { parent, activity, log: Vec::new(), phase: None, crate_label: None, diagnostics: Vec::new() });
             }
             Event::Stop { id } => {
                 // The stop carries no status (FINDINGS Q4); the outcome arrives as BuildResult.
@@ -225,11 +245,15 @@ impl LogOne {
                 self.acts.get_mut(&build).unwrap().crate_label = Some(label);
             }
             2 | 3 => {
-                // rustc diagnostics (type 2) / build.rs output (type 3): shown right away, like cargo
+                // warnings of a successful rustc run are shown right away, like cargo; a failed rustc run
+                // (type 2) or build.rs (type 3, only sent on failure) is shown with its failure at the end
                 let rendered = m.rustc_messages.iter().filter_map(|r| r.rendered.as_ref());
-                for r in rendered.chain(&m.messages) {
-                    self.out(self.ansi(r).trim_end_matches('\n'));
-                    self.acts.get_mut(&build).unwrap().diagnostics = true;
+                let lines: Vec<String> =
+                    rendered.chain(&m.messages).map(|r| self.ansi(r).trim_end_matches('\n').to_string()).collect();
+                if m.kind == 2 && m.rustc_exit_code == 0 {
+                    lines.iter().for_each(|l| self.out(l));
+                } else {
+                    self.acts.get_mut(&build).unwrap().diagnostics.extend(lines);
                 }
             }
             _ => {}
@@ -262,23 +286,47 @@ impl LogOne {
         self.failure(drv, &format!(": {status:?}"), error_msg);
     }
 
-    /// `error failed to build `name` in phase `build`<suffix>` + the build's log (or Nix's message without one)
+    /// Records `failed to build `name` in phase `build`<suffix>` + the build's diagnostics, else its log (or
+    /// Nix's message without one), for `print_failures`.
     fn failure(&mut self, drv: &str, suffix: &str, error_msg: &str) {
         let act = self.build_by_drv.get(drv).and_then(|id| self.acts.get(id));
-        let what = act.and_then(|a| a.crate_label.clone()).unwrap_or_else(|| store_name(drv).to_string());
+        let name = store_name(drv).to_string();
+        let what = act.and_then(|a| a.crate_label.clone()).unwrap_or_else(|| name.clone());
         let phase = act.and_then(|a| a.phase.as_deref()).map(|p| format!(" in phase `{p}`")).unwrap_or_default();
-        // no activity or no output: Nix's own message is all we have
         let body = match act {
-            // the diagnostics are on screen already; the log only repeats them
-            Some(a) if a.diagnostics => None,
+            // the log only repeats the diagnostics
+            Some(a) if !a.diagnostics.is_empty() => Some(a.diagnostics.join("\n")),
             Some(a) if !a.log.is_empty() => {
                 Some(a.log.iter().map(|l| format!("  {}", self.ansi(l))).collect::<Vec<_>>().join("\n"))
             }
+            // no activity or no output: Nix's own message is all we have
             _ => Some(self.ansi(error_msg)),
         };
-        self.label("error", &format!("failed to build `{what}`{phase}{suffix}"), true);
-        if let Some(body) = body {
-            self.out(&body);
+        let headline = format!("failed to build `{what}`{phase}{suffix}");
+        let drv_name = (name != what).then_some(name);
+        self.failures.push(Failure { what, drv_name, headline, body });
+    }
+
+    /// Every failure under a header naming its crate, after all builds are done.
+    fn print_failures(&mut self) {
+        let failures = std::mem::take(&mut self.failures);
+        let n = failures.len();
+        for (i, f) in failures.into_iter().enumerate() {
+            let mut title = format!(" error {}/{n}: {} ", i + 1, f.what);
+            if let Some(drv) = &f.drv_name {
+                title.push_str(&format!("({drv}) "));
+            }
+            let rule = "─".repeat(80usize.saturating_sub(title.chars().count() + 4));
+            let header = format!("────{title}{rule}");
+            self.out("");
+            self.out(&if self.color { format!("\x1b[1;31m{header}\x1b[0m") } else { header });
+            self.label("error", &f.headline, true);
+            if let Some(body) = f.body {
+                self.out(&body);
+            }
+        }
+        if n > 0 {
+            self.out("");
         }
     }
 
@@ -293,6 +341,7 @@ impl LogOne {
                 None => self.out(&self.ansi(&m)),
             }
         }
+        self.print_failures();
         let running: Vec<String> = self
             .running
             .iter()
@@ -318,6 +367,7 @@ impl LogOne {
                 self.out(&self.ansi(&m));
             }
         }
+        self.print_failures();
         if !self.summary {
             return;
         }
