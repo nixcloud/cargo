@@ -62,22 +62,39 @@
             ) project_root;
           cargoVendor = pkgs.rustPlatform.importCargoLock { lockFile = ./Cargo.lock; };
           generated = pkgs.runCommand "cargo-nix-generated" { nativeBuildInputs = [ pkgs.openssl pkgs.pkg-config cargo-libnix-1_87_0_plus_v2 rustc_1_87_vanilla_pin ]; } ''
-            export HOME=$TMPDIR CARGO_BACKEND=nix
-            cp -r ${src} project && chmod -R u+w project && cd project
-            cat >> .cargo/config.toml <<EOF
-            [source.crates-io]
-            replace-with = "vendored-sources"
-            [source.vendored-sources]
-            directory = "${cargoVendor}"
-            EOF
-            ${cargo-libnix-1_87_0_plus_v2}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
-          '';
+             export HOME=$TMPDIR CARGO_BACKEND=nix
+             cp -r ${src} project && chmod -R u+w project && cd project
+             cat >> .cargo/config.toml <<EOF
+             [source.crates-io]
+             replace-with = "vendored-sources"
+             [source.vendored-sources]
+             directory = "${cargoVendor}"
+             EOF
+             ${cargo-libnix-1_87_0_plus_v2}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
+           '';
+
           cargo-libnix-master-via-ifd = cargoBin (import "${generated}/cargo_build_caller.nix" { inherit system; project_root = src; });
+
+          # lock = builtins.fromTOML (builtins.readFile ./Cargo.lock);
+          # crateTarballs = map (p: pkgs.fetchurl {
+          #     name = "crate-${p.name}-${p.version}.tar.gz";
+          #     url = "https://crates.io/api/v1/crates/${p.name}/${p.version}/download";
+          #     sha256 = p.checksum;
+          #   })
+          #   (builtins.filter (p: (p.source or "") == "registry+https://github.com/rust-lang/crates.io-index") lock.package);
+
+          # generated_ = pkgs.runCommand "cargo-nix-generated" { inherit crateTarballs; nativeBuildInputs = [ pkgs.openssl pkgs.pkg-config cargo-libnix-master-via-ifd_ rustc_1_87_vanilla_pin ]; } ''
+          #   export HOME=$TMPDIR CARGO_BACKEND=nix
+          #   cp -r ${src} project && chmod -R u+w project && cd project
+          #   echo "------------------ hi -----------------"
+          #   ${cargo-libnix-master-via-ifd}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
+          # '';
+          # cargo-libnix-master-via-ifd_ = cargoBin (import "${generated_}/cargo_build_caller.nix" { inherit system; project_root = src; });
         in
         with pkgs;
         rec {
           packages = {
-            inherit cargo-libnix-1_87_0_plus_v2 rustc_1_87_vanilla_pin cargo-libnix-master-via-ifd;
+            inherit cargo-libnix-1_87_0_plus_v2 rustc_1_87_vanilla_pin cargo-libnix-master-via-ifd cargo-libnix-master-via-ifd_;
             default = pkgs.symlinkJoin {
               name = "cargo-libnix-1_87_0_plus_v2-with-rustc";
               paths = [

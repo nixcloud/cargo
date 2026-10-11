@@ -213,6 +213,8 @@ pub struct GlobalContext {
     env: Env,
     /// Tracks which sources have been updated to avoid multiple updates.
     updated_sources: LazyCell<RefCell<HashSet<SourceId>>>,
+    /// nix mode, offline: directory source unpacked from the crates.io tarballs in the nix store
+    nix_crates_io_dir: RefCell<Option<PathBuf>>,
     /// Cache of credentials from configuration or credential providers.
     /// Maps from url to credential value.
     credential_cache: LazyCell<RefCell<HashMap<CanonicalUrl, CredentialCacheValue>>>,
@@ -331,6 +333,7 @@ impl GlobalContext {
             target_dir: None,
             env,
             updated_sources: LazyCell::new(),
+            nix_crates_io_dir: RefCell::new(None),
             credential_cache: LazyCell::new(),
             registry_config: LazyCell::new(),
             package_cache_lock: CacheLocker::new(),
@@ -1217,6 +1220,16 @@ impl GlobalContext {
 
     pub fn network_allowed(&self) -> bool {
         !self.offline_flag().is_some()
+    }
+
+    /// Where crates.io is served from instead of its index in nix mode offline, see
+    /// `crate_store::prepare_offline_registry`.
+    pub fn nix_crates_io_dir(&self) -> Option<PathBuf> {
+        self.nix_crates_io_dir.borrow().clone()
+    }
+
+    pub fn set_nix_crates_io_dir(&self, dir: PathBuf) {
+        *self.nix_crates_io_dir.borrow_mut() = Some(dir);
     }
 
     pub fn offline_flag(&self) -> Option<&'static str> {

@@ -6,11 +6,14 @@ use super::daemon::{BuildOptions, Daemon};
 use super::event::Event;
 use super::logone;
 use crate::core::resolver::Resolve;
-use crate::core::PackageId;
+use crate::core::{PackageId, Workspace};
 use crate::core::shell::Verbosity;
 use crate::util::{CargoResult, GlobalContext};
+use anyhow::Context as _;
+use cargo_util::paths;
 use cargo_util::Sha256;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fs::{self, File};
 use std::io::IsTerminal;
 use std::path::Path;
 use std::sync::mpsc;
@@ -167,6 +170,88 @@ pub fn fetch_crates(gctx: &GlobalContext, ids: &BTreeSet<PackageId>, resolve: &R
     let failed = result?;
     if !failed.is_empty() {
         anyhow::bail!("failed to fetch crates into the nix store:\n  {}", failed.join("\n  "));
+    }
+    Ok(())
+}
+
+/// nix mode, offline (nixcloud/cargo#22's IFD sandbox): the resolver can't read the crates.io index, so
+/// crates.io is served as a directory source unpacked from the store tarballs of the Cargo.lock entries
+/// (sources/config.rs). The tarballs have to be in the store already, e.g. as inputs of the derivation.
+/// Does nothing if `[source.crates-io]` is replaced (vendored) by configuration.
+pub fn prepare_offline_registry(ws: &Workspace<'_>, resolve: &Resolve) -> CargoResult<()> {
+    let gctx = ws.gctx();
+    if gctx.get::<Option<String>>("source.crates-io.replace-with")?.is_some() {
+        return Ok(());
+    }
+    let mut wanted = BTreeMap::new();
+    let mut missing = Vec::new();
+    for id in resolve.iter().filter(|id| id.source_id().is_crates_io()) {
+        let Some(Some(checksum)) = resolve.checksums().get(&id) else {
+            anyhow::bail!("`{id}` has no checksum in Cargo.lock, which nix mode needs (regenerate Cargo.lock)");
+        };
+        let tarball = CrateTarball::new(id, checksum);
+        if !Path::new(&tarball.store_path).exists() {
+            missing.push(format!("{} ({})", tarball.store_path, tarball.url));
+        }
+        wanted.insert(format!("{}-{}", id.name(), id.version()), tarball);
+    }
+    if !missing.is_empty() {
+        anyhow::bail!(
+            "nix mode {} reads crates.io crates from the nix store instead of the index, but {} of them \
+             are missing (add them as inputs of the derivation, or build without {0} once):\n  {}",
+            gctx.offline_flag().unwrap_or("--offline"),
+            missing.len(),
+            missing.join("\n  ")
+        );
+    }
+
+    let dir = ws.target_dir().as_path_unlocked().join("nix-crates-io");
+    paths::create_dir_all(&dir)?;
+    // drop crates the lockfile doesn't have anymore (and leftovers of an interrupted unpack)
+    for entry in fs::read_dir(&dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !wanted.contains_key(&name) {
+            paths::remove_dir_all(entry.path())?;
+        }
+    }
+    for (dir_name, tarball) in &wanted {
+        let dst = dir.join(dir_name);
+        let cksum_file = dst.join(".cargo-checksum.json");
+        let cksum = serde_json::json!({ "files": {}, "package": tarball.checksum }).to_string();
+        if fs::read_to_string(&cksum_file).is_ok_and(|s| s == cksum) {
+            continue;
+        }
+        if dst.exists() {
+            paths::remove_dir_all(&dst)?;
+        }
+        let tmp = dir.join(format!(".unpack-{dir_name}"));
+        paths::create_dir_all(&tmp)?;
+        unpack(&tarball.store_path, dir_name, &tmp)
+            .with_context(|| format!("failed to unpack {}", tarball.store_path))?;
+        paths::write(tmp.join(dir_name).join(".cargo-checksum.json"), cksum)?;
+        fs::rename(tmp.join(dir_name), &dst)?;
+        paths::remove_dir_all(&tmp)?;
+    }
+    gctx.set_nix_crates_io_dir(dir);
+    Ok(())
+}
+
+/// Unpacks a `.crate`, whose entries all live under `<prefix>/`, into `dst`.
+fn unpack(tarball: &str, prefix: &str, dst: &Path) -> CargoResult<()> {
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(File::open(tarball)?));
+    tar.set_preserve_permissions(false);
+    for entry in tar.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.into_owned();
+        if !path.starts_with(prefix) {
+            anyhow::bail!("{path:?} isn't under {prefix:?}");
+        }
+        // the registry source's marker file, never part of the sources
+        if path.file_name().is_some_and(|f| f == ".cargo-ok") {
+            continue;
+        }
+        entry.unpack_in(dst)?;
     }
     Ok(())
 }

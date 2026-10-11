@@ -151,6 +151,14 @@ impl<'gctx> SourceConfigMap<'gctx> {
     ) -> CargoResult<Box<dyn Source + 'gctx>> {
         debug!("loading: {}", id);
 
+        // nix mode, offline: crates.io comes from the tarballs in the nix store, not from its index
+        if let (true, Some(dir)) = (id.is_crates_io(), self.gctx.nix_crates_io_dir()) {
+            let new_id = SourceId::for_directory(&dir)?;
+            let yanked_whitelist = yanked_whitelist.iter().map(|p| p.map_source(id, new_id)).collect();
+            let new_src = self.load_overlaid(new_id, &yanked_whitelist)?;
+            return Ok(Box::new(ReplacedSource::new(id, new_id, new_src)));
+        }
+
         let Some(mut name) = self.id2name.get(&id) else {
             return self.load_overlaid(id, yanked_whitelist);
         };
