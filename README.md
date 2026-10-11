@@ -10,8 +10,7 @@ This project aims to integrate nix as a backend into cargo (libnix) so we can be
 
 Ideally you type these commands: 🚀
 
-    git clone https://github.com/nixcloud/cargo
-    nix develop
+    nix develop github:nixcloud/cargo
     cargo build
 
 [![asciicast](https://asciinema.org/a/1268068.svg)](https://asciinema.org/a/1268068)
