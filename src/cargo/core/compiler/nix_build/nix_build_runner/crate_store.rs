@@ -16,9 +16,12 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File};
 use std::io::IsTerminal;
 use std::path::Path;
-use std::sync::mpsc;
+use std::sync::{mpsc, Mutex};
 
 const STORE_DIR: &str = "/nix/store";
+
+/// Daemon connections holding temp roots on fetched tarballs; they stay open until cargo exits.
+static TEMP_ROOTS: Mutex<Vec<Daemon>> = Mutex::new(Vec::new());
 
 /// The `.crate` of a crates.io package, as the fixed-output path `fetchurl` would produce.
 pub struct CrateTarball {
@@ -162,6 +165,11 @@ pub fn fetch_crates(gctx: &GlobalContext, ids: &BTreeSet<PackageId>, resolve: &R
             }
             let _ = tx.send(Event::BuildResult { drv: r.drv, status: r.status, error_msg: r.error_msg });
         }
+        // nothing roots the tarballs until the build's gc/roots does (gc_roots): keep them alive meanwhile
+        for tarball in missing.iter().filter(|t| Path::new(&t.store_path).exists()) {
+            d.add_temp_root(&tarball.store_path, &tx)?;
+        }
+        TEMP_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).push(d);
         Ok(failed)
     })();
     drop(tx);

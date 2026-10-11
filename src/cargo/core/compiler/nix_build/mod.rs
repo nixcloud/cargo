@@ -143,7 +143,11 @@ impl<'a, 'gctx> NixBuildRunner {
         let mut symlinked_targets: Vec<SymlinkedTargets> = vec![];
         // derivation names of the generated units and their helpers (target.nix, default.nix), for logone
         let mut unit_drv_names: HashSet<String> =
-            HashSet::from(["create-symlinks", "rustc-linker-arguments-dir"].map(String::from));
+            HashSet::from([
+                "create-symlinks",
+                "rustc-linker-arguments-dir",
+                "cargo-libnix-retained-paths-units-crates-toolchain-deps",
+            ].map(String::from));
 
         let write_nix_buildsystem_options: Option<NixBuildOptions> = gctx.write_nix_buildsystem_options.borrow().unwrap_or(&None).clone();
         let nix_base_dir: Filesystem = match write_nix_buildsystem_options {

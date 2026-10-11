@@ -222,4 +222,5 @@ let
     };
   };
 in
-self
+  # fn: for cargo_build_caller.nix, which roots the rustc_linker_arguments_dir of each unit
+  self // { inherit fn; }

@@ -1,5 +1,6 @@
 //! nix-daemon worker-protocol client (sync), from nix-daemon-client-example.
-//! Implements only what cargo needs: handshake, SetOptions (19), AddToStore (7), AddIndirectRoot (12), QueryMissing (40),
+//! Implements only what cargo needs: handshake, SetOptions (19), AddToStore (7), QueryReferrers (6), AddTempRoot (11),
+//! AddIndirectRoot (12), FindRoots (14), CollectGarbage (20), QueryPathInfo (26), QueryMissing (40),
 //! QueryDerivationOutputMap (41), BuildPathsWithResults (46), and the stderr loop, which decodes activity
 //! messages directly into `Event`s. Wire format checked against Nix 2.34.8 (protocol 1.38).
 use super::event::{Activity, ActivityId, Event, Status};
@@ -20,9 +21,16 @@ const STDERR_ERROR: u64 = 0x63787470;
 const STDERR_START_ACTIVITY: u64 = 0x53545254;
 const STDERR_STOP_ACTIVITY: u64 = 0x53544f50;
 const STDERR_RESULT: u64 = 0x52534c54;
+const OP_QUERY_REFERRERS: u64 = 6;
 const OP_ADD_TO_STORE: u64 = 7;
+const OP_ADD_TEMP_ROOT: u64 = 11;
 const OP_ADD_INDIRECT_ROOT: u64 = 12;
+const OP_FIND_ROOTS: u64 = 14;
 const OP_SET_OPTIONS: u64 = 19;
+const OP_QUERY_PATH_INFO: u64 = 26;
+const OP_COLLECT_GARBAGE: u64 = 20;
+/// GCOptions::gcDeleteSpecific
+const GC_DELETE_SPECIFIC: u64 = 3;
 const OP_QUERY_MISSING: u64 = 40;
 const OP_QUERY_DERIVATION_OUTPUT_MAP: u64 = 41;
 const OP_BUILD_PATHS_WITH_RESULTS: u64 = 46;
@@ -53,7 +61,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct BuildOptions {
     pub keep_going: bool,
@@ -161,6 +169,81 @@ impl Daemon {
         self.stderr_loop(tx)?;
         self.u64()?; // always 1
         Ok(())
+    }
+
+    /// Keeps `path` alive as long as this connection is open.
+    pub fn add_temp_root(&mut self, path: &str, tx: &Sender<Event>) -> Result<()> {
+        self.put(OP_ADD_TEMP_ROOT)?;
+        self.put_str(path)?;
+        self.w.flush()?;
+        self.stderr_loop(tx)?;
+        self.u64()?; // always 1
+        Ok(())
+    }
+
+    /// The store paths GC roots point to (`nix-store --gc --print-roots`), runtime roots included.
+    pub fn find_roots(&mut self, tx: &Sender<Event>) -> Result<Vec<String>> {
+        self.put(OP_FIND_ROOTS)?;
+        self.w.flush()?;
+        self.stderr_loop(tx)?;
+        let mut paths = Vec::new();
+        for _ in 0..self.u64()? {
+            let _link = self.string()?;
+            paths.push(self.string()?);
+        }
+        Ok(paths)
+    }
+
+    /// The valid paths that reference `path`.
+    pub fn query_referrers(&mut self, path: &str, tx: &Sender<Event>) -> Result<Vec<String>> {
+        self.put(OP_QUERY_REFERRERS)?;
+        self.put_str(path)?;
+        self.w.flush()?;
+        self.stderr_loop(tx)?;
+        Ok(self.strings()?)
+    }
+
+    /// The derivation `path` was built by (`""` for a path added directly, a source) and its NAR size; `None` if
+    /// invalid.
+    pub fn query_path_info(&mut self, path: &str, tx: &Sender<Event>) -> Result<Option<(String, u64)>> {
+        self.put(OP_QUERY_PATH_INFO)?;
+        self.put_str(path)?;
+        self.w.flush()?;
+        self.stderr_loop(tx)?;
+        if self.u64()? == 0 {
+            return Ok(None);
+        }
+        let deriver = self.string()?;
+        let _nar_hash = self.string()?;
+        let _references = self.strings()?;
+        let _registration_time = self.u64()?;
+        let nar_size = self.u64()?;
+        let _ultimate = self.u64()?;
+        let _sigs = self.strings()?;
+        let _ca = self.string()?;
+        Ok(Some((deriver, nar_size)))
+    }
+
+    /// `nix-store --delete paths`: deletes them (and their dead referrers); fails on the first one that is still
+    /// alive. Returns the deleted paths and the bytes freed.
+    pub fn delete_paths(&mut self, paths: &[String], tx: &Sender<Event>) -> Result<(Vec<String>, u64)> {
+        self.put(OP_COLLECT_GARBAGE)?;
+        self.put(GC_DELETE_SPECIFIC)?;
+        self.put(paths.len() as u64)?;
+        for p in paths {
+            self.put_str(p)?;
+        }
+        self.put(0)?; // ignoreLiveness
+        self.put(u64::MAX)?; // maxFreed
+        for _ in 0..3 {
+            self.put(0)?; // obsolete
+        }
+        self.w.flush()?;
+        self.stderr_loop(tx)?;
+        let deleted = self.strings()?;
+        let freed = self.u64()?;
+        let _obsolete = self.u64()?;
+        Ok((deleted, freed))
     }
 
     /// What would have to be built/substituted for `drvs` (including dependencies we didn't ask for).

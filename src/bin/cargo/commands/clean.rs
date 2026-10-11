@@ -128,11 +128,18 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    // nix mode: the whole target dir or a profile, with the store paths its builds rooted (nixcloud/cargo#4)
     if matches!(gctx.backend()?, BuildBackend::Nix) {
-        return Err(CliError::new(
-            anyhow::format_err!("cargo 'clean' is not supported yet"),
-            101,
-        ));
+        let unsupported = if args.subcommand().is_some() {
+            Some("cargo 'clean gc'")
+        } else if !values(args, "package").is_empty() {
+            Some("cargo 'clean -p'")
+        } else {
+            None
+        };
+        if let Some(what) = unsupported {
+            return Err(CliError::new(anyhow::format_err!("{what} is not supported yet in nix mode"), 101));
+        }
     }
     match args.subcommand() {
         Some(("gc", args)) => {
