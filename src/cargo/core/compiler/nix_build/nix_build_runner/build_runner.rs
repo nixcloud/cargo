@@ -45,7 +45,8 @@ enum Failure {
 
 impl NixBuild {
     /// `units`: derivation names of the generated units, so logone prints `Building` only for other derivations.
-    /// `target_dir`: where the symlinks to the results go. Returns the outputs of the build.
+    /// `target_dir`: where the symlinks to the results go. `selection`: the root units, one per line; each
+    /// selection has GC roots of its own (see `gc_roots`). Returns the outputs of the build.
     pub fn build<'gctx>(
         nix_base_dir: Filesystem,
         gctx: &'gctx GlobalContext,
@@ -53,6 +54,7 @@ impl NixBuild {
         jobs: u32,
         units: HashSet<String>,
         target_dir: &Path,
+        selection: &str,
     ) -> CargoResult<gc_roots::BuildOutputs> {
         let base = nix_base_dir.into_path_unlocked();
         let caller = base.join("cargo_build_caller.nix");
@@ -64,7 +66,8 @@ impl NixBuild {
         let renderer = std::thread::spawn(move || logone::run(rx, color, units, true, verbose));
         let opts = BuildOptions { keep_going, max_jobs: u64::from(jobs) };
         let gc_dir = base.join("gc");
-        let result = run(&caller, &gc_dir, &opts, &tx);
+        let slot = gc_dir.join(crate::util::hex::short_hash(&selection));
+        let result = run(&caller, &gc_dir, &slot, selection, &opts, &tx);
         // `tx` is gone after this, so logone drains the channel, prints the summary and returns.
         drop(tx);
         renderer
@@ -94,29 +97,31 @@ impl NixBuild {
         if !status.success() {
             anyhow::bail!("{activation_script} failed: {status}");
         }
-        Ok(gc_roots::build_outputs(&gc_dir))
+        Ok(gc_roots::build_outputs(&slot))
     }
 }
 
 /// Evaluates and builds `target` and the retained paths; returns the `out` path of `target`, rooted at
-/// `gc_dir/create-symlinks`, and the store paths of the previous build this one doesn't use anymore, which are deleted
+/// `slot/create-symlinks`, and the store paths of the previous build this one doesn't use anymore, which are deleted
 /// (count, bytes; see `gc_roots`).
-fn run(caller: &Path, gc_dir: &Path, opts: &BuildOptions, tx: &Sender<Event>) -> Result<(String, (usize, u64)), Failure> {
-    let (target, roots) = instantiate(caller, gc_dir, tx)?;
+fn run(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, opts: &BuildOptions, tx: &Sender<Event>) -> Result<(String, (usize, u64)), Failure> {
+    let (target, roots) = instantiate(caller, gc_dir, slot, selection, tx)?;
     let daemon_err = |e: daemon::Error| {
         let _ = tx.send(Event::Error { msg: e.to_string() });
         Failure::Daemon
     };
     let mut d = Daemon::connect(tx).map_err(daemon_err)?;
     d.set_options(opts, tx).map_err(daemon_err)?;
+    // the roots of the layout before slots become a slot of their own
+    gc_roots::adopt_unslotted(&mut d, gc_dir, tx).map_err(daemon_err)?;
     // nix-instantiate's roots get the names of what they point to; the new ones are registered first, so the
     // drvs are rooted all the time
     for (name, drv, eval_root) in [
         (gc_roots::CREATE_SYMLINKS, &target, gc_roots::EVAL_ROOT.to_string()),
         (gc_roots::RETAINED_PATHS, &roots, format!("{}-2", gc_roots::EVAL_ROOT)),
     ] {
-        gc_roots::set_root(&mut d, gc_dir, &format!("{name}.drv"), drv, tx).map_err(daemon_err)?;
-        let _ = std::fs::remove_file(gc_dir.join(eval_root));
+        gc_roots::set_root(&mut d, slot, &format!("{name}.drv"), drv, tx).map_err(daemon_err)?;
+        let _ = std::fs::remove_file(slot.join(eval_root));
     }
 
     // `target` only depends on the crates, and op 46 answers only for requested paths (FINDINGS Q3): request
@@ -156,11 +161,14 @@ fn run(caller: &Path, gc_dir: &Path, opts: &BuildOptions, tx: &Sender<Event>) ->
     };
     let (out, roots_out) = (out_of(&target)?, out_of(&roots)?);
     // like `nix build --out-link`: keeps the outputs create-symlinks points to alive
-    gc_roots::set_root(&mut d, gc_dir, gc_roots::CREATE_SYMLINKS, &out, tx).map_err(daemon_err)?;
-    // everything this build used stays alive; what only the previous build used goes
-    let old = gc_roots::rooted_paths(gc_dir);
-    gc_roots::set_root(&mut d, gc_dir, gc_roots::RETAINED_PATHS, &roots_out, tx).map_err(daemon_err)?;
-    let new: HashSet<String> = gc_roots::rooted_paths(gc_dir).into_iter().collect();
+    gc_roots::set_root(&mut d, slot, gc_roots::CREATE_SYMLINKS, &out, tx).map_err(daemon_err)?;
+    // everything this build used stays alive; what only the previous build of this selection used goes, and so
+    // do the least recently built selections beyond `MAX_SLOTS` (paths other selections use stay, see
+    // `delete_unused`)
+    let mut old = gc_roots::rooted_paths(slot);
+    gc_roots::set_root(&mut d, slot, gc_roots::RETAINED_PATHS, &roots_out, tx).map_err(daemon_err)?;
+    old.extend(gc_roots::evict(gc_dir, slot));
+    let new: HashSet<String> = gc_roots::rooted_paths(slot).into_iter().chain([out.clone()]).collect();
     let stale: Vec<String> = old.into_iter().filter(|p| !new.contains(p)).collect();
     // the daemon's GC chatter (`deleting unused links...`) isn't shown
     let (quiet, _rx) = mpsc::channel();
@@ -172,17 +180,17 @@ fn run(caller: &Path, gc_dir: &Path, opts: &BuildOptions, tx: &Sender<Event>) ->
 }
 
 /// `nix-instantiate` prints the drvs of `target` and of the retained paths (`gc_roots::RETAINED_PATHS_ATTR`).
-/// `--add-root` makes them GC roots (`gc_dir/.eval`, `gc_dir/.eval-2`, renamed by `run`), so they can't be
+/// `--add-root` makes them GC roots (`slot/.eval`, `slot/.eval-2`, renamed by `run`), so they can't be
 /// collected between evaluation and build. With `--add-root` Nix prints the roots instead of the drvs, so they
 /// are resolved.
-fn instantiate(caller: &Path, gc_dir: &Path, tx: &Sender<Event>) -> Result<(String, String), Failure> {
-    let root = gc_dir.join(gc_roots::EVAL_ROOT);
+fn instantiate(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, tx: &Sender<Event>) -> Result<(String, String), Failure> {
+    let root = slot.join(gc_roots::EVAL_ROOT);
     let file = caller.display().to_string();
     let eval_err = |msg: String| {
         let _ = tx.send(Event::EvalError { file: file.clone(), msg });
         Failure::Eval
     };
-    gc_roots::prepare_dir(gc_dir).map_err(|e| eval_err(format!("{}: {e}", gc_dir.display())))?;
+    gc_roots::prepare_dir(gc_dir, slot, selection).map_err(|e| eval_err(format!("{}: {e}", gc_dir.display())))?;
     let mut cmd = Command::new("nix-instantiate");
     cmd.arg(caller).args(["-A", "target", "-A", gc_roots::RETAINED_PATHS_ATTR]).arg("--add-root").arg(&root).env_clear();
     // Evaluation fetches (builtins.fetchTarball) run in this process, not in the daemon, so it needs the CA

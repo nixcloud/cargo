@@ -1,20 +1,25 @@
 //! GC roots of nix mode builds (nixcloud/cargo#4). Each profile has `target/<profile>/nix/gc` (`nix-test/gc` for
-//! `cargo test`), whose links are named after the store objects they point to (see `README` below, which is
-//! written into the directory):
+//! `cargo test`). Every selection of root units (`cargo build`, `cargo run --bin a`, `cargo test -p x`, other
+//! features, …) has a slot `gc/<key>` of its own, whose links are named after the store objects they point to
+//! (see `README` below, which is written into the directory):
 //! - `create-symlinks`: the script the symlinks in target/<profile> come from
 //! - `retained-paths-units-crates-toolchain-deps`: the file listing every unit output, crate tarball, the
-//!   toolchain and the external dependencies of the last successful build; its references keep them alive. It
-//!   also names the rustdoc and linker of the units, for the doc tests cargo runs
+//!   toolchain and the external dependencies of the last successful build of this selection; its references
+//!   keep them alive. It also names the rustdoc and linker of the units, for the doc tests cargo runs
 //! - `<name>.drv`: the evaluated derivation of each
+//! - `selection`: the root units, for humans
 //!
-//! When the retained paths move on, whatever the old file listed and the new one doesn't is deleted from the
-//! store, unless something else (another project, a running process) still uses it. `cargo clean` does the same
-//! for everything.
+//! When the retained paths of a slot move on, whatever its old file listed and the new one doesn't is deleted
+//! from the store, unless something else (another slot, another project, a running process) still uses it. So
+//! building a subset doesn't delete what the full build uses. The `MAX_SLOTS` most recently built selections are
+//! kept; the least recently built one beyond that is removed with its paths. `cargo clean` does the same for
+//! everything.
 use super::daemon::{self, Daemon};
 use super::event::Event;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+use std::time::SystemTime;
 
 /// The script that creates the symlinks in target/<profile> (attribute `target` of cargo_build_caller.nix).
 pub const CREATE_SYMLINKS: &str = "create-symlinks";
@@ -24,56 +29,84 @@ pub const RETAINED_PATHS: &str = "retained-paths-units-crates-toolchain-deps";
 pub const RETAINED_PATHS_ATTR: &str = "cargo-libnix-retained-paths-units-crates-toolchain-deps";
 /// Where nix-instantiate puts its roots (`.eval`, `.eval-2`) until they are renamed.
 pub const EVAL_ROOT: &str = ".eval";
+/// The root units of a slot, one per line.
+pub const SELECTION: &str = "selection";
+/// How many selections keep their store paths.
+pub const MAX_SLOTS: usize = 8;
 
 const README: &str = "\
-GC roots of this profile's nix build, maintained by cargo (libnix). The links keep their store paths alive
-until the next build replaces them, so nix-collect-garbage doesn't remove them.
+GC roots of this profile's nix build, maintained by cargo (libnix). The links keep their store paths alive,
+so nix-collect-garbage doesn't remove them.
 
-create-symlinks
+Each selection of root units (`cargo build`, `cargo run --bin a`, `cargo test -p x`, other features, ...)
+has a directory of its own, named after a hash of the selection:
+
+<key>/selection
+    the root units of the selection
+<key>/create-symlinks
     the script that creates the symlinks in target/<profile> (crate outputs, binaries)
-create-symlinks.drv
+<key>/create-symlinks.drv
     its derivation, the evaluated build system
-retained-paths-units-crates-toolchain-deps
-    a file listing every store path the build used: the unit outputs (crates, build scripts), the crate
-    sources (.crate tarballs), the toolchain and the external dependencies from Cargo.dependencies.nix, then
-    (`# rustdoc`, `# linker`) the tools cargo runs on the unit outputs for doc tests
-retained-paths-units-crates-toolchain-deps.drv
+<key>/retained-paths-units-crates-toolchain-deps
+    a file listing every store path the last build of the selection used: the unit outputs (crates, build
+    scripts), the crate sources (.crate tarballs), the toolchain and the external dependencies from
+    Cargo.dependencies.nix, then (`# rustdoc`, `# linker`) the tools cargo runs on the unit outputs for doc tests
+<key>/retained-paths-units-crates-toolchain-deps.drv
     its derivation
 
-After a successful build, the paths the previous list had but the new one doesn't are deleted from the nix
-store, unless something else still uses them. `cargo clean` removes this directory and deletes the paths of
-the list the same way. Other entries in this directory are removed by cargo.
+After a successful build, the paths the selection's previous list had but the new one doesn't are deleted from
+the nix store, unless something else (another selection) still uses them. The 8 most recently built selections
+are kept; the directory of the least recently built one beyond that is removed and its paths are deleted the
+same way. `cargo clean` removes this directory and deletes the paths of all lists. Other entries in this
+directory are removed by cargo.
 ";
 
-/// Writes the README and removes everything in `gc_dir` that isn't one of cargo's roots.
-pub fn prepare_dir(gc_dir: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(gc_dir)?;
-    let known = [
-        "README".to_string(),
+/// The links of a slot.
+fn slot_entries() -> [String; 5] {
+    [
+        SELECTION.to_string(),
         CREATE_SYMLINKS.to_string(),
         format!("{CREATE_SYMLINKS}.drv"),
         RETAINED_PATHS.to_string(),
         format!("{RETAINED_PATHS}.drv"),
-    ];
+    ]
+}
+
+fn remove_entry(entry: &std::fs::DirEntry) -> std::io::Result<()> {
+    if entry.file_type()?.is_dir() {
+        std::fs::remove_dir_all(entry.path())
+    } else {
+        std::fs::remove_file(entry.path())
+    }
+}
+
+/// Writes the README and the selection of `slot`, and removes everything in `gc_dir` and `slot` that isn't one
+/// of cargo's roots. The links of the layout before slots (directly in `gc_dir`) are left for
+/// `adopt_unslotted`.
+pub fn prepare_dir(gc_dir: &Path, slot: &Path, selection: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(slot)?;
+    let mut known = slot_entries().to_vec();
+    known.push("README".to_string());
     for entry in std::fs::read_dir(gc_dir)?.flatten() {
-        if !known.iter().any(|k| entry.file_name() == k.as_str()) {
-            let path = entry.path();
-            if entry.file_type()?.is_dir() {
-                std::fs::remove_dir_all(path)?;
-            } else {
-                std::fs::remove_file(path)?;
-            }
+        let slot_dir = entry.file_type()?.is_dir() && entry.path().join(SELECTION).exists();
+        if !slot_dir && entry.path() != slot && !known.iter().any(|k| entry.file_name() == k.as_str()) {
+            remove_entry(&entry)?;
+        }
+    }
+    for entry in std::fs::read_dir(slot)?.flatten() {
+        if !slot_entries().iter().any(|k| entry.file_name() == k.as_str()) {
+            remove_entry(&entry)?;
         }
     }
     if std::fs::read_to_string(gc_dir.join("README")).ok().as_deref() != Some(README) {
         std::fs::write(gc_dir.join("README"), README)?;
     }
-    Ok(())
+    std::fs::write(slot.join(SELECTION), selection)
 }
 
-/// The list of retained paths `gc_dir` points to, then the store paths it lists. Empty without one.
-pub fn rooted_paths(gc_dir: &Path) -> Vec<String> {
-    let Ok(file) = std::fs::read_link(gc_dir.join(RETAINED_PATHS)) else { return Vec::new() };
+/// The list of retained paths `dir` (a slot) points to, then the store paths it lists. Empty without one.
+pub fn rooted_paths(dir: &Path) -> Vec<String> {
+    let Ok(file) = std::fs::read_link(dir.join(RETAINED_PATHS)) else { return Vec::new() };
     let mut paths = vec![file.to_string_lossy().into_owned()];
     if let Ok(text) = std::fs::read_to_string(&file) {
         paths.extend(text.lines().filter(|l| l.starts_with("/nix/store/")).map(String::from));
@@ -81,7 +114,73 @@ pub fn rooted_paths(gc_dir: &Path) -> Vec<String> {
     paths
 }
 
-/// What a successful build produced, from the list of retained paths `gc_dir` points to.
+/// `rooted_paths` and the output of `create-symlinks` of `dir`.
+fn slot_paths(dir: &Path) -> Vec<String> {
+    let mut paths = rooted_paths(dir);
+    if let Ok(result) = std::fs::read_link(dir.join(CREATE_SYMLINKS)) {
+        paths.push(result.to_string_lossy().into_owned());
+    }
+    paths
+}
+
+/// The slot of the roots of the layout before slots.
+pub const UNSLOTTED: &str = "unslotted";
+
+/// Moves the roots of the layout before slots (directly in `gc_dir`) into a slot of their own, which is evicted
+/// like any other.
+pub fn adopt_unslotted(d: &mut Daemon, gc_dir: &Path, tx: &Sender<Event>) -> daemon::Result<()> {
+    let slot = gc_dir.join(UNSLOTTED);
+    let mut adopted = false;
+    for name in slot_entries() {
+        let link = gc_dir.join(&name);
+        let Ok(target) = std::fs::read_link(&link) else { continue };
+        if !adopted {
+            std::fs::create_dir_all(&slot)?;
+            std::fs::write(slot.join(SELECTION), "(built before each selection had GC roots of its own)\n")?;
+            adopted = true;
+        }
+        // the new root first, so the path is rooted all the time; it keeps the time of the old one, which is when
+        // the slot was built (see `last_built`)
+        let mtime = std::fs::symlink_metadata(&link).map(|m| filetime::FileTime::from_last_modification_time(&m));
+        set_root(d, &slot, &name, &target.to_string_lossy(), tx)?;
+        if let Ok(t) = mtime {
+            let _ = filetime::set_symlink_file_times(slot.join(&name), t, t);
+        }
+        let _ = std::fs::remove_file(&link);
+    }
+    Ok(())
+}
+
+/// When the slot `dir` was built last: its list of retained paths is replaced by each successful build.
+fn last_built(dir: &Path) -> SystemTime {
+    std::fs::symlink_metadata(dir.join(RETAINED_PATHS))
+        .or_else(|_| std::fs::symlink_metadata(dir))
+        .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
+/// Removes the least recently built slots of `gc_dir` beyond `MAX_SLOTS` (never `current`) and returns what they
+/// kept alive, to be deleted like the paths a slot stopped using.
+pub fn evict(gc_dir: &Path, current: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(gc_dir) else { return Vec::new() };
+    let mut slots: Vec<(SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| e.path())
+        .filter(|p| p != current)
+        .map(|p| (last_built(&p), p))
+        .collect();
+    // newest first; the current slot is one of the MAX_SLOTS
+    slots.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut paths = Vec::new();
+    for (_, dir) in slots.into_iter().skip(MAX_SLOTS - 1) {
+        paths.extend(slot_paths(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    paths
+}
+
+/// What a successful build produced, from the list of retained paths `dir` (a slot) points to.
 #[derive(Debug, Default)]
 pub struct BuildOutputs {
     /// store path of each derivation output by name (for units: their nix attribute name)
@@ -92,9 +191,9 @@ pub struct BuildOutputs {
     pub linker: Option<PathBuf>,
 }
 
-pub fn build_outputs(gc_dir: &Path) -> BuildOutputs {
+pub fn build_outputs(dir: &Path) -> BuildOutputs {
     let mut outputs = BuildOutputs::default();
-    let Ok(file) = std::fs::read_link(gc_dir.join(RETAINED_PATHS)) else { return outputs };
+    let Ok(file) = std::fs::read_link(dir.join(RETAINED_PATHS)) else { return outputs };
     let Ok(text) = std::fs::read_to_string(&file) else { return outputs };
     for line in text.lines() {
         if let Some(tool) = line.strip_prefix("# rustdoc ") {
@@ -112,15 +211,19 @@ pub fn build_outputs(gc_dir: &Path) -> BuildOutputs {
 }
 
 /// `cargo clean`: what the gc dirs below `dir` (`<profile>/nix/gc`, `<profile>/nix-test/gc` of `cargo test`,
-/// `<triple>/<profile>/nix/gc`) keep alive, collected before `dir` is removed. The `.drv` roots are left to
-/// nix-collect-garbage.
+/// `<triple>/<profile>/nix/gc`) keep alive in all their slots, collected before `dir` is removed. The `.drv` roots
+/// are left to nix-collect-garbage.
 pub fn rooted_below(dir: &Path) -> Vec<String> {
     fn walk(dir: &Path, depth: usize, out: &mut Vec<String>) {
         let in_nix_dir = dir.parent().and_then(|p| p.file_name()).is_some_and(|n| n == "nix" || n == "nix-test");
         if dir.file_name().is_some_and(|n| n == "gc") && in_nix_dir {
-            out.extend(rooted_paths(dir));
-            if let Ok(result) = std::fs::read_link(dir.join(CREATE_SYMLINKS)) {
-                out.push(result.to_string_lossy().into_owned());
+            // the layout before slots
+            out.extend(slot_paths(dir));
+            let Ok(entries) = std::fs::read_dir(dir) else { return };
+            for entry in entries.flatten() {
+                if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                    out.extend(slot_paths(&entry.path()));
+                }
             }
             return;
         }
@@ -238,4 +341,72 @@ pub fn delete_unused(d: &mut Daemon, paths: Vec<String>, tx: &Sender<Event>) -> 
     let count = gone.iter().filter(|p| !p.ends_with(".drv")).count();
     let bytes = gone.iter().map(|p| sizes.get(*p).copied().unwrap_or(0)).sum();
     Ok((count, bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    /// A slot built at `time` (seconds), its links pointing to `/nix/store/<name>-*`.
+    fn slot(gc_dir: &Path, name: &str, time: i64) -> PathBuf {
+        let dir = gc_dir.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(SELECTION), format!("{name}\n")).unwrap();
+        symlink(format!("/nix/store/{name}-list"), dir.join(RETAINED_PATHS)).unwrap();
+        symlink(format!("/nix/store/{name}-create-symlinks"), dir.join(CREATE_SYMLINKS)).unwrap();
+        let t = filetime::FileTime::from_unix_time(time, 0);
+        filetime::set_symlink_file_times(dir.join(RETAINED_PATHS), t, t).unwrap();
+        dir
+    }
+
+    #[test]
+    fn prepare_dir_keeps_slots_and_removes_the_rest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gc = tmp.path();
+        let other = slot(gc, "other", 1);
+        std::fs::write(gc.join("junk"), "").unwrap();
+        std::fs::create_dir(gc.join("not-a-slot")).unwrap();
+        symlink("/nix/store/x-list", gc.join(RETAINED_PATHS)).unwrap();
+        let current = gc.join("current");
+        std::fs::create_dir(&current).unwrap();
+        std::fs::write(current.join(".eval"), "").unwrap();
+
+        prepare_dir(gc, &current, "a\nb\n").unwrap();
+
+        assert!(other.join(RETAINED_PATHS).symlink_metadata().is_ok());
+        assert!(!gc.join("junk").exists());
+        assert!(!gc.join("not-a-slot").exists());
+        assert!(!current.join(".eval").exists());
+        assert_eq!(std::fs::read_to_string(current.join(SELECTION)).unwrap(), "a\nb\n");
+        assert!(gc.join("README").exists());
+        // left for adopt_unslotted
+        assert!(gc.join(RETAINED_PATHS).symlink_metadata().is_ok());
+    }
+
+    #[test]
+    fn evict_removes_the_least_recently_built_slots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gc = tmp.path();
+        for i in 0..MAX_SLOTS + 1 {
+            slot(gc, &format!("s{i}"), 1000 + i as i64);
+        }
+        // the current slot counts as built now even if its list is the oldest
+        let current = slot(gc, "current", 1);
+
+        let mut evicted = evict(gc, &current);
+        evicted.sort();
+
+        assert_eq!(
+            evicted,
+            ["s0-create-symlinks", "s0-list", "s1-create-symlinks", "s1-list"].map(|p| format!("/nix/store/{p}"))
+        );
+        let mut left: Vec<String> =
+            std::fs::read_dir(gc).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        left.sort();
+        assert_eq!(left.len(), MAX_SLOTS);
+        assert!(left.contains(&"current".to_string()));
+        assert!(!left.contains(&"s0".to_string()) && !left.contains(&"s1".to_string()));
+        assert!(evict(gc, &current).is_empty());
+    }
 }

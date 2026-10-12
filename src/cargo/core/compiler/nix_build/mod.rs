@@ -408,7 +408,31 @@ impl<'a, 'gctx> NixBuildRunner {
         if write_nix_buildsystem_options.is_none() {
             let jobs = bcx.build_config.jobs;
             let target_dir = workspace.target_dir().into_path_unlocked();
-            return NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names, &target_dir).map(Some);
+            // the root units without versions and hashes: rebuilding the same selection after an edit or a
+            // dependency update replaces its GC roots, another selection (`cargo run --bin a`) gets its own
+            let mut selection: Vec<String> = bcx
+                .roots
+                .iter()
+                .map(|u| {
+                    let features = u.features.iter().map(|f| f.as_str()).collect::<Vec<_>>().join(",");
+                    let kind = match u.kind {
+                        crate::core::compiler::CompileKind::Host => "host".to_string(),
+                        crate::core::compiler::CompileKind::Target(t) => t.short_name().to_string(),
+                    };
+                    format!(
+                        "{} {} {} {:?} {kind} [{features}]",
+                        u.pkg.name(),
+                        u.target.kind().description(),
+                        u.target.name(),
+                        u.mode
+                    )
+                })
+                .collect();
+            selection.sort();
+            selection.dedup();
+            let selection = selection.join("\n") + "\n";
+            return NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names, &target_dir, &selection)
+                .map(Some);
         } else if write_nix_buildsystem_options.as_ref().is_some_and(|o| o.remote_src.is_none()) {
             // project_root is the workspace itself, so its Cargo.dependencies.nix is used in place
             gctx.shell().status(

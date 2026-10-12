@@ -48,6 +48,9 @@ https://github.com/qknight/cargo-experiments
     * intermediate artefacts (crates.io libraries downloads): ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.3.1/ has been moved to the /nix/store
     * intermediate artefacts (crates.io libraries builds with different feature sets): target/debug/deps has been moved to the /nix/store
     * however, registry clone is still at ~/.cargo/registry
+    * each selection of root units (`cargo build`, `cargo run --bin a`, `cargo test -p x`, other features) has
+      GC roots of its own in _target/<profile>/nix/gc/<key>_, so building a subset doesn't delete what the full
+      build uses; the 8 most recently built selections are kept, older ones are deleted with their store paths
 * 'cargo test': unit, integration and doc tests, same output as cargo (legacy)
   * the test harnesses are built in nix like any other unit, from _target/debug/nix-test_ with GC roots of
     its own, so `cargo build` and `cargo test` don't delete each other's store paths
@@ -59,6 +62,11 @@ https://github.com/qknight/cargo-experiments
     package next to themselves (`snapbox::cmd::cargo_bin`, `assert_cmd`), as symlinks in their store path.
     Tests that hard link those binaries into a temp dir fail (the store is another file system, or read-only)
   * doc tests use the rustdoc and linker the units were built with, so the host needs no toolchain
+* 'cargo run': binaries and examples, same output as cargo (legacy)
+  * runs _target/debug/<bin>_, a symlink to the store, with the arguments, exit code, working directory,
+    `OUT_DIR` and `rustc-env` of cargo (legacy)
+  * `std::env::current_exe()` is the binary in the store, so programs looking for files next to themselves
+    find the store path, not _target/debug_
 * Cargo.dependencies.nix per crate for custom buildInputs `dependencies` and `environment variables`
 * support for build system export:
   * `cargo build write-nix-buildsystem --out-dir /tmp/nix --url https://github.com/nixcloud/cargo/archive/refs/tags/1.83-test-release.tar.gz --hash 1h5j1kl7q7mysa943gvd4c8ih8yxx4igqrx4akv9ixf4zf411b8l`
@@ -292,7 +300,7 @@ until 1.may 2026
     # very common commands
 
     [x] build                Compile a local package and all of its dependencies
-    [0] run                  Run a binary or example of the local package
+    [x] run                  Run a binary or example of the local package
     [0] doc                  Build a package's documentation
     [x] test                 Execute all unit and integration tests and build examples of a local package
     [0] check                Check a local package and all of its dependencies for errors
