@@ -46,7 +46,8 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | `test` | ✅ | unit, integration and doc tests; the tests run outside of nix, the sources at `env!("CARGO_MANIFEST_DIR")` are read-only |
 | `clean` | ✅ partial | the target directory or a profile, together with the store paths it rooted; `clean -p` and `clean gc` are refused |
 | `check` | ❌ planned | refused with "not supported yet" |
-| `doc`, `rustdoc`, `rustc`, `bench`, `install`, `uninstall`, `package`, `vendor` | ❌ | refused with "not supported yet" |
+| `install`, `uninstall` | ✅ | binaries stay in the store, rooted in `<root>/nix/install`, `<root>/bin` links to them; uninstall deletes the store paths nothing else uses |
+| `doc`, `rustdoc`, `rustc`, `bench`, `package`, `vendor` | ❌ | refused with "not supported yet" |
 | `new`, `init`, `add`, `remove`, `update`, `fetch`, `generate-lockfile`, `tree`, `metadata`, `fmt`, `publish`, … | unchanged | vanilla cargo, the backend is not involved |
 | `fix` | ❓ | untested, it builds in check mode internally |
 

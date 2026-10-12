@@ -4,7 +4,8 @@ use crate::ops::common_for_install_and_uninstall::*;
 use crate::sources::PathSource;
 use crate::util::errors::CargoResult;
 use crate::util::Filesystem;
-use crate::util::GlobalContext;
+use crate::util::{BuildBackend, GlobalContext};
+use crate::ops::cargo_install::prune_install_roots;
 use anyhow::bail;
 use std::collections::BTreeSet;
 use std::env;
@@ -60,6 +61,11 @@ pub fn uninstall(
 
         !failed.is_empty()
     };
+
+    // nix mode: the roots of the removed binaries go, and the store paths they kept alive if nothing else uses them
+    if gctx.backend()? == BuildBackend::Nix {
+        prune_install_roots(gctx, &root)?;
+    }
 
     if scheduled_error {
         bail!("some packages failed to uninstall");

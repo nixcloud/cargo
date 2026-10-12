@@ -247,6 +247,25 @@ pub fn delete_unused_now(paths: Vec<String>) -> daemon::Result<(usize, u64)> {
     delete_unused(&mut d, paths, &tx)
 }
 
+/// [`delete_unused`] for `paths` and everything they reference (their closure).
+pub fn delete_unused_closure_now(paths: Vec<String>) -> daemon::Result<(usize, u64)> {
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let mut d = Daemon::connect(&tx)?;
+    let mut closure = Vec::new();
+    let mut seen = HashSet::new();
+    let mut todo = paths;
+    while let Some(p) = todo.pop() {
+        if !seen.insert(p.clone()) {
+            continue;
+        }
+        if let Some(references) = d.query_references(&p, &tx)? {
+            todo.extend(references);
+            closure.push(p);
+        }
+    }
+    delete_unused(&mut d, closure, &tx)
+}
+
 /// Points `gc_dir/<name>` at `target` and registers it as a GC root, like `nix build --out-link`.
 pub fn set_root(d: &mut Daemon, gc_dir: &Path, name: &str, target: &str, tx: &Sender<Event>) -> daemon::Result<()> {
     let link = gc_dir.join(name);
@@ -270,10 +289,13 @@ pub fn delete_unused(d: &mut Daemon, paths: Vec<String>, tx: &Sender<Event>) -> 
     // Deleting specific paths only deletes referrers that are deleted too, so some referrers join:
     // - a source (no deriver, e.g. the project's filterSource copy) is referenced by the `.drv`s of its units,
     //   and those by further `.drv`s
-    // - a list of retained paths nothing roots anymore (its target dir was removed by hand) is dead, but would
-    //   keep everything it lists
+    // - a list of retained paths or a create-symlinks script nothing roots anymore (its target dir was removed by
+    //   hand, or was temporary like `cargo install`'s) is dead, but would keep everything it references
     let roots: HashSet<String> = d.find_roots(tx)?.into_iter().collect();
-    let dead_list = |r: &str| r.ends_with(&format!("-{RETAINED_PATHS_ATTR}")) && !roots.contains(r);
+    let dead_list = |r: &str| {
+        (r.ends_with(&format!("-{RETAINED_PATHS_ATTR}")) || r.ends_with(&format!("-{CREATE_SYMLINKS}")))
+            && !roots.contains(r)
+    };
     let mut sizes: HashMap<String, u64> = HashMap::new();
     let mut i = 0;
     while i < candidates.len() {

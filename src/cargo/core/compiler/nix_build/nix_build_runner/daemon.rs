@@ -224,6 +224,26 @@ impl Daemon {
         Ok(Some((deriver, nar_size)))
     }
 
+    /// The store paths `path` references; `None` if invalid.
+    pub fn query_references(&mut self, path: &str, tx: &Sender<Event>) -> Result<Option<Vec<String>>> {
+        self.put(OP_QUERY_PATH_INFO)?;
+        self.put_str(path)?;
+        self.w.flush()?;
+        self.stderr_loop(tx)?;
+        if self.u64()? == 0 {
+            return Ok(None);
+        }
+        let _deriver = self.string()?;
+        let _nar_hash = self.string()?;
+        let references = self.strings()?;
+        let _registration_time = self.u64()?;
+        let _nar_size = self.u64()?;
+        let _ultimate = self.u64()?;
+        let _sigs = self.strings()?;
+        let _ca = self.string()?;
+        Ok(Some(references))
+    }
+
     /// `nix-store --delete paths`: deletes them (and their dead referrers); fails on the first one that is still
     /// alive. Returns the deleted paths and the bytes freed.
     pub fn delete_paths(&mut self, paths: &[String], tx: &Sender<Event>) -> Result<(Vec<String>, u64)> {

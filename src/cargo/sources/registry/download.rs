@@ -16,7 +16,7 @@ use crate::sources::registry::RegistryConfig;
 use crate::util::auth;
 use crate::util::cache_lock::CacheLockMode;
 use crate::util::errors::CargoResult;
-use crate::core::compiler::nix_build::nix_build_runner::crate_store::CrateTarball;
+use crate::core::compiler::nix_build::nix_build_runner::crate_store::{self, CrateTarball};
 use crate::util::{BuildBackend, Filesystem, GlobalContext};
 use std::fmt::Write as FmtWrite;
 use std::fs::{self, File, OpenOptions};
@@ -44,8 +44,12 @@ pub(super) fn download(
 ) -> CargoResult<MaybeLock> {
     if gctx.backend()? == BuildBackend::Nix && pkg.source_id().is_crates_io() {
         // nix mode never downloads a `.crate` itself: PackageSet::download_accessible fetched it into the
-        // nix store, at the path the generated build system's fetchurl uses
+        // nix store, at the path the generated build system's fetchurl uses. A package downloaded on its own
+        // (the one `cargo install` installs) is fetched there now
         let tarball = CrateTarball::new(pkg, checksum);
+        if !std::path::Path::new(&tarball.store_path).exists() && gctx.network_allowed() {
+            crate_store::fetch_tarballs(gctx, vec![CrateTarball::new(pkg, checksum)])?;
+        }
         return File::open(&tarball.store_path).map(MaybeLock::Ready).with_context(|| {
             format!("`{pkg}` is not in the nix store at {} (nix mode doesn't download crates)", tarball.store_path)
         });

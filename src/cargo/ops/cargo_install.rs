@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::{env, fs};
 
+use crate::core::compiler::nix_build::nix_build_runner::install_roots;
 use crate::core::compiler::{CompileKind, DefaultExecutor, Executor, UnitOutput};
 use crate::core::{Dependency, Edition, Package, PackageId, SourceId, Target, Workspace};
 use crate::ops::{common_for_install_and_uninstall::*, FilterRule};
@@ -11,7 +12,7 @@ use crate::sources::source::Source;
 use crate::sources::{GitSource, PathSource, SourceConfigMap};
 use crate::util::context::FeatureUnification;
 use crate::util::errors::CargoResult;
-use crate::util::{Filesystem, GlobalContext, Rustc};
+use crate::util::{BuildBackend, Filesystem, GlobalContext, Rustc};
 use crate::{drop_println, ops};
 
 use anyhow::{bail, Context as _};
@@ -438,7 +439,13 @@ impl<'gctx> InstallablePackage<'gctx> {
         let staging_dir = TempFileBuilder::new()
             .prefix("cargo-install")
             .tempdir_in(&dst)?;
-        if !dry_run {
+        // nix mode: the binaries stay in the store, rooted in <root>/nix/install; `bin/` gets links to them
+        let is_nix = self.gctx.backend()? == BuildBackend::Nix;
+        if !dry_run && is_nix {
+            let root = self.root.clone().into_path_unlocked();
+            let dir_name = install_roots::package_dir_name(self.pkg.package_id());
+            install_roots::link_binaries(&root, &dir_name, &binaries, staging_dir.path())?;
+        } else if !dry_run {
             for &(bin, src) in binaries.iter() {
                 let dst = staging_dir.path().join(bin);
                 // Try to move if `target_dir` is transient.
@@ -523,6 +530,9 @@ impl<'gctx> InstallablePackage<'gctx> {
 
         // Reaching here means all actions have succeeded. Clean up.
         installed.success();
+        if !dry_run && is_nix {
+            prune_install_roots(self.gctx, &self.root)?;
+        }
         if needs_cleanup {
             // Don't bother grabbing a lock as we're going to blow it all away
             // anyway.
@@ -946,6 +956,23 @@ fn remove_orphaned_bins(
                 }
             }
         }
+    }
+    Ok(())
+}
+
+/// nix mode: removes the roots of binaries that were replaced or uninstalled and tries to delete their store paths.
+pub fn prune_install_roots(gctx: &GlobalContext, root: &Filesystem) -> CargoResult<()> {
+    match install_roots::prune(&root.clone().into_path_unlocked()) {
+        // nothing deleted: still used elsewhere (e.g. by the target dir of `cargo install --path`)
+        Ok(Some((0, _))) | Ok(None) => {}
+        Ok(Some((count, bytes))) => {
+            let freed = format!("{:.1}", crate::util::HumanBytes(bytes));
+            gctx.shell().status("Removed", format!("{count} store path(s), {freed}"))?;
+        }
+        Err(e) => gctx.shell().warn(format!(
+            "could not delete the store paths of the removed binaries ({e:#}); \
+             they are not rooted anymore, `nix-collect-garbage` removes them"
+        ))?,
     }
     Ok(())
 }

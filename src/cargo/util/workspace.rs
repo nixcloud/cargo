@@ -132,7 +132,8 @@ pub fn path_args(ws: &Workspace<'_>, unit: &Unit) -> (PathBuf, PathBuf) {
     // WARNING HACK: hacking src to drop unit.pkg.root() from path
     let pkg = unit.pkg.package_id();
     let is_root = ws.members().any(|member| member.package_id() == pkg);
-    if ws.gctx().backend().unwrap() == BuildBackend::Nix && !is_root {
+    // (a registry crate is unpacked from its tarball in nix, also as the root of `cargo install`'s workspace)
+    if ws.gctx().backend().unwrap() == BuildBackend::Nix && (!is_root || !pkg.source_id().is_path()) {
         let p = src.strip_prefix(unit.pkg.root()).unwrap();
         (PathBuf::from(p), unit.pkg.root().to_path_buf())
     } else {

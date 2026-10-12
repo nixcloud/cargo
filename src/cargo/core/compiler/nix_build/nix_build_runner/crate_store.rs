@@ -135,6 +135,11 @@ pub fn fetch_crates(gctx: &GlobalContext, ids: &BTreeSet<PackageId>, resolve: &R
             missing.push(tarball);
         }
     }
+    fetch_tarballs(gctx, missing)
+}
+
+/// Fetches the `missing` tarballs into the Nix store (one daemon request) and keeps them alive until cargo exits.
+pub fn fetch_tarballs(gctx: &GlobalContext, missing: Vec<CrateTarball>) -> CargoResult<()> {
     if missing.is_empty() {
         return Ok(());
     }

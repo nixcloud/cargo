@@ -67,6 +67,26 @@ https://github.com/qknight/cargo-experiments
     `OUT_DIR` and `rustc-env` of cargo (legacy)
   * `std::env::current_exe()` is the binary in the store, so programs looking for files next to themselves
     find the store path, not _target/debug_
+* 'cargo install' / 'cargo uninstall': same output as cargo (legacy); the binaries stay in the store (they link
+  against store paths: glibc, libraries from `Cargo.dependencies.nix`), each rooted by an indirect GC root:
+
+        ~/.cargo/                                 (or --root / CARGO_INSTALL_ROOT)
+        ├── .crates.toml / .crates2.json          unchanged, cargo's install records (`cargo install --list`)
+        ├── nix/install/
+        │   └── ripgrep-15.1.0-<short hash>/      one directory per package id, one root per binary
+        │       └── rg  ->  /nix/store/…-ripgrep-15_1_0-bin-…
+        └── bin/
+            └── rg  ->  ../nix/install/ripgrep-15.1.0-<short hash>/rg/rg-<hash>
+
+  * `bin/` links go through the roots, so a removed root shows as a dangling link rather than one into a path
+    the next GC deletes
+  * crates.io packages are fetched into the store like dependencies, then built in cargo's temporary target dir;
+    the crate sources and crate builds are left in the store, unrooted, for `nix-collect-garbage` (like
+    `~/.cargo/registry` they are shared with other builds)
+  * roots no `bin/` link uses anymore (uninstalled, replaced by another version, deleted by hand) are removed after
+    every install and uninstall, and their closures are deleted unless something else (another install, a
+    project's GC slot, a `result` link, the system) still uses them
+  * `std::env::current_exe()` of an installed binary is its store path, as with `cargo run`
 * Cargo.dependencies.nix per crate for custom buildInputs `dependencies` and `environment variables`
 * support for build system export:
   * `cargo build write-nix-buildsystem --out-dir ./nix [--url <tarball> --hash <sha256>]`, see [Exporting the build system](README.md#exporting-the-build-system)
@@ -325,8 +345,8 @@ until 1.may 2026
     # less common commands (which require backend adaptions)
 
     [x] clean                Remove artifacts that cargo has generated in the past
-    [0] install              Install a Rust binary
-    [0] uninstall            Remove a Rust binary
+    [x] install              Install a Rust binary
+    [x] uninstall            Remove a Rust binary
     [0] rustdoc              Build a package's documentation, using specified custom flags.
     [!] fetch                Fetch dependencies of a package from the network
     [!] generate-lockfile    Generate the lockfile for a package
