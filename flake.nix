@@ -113,6 +113,7 @@
         rec {
           packages = {
             inherit rustc_1_87_vanilla_pin;
+            inherit cargo_1_87_vanilla_pin;
             inherit cargo-libnix-1_87_0_plus_v1;
             inherit cargo-libnix-1_87_0_plus_v2;
             inherit cargo-libnix-1_87_0_plus_v3;

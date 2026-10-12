@@ -80,6 +80,42 @@ pub fn strip_path_after_checkouts(path: &Path) -> Option<PathBuf> {
     None
 }
 
+/// The directory of a git dependency's package in its repository (`crates/x`, empty at the root). Cargo checks
+/// the repository out to `~/.cargo/git/checkouts/<repo>/<rev>/`; a vendored git source (source replacement,
+/// `cargo vendor`) has the package only, so it is looked up in the checkout nix-prefetch-git made.
+fn git_package_subpath(unit: &Unit, gctx: &GlobalContext) -> CargoResult<PathBuf> {
+    if let Some(subpath) = strip_path_after_checkouts(unit.pkg.root()) {
+        return Ok(subpath);
+    }
+    let source_id = unit.pkg.package_id().source_id();
+    let name = unit.pkg.name();
+    let rev = source_id
+        .precise_git_fragment()
+        .ok_or_else(|| anyhow!("git dependency `{name}` has no commit"))?;
+    let meta = download_git_for_metadata(&source_id.url().to_string(), &rev.to_string(), &String::new(), gctx)?;
+    find_package_dir(Path::new(&meta.path), name.as_str()).ok_or_else(|| {
+        anyhow!("git dependency `{name}`: no Cargo.toml of package `{name}` in {} ({})", source_id.url(), meta.path)
+            .into()
+    })
+}
+
+/// The directory below `root` of the Cargo.toml of package `name`; the least deep one if there are several.
+fn find_package_dir(root: &Path, name: &str) -> Option<PathBuf> {
+    walkdir::WalkDir::new(root)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|e| e.depth() == 0 || !matches!(e.file_name().to_str(), Some(".git" | "target")))
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name() == "Cargo.toml" && e.file_type().is_file())
+        .filter(|e| {
+            let Ok(text) = std::fs::read_to_string(e.path()) else { return false };
+            let Ok(manifest) = text.parse::<toml::Table>() else { return false };
+            manifest.get("package").and_then(|p| p.get("name")).and_then(|n| n.as_str()) == Some(name)
+        })
+        .min_by_key(|e| e.depth())
+        .and_then(|e| e.path().parent()?.strip_prefix(root).ok().map(Path::to_path_buf))
+}
+
 fn escape_environment_variable(input: String) -> String {
     let mut result = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
@@ -256,9 +292,13 @@ pub fn generate_unpack_phase<'gctx>(
               unpackPhase = "";
             "#}
         .to_string(),
+        // a writable copy of the repository, like an unpacked crate: the build writes its argument files (`*.rsp`)
+        // to the crate directory. CARGO_MANIFEST_DIR is the crate's path in the repository, relative to the crate
+        // from there on
         SourceKind::Git(_git_ref) => indoc! {r#"
             unpackPhase = ''
-              cd $src/$CARGO_MANIFEST_DIR
+              cp -r $src source && chmod -R u+w source && cd source/$CARGO_MANIFEST_DIR
+              export CARGO_MANIFEST_DIR=. CARGO_MANIFEST_PATH=./Cargo.toml
             '';
           "#}
         .to_string(),
@@ -328,7 +368,7 @@ pub fn generate_manifest_environment_variables<'gctx>(
             // println!("  pkg.root(): {:?}", unit.pkg.root()); // "/home/nixos/.cargo/git/checkouts/utbw-9a768fae0576fac1/06ba56a/crates/units"
             // FIXME this is an ugly hack but after hours of not understanding where this string is assembled and if the parts are
             // still accessible at this stage i ended up with this temporary hack
-            let strip = strip_path_after_checkouts(unit.pkg.root()).unwrap();
+            let strip = git_package_subpath(unit, workspace.gctx())?;
             //println!("  strip: {:?}", strip);
             // println!("  pkg.manifest_path(): {:?}", unit.pkg.manifest_path());
             // println!("------------- unit ---------------");

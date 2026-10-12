@@ -72,6 +72,23 @@ https://github.com/qknight/cargo-experiments
   * `cargo build write-nix-buildsystem --out-dir /tmp/nix --url https://github.com/nixcloud/cargo/archive/refs/tags/1.83-test-release.tar.gz --hash 1h5j1kl7q7mysa943gvd4c8ih8yxx4igqrx4akv9ixf4zf411b8l`
 * full flake and nixpkgs support
 
+## Regression tests
+
+`test.nix` builds the projects of https://github.com/nixcloud/cargo/issues/18 at pinned revisions with the cargo
+(libnix) of this checkout: it writes each build system in nix (IFD), builds the root units with rustc/cargo 1.87
+and runs each binary with `--version`.
+
+```bash
+nix-build test.nix -A ripgrep.smoke     # one project
+tests-libnix/run.sh                     # all, one by one: logs and RESULTS.md in target/tests
+```
+
+* _tests-libnix/<project>/_ has what a project needs beyond its sources: a `Cargo.dependencies.nix` (system
+  libraries, environment variables) and a `Cargo.lock` (projects without one, or a dependency pinned to a version
+  that supports rustc 1.87)
+* git dependencies are fetched during evaluation and vendored, as the generator runs in the sandbox (offline)
+* projects whose `rust-version` (or a dependency's) is newer than 1.87 are reported as `needs newer rustc`
+
 ## What still requires love
 
 ### high prio
