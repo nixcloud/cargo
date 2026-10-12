@@ -65,31 +65,46 @@
             cargo = cargo_1_87_vanilla_pin;
           }).cargo-0_88_0-bin-8cad88ffd54a16db;
 
-          ######################## cargo-libnix-git-head-via-ifd ###########################
+          ######################## cargo-libnix-*-via-ifd ###########################
 
           cargoBin = units: units.${pkgs.lib.findFirst (n: pkgs.lib.hasPrefix "cargo-0_88_0-bin-" n)
             (throw "no cargo-0_88_0-bin-* unit in the generated build system") (builtins.attrNames units)};
 
-          src = builtins.filterSource
+          # src -> generated nix build system (IFD) -> cargo binary
+          buildCargoBin = { src }:
+            let
+              lock = builtins.fromTOML (builtins.readFile "${src}/Cargo.lock");
+              crateTarballs = map (p: pkgs.fetchurl {
+                  name = "crate-${p.name}-${p.version}.tar.gz";
+                  url = "https://crates.io/api/v1/crates/${p.name}/${p.version}/download";
+                  sha256 = p.checksum;
+                })
+                (builtins.filter (p: (p.source or "") == "registry+https://github.com/rust-lang/crates.io-index") lock.package);
+
+              generated = pkgs.runCommand "cargo-nix-generated" { inherit crateTarballs; nativeBuildInputs = [ cargo-libnix-1_87_0_plus_v3 rustc_1_87_vanilla_pin ]; } ''
+                export HOME=$TMPDIR CARGO_BACKEND=nix
+                cp -r ${src} project && chmod -R u+w project && cd project
+                ${cargo-libnix-1_87_0_plus_v3}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
+              '';
+            in
+            cargoBin (import "${generated}/cargo_build_caller.nix" { inherit system; project_root = src; });
+
+          # the working tree, without top-level build outputs (target/, result, result-*)
+          head-src = builtins.filterSource
             (path: type:
                 let base = baseNameOf path;
-                in !(base == "target" || base == "result" || builtins.match "result-*" base != null)
+                in !(dirOf path == toString project_root && (base == "target" || base == "result" || builtins.match "result-.*" base != null))
             ) project_root;
 
-          lock = builtins.fromTOML (builtins.readFile "${src}/Cargo.lock");
-          crateTarballs = map (p: pkgs.fetchurl {
-              name = "crate-${p.name}-${p.version}.tar.gz";
-              url = "https://crates.io/api/v1/crates/${p.name}/${p.version}/download";
-              sha256 = p.checksum;
-            })
-            (builtins.filter (p: (p.source or "") == "registry+https://github.com/rust-lang/crates.io-index") lock.package);
+          # a pinned commit of nixcloud/cargo
+          revision-src = builtins.fetchGit {
+            url = "https://github.com/nixcloud/cargo";
+            ref = "master-libnix";
+            rev = "4445af918349cec57adc3c431c9eb8b1f46054a2";
+          };
 
-          generated = pkgs.runCommand "cargo-nix-generated" { inherit crateTarballs; nativeBuildInputs = [ cargo-libnix-1_87_0_plus_v3 rustc_1_87_vanilla_pin ]; } ''
-            export HOME=$TMPDIR CARGO_BACKEND=nix
-            cp -r ${src} project && chmod -R u+w project && cd project
-            ${cargo-libnix-1_87_0_plus_v3}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
-          '';
-          cargo-libnix-git-head-via-ifd = cargoBin (import "${generated}/cargo_build_caller.nix" { inherit system; project_root = src; });
+          cargo-libnix-git-head-via-ifd = buildCargoBin { src = head-src; };
+          cargo-libnix-git-revision-via-ifd = buildCargoBin { src = revision-src; };
 
           ######################################################################################
 
@@ -102,6 +117,7 @@
             inherit cargo-libnix-1_87_0_plus_v2;
             inherit cargo-libnix-1_87_0_plus_v3;
             inherit cargo-libnix-git-head-via-ifd;
+            inherit cargo-libnix-git-revision-via-ifd;
 
             default = pkgs.symlinkJoin {
               name = "cargo-libnix-1_87_0_plus_v3-with-rustc";
