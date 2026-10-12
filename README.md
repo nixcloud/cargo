@@ -6,34 +6,34 @@ This fork is intended as a PR to contribute this to the official cargo project a
 
 # What is this?
 
-This project aims to integrate nix as a backend into cargo (libnix) so we can benefit from the nix advantages during development and deployment. Detailed technical status in [README-DEV.md](README-DEV.md).
+This project integrates nix as a build backend into cargo (libnix), so you get the advantages of nix during development and deployment. The detailed technical status is in [README-DEV.md](README-DEV.md).
 
 Ideally you type these commands: 🚀
 
-    nix develop github:nixcloud/cargo
-    cargo build
+```
+nix develop github:nixcloud/cargo
+export CARGO_BACKEND=nix 
+cargo build
+```
 
-[![asciicast](https://asciinema.org/a/1268068.svg)](https://asciinema.org/a/1268068)
+[![asciicast](asciinema.png)](https://asciinema.org/a/1268068)
 
-You can easily add it to your project's flake.nix and use it, too!
+The nix backend is switched on with the environment variable `CARGO_BACKEND=nix` the devshell above sets it. Without it, or with any other value, this cargo behaves like the upstream cargo (legacy).
 
-# Motivation 💡
+## How it works
 
-Motivation behind this work:
+cargo resolves the dependencies and plans the build as usual. In nix mode it then writes one nix derivation per unit (a crate with its features and profile, a build script, a build script run, a test harness) to _target/&lt;profile&gt;/nix_, builds them with `nix build` and links the results into _target/&lt;profile&gt;_, so `target/debug/<bin>` is a symlink into `/nix/store`.
 
-* https://lastlog.de/blog/libnix_cargo-nix-backend.html
-* https://lastlog.de/blog/timeline.html?filter=tag::libnix
+* every crate is built in the nix sandbox, with its system libraries from `Cargo.dependencies.nix`
+* crates.io downloads and crate builds are store paths, shared between projects and machines (and between `cargo build`, `cargo run` and `cargo test`)
+* the same nix code can be exported with `cargo build write-nix-buildsystem` and built by nix alone, from a flake or nixpkgs, without calling cargo again
 
-This project is [xkcd 927](https://xkcd.com/927/).
+## Requirements
 
-# Project resources
-
-We use these resources:
-
-* https://github.com/nixcloud/cargo - branch **master-libnix** - exists as a PR to incorperate nix into cargo (see [Branches and releases](#branches-and-releases-))
-* https://github.com/nixcloud/cargo/issues - for issues, do not report issues on the original cargo tracker (or their formus)!
-* https://link.excalidraw.com/l/3QhpSMKuoZA/6eoC5kkanvL - diagrams
-* https://link.excalidraw.com/p/readonly/HTEjH2WpzNJExWK81BaN - slides
+* nix with the `nix-command` and `flakes` features, a running nix-daemon and the sandbox enabled (the defaults on NixOS)
+* Linux; developed and tested on x86_64-linux
+* `rustc` of the same version as the cargo (currently 1.87.0), the devshell and flake provide both
+* `nix-prefetch-git` in `PATH` for git dependencies (part of the devshell)
 
 # Supported subcommands and features 🧰
 
@@ -74,23 +74,24 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 
 # Using cargo (libnix)
 
-There are several ways to use cargo+libnix on your system:
+There are three ways to use cargo (libnix):
 
-1. cargo+libnix used via **devshell**
-2. cargo+libnix used via **flake**
-3. cargo+libnix used via **traditional nix code**
+1. **devshell**: try it without changing anything
+2. **flake**: add it to your project's devshell
+3. **traditional nix code**: `shell.nix`, NixOS configuration, …
 
-## 1. cargo+libnix used via **devshell**
+## 1. devshell
 
-```bash  
+```bash
 nix develop github:nixcloud/cargo
+cargo build
 ```
 
-This adds the `cargo` and `rustc` binary into your environment and you can start to build software.
+This adds `cargo` (libnix), a matching `rustc` and `nix-prefetch-git` to your environment and sets `CARGO_BACKEND=nix`.
 
-## 2. cargo+libnix used via **flake**
+## 2. flake
 
-When you use fenix to manage your Rust installation, simply add a few lines to extend the installation with the custom cargo binary as shown below:
+Add the cargo (libnix) binary and the matching `rustc` to your project's devshell:
 
 ```nix
 {
@@ -111,6 +112,7 @@ When you use fenix to manage your Rust installation, simply add a few lines to e
           buildInputs = [
             libnix-flake.packages.${system}.rustc_1_87_vanilla_pin
             libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v3
+            pkgs.nix-prefetch-scripts
           ];
           shellHook = ''
             export CARGO_BACKEND=nix
@@ -120,75 +122,83 @@ When you use fenix to manage your Rust installation, simply add a few lines to e
 }
 ```
 
-Afterwards check with `which cargo` that it points to the right path.
+Afterwards check that `cargo` is the one from the store:
 
-    which cargo
-    /nix/store/dpihj64vqhxir9bmdj3aciv5sf1myx7b-cargo-0_88_0-bin-b4cc6eeacb818d24/bin/cargo
+    $ which cargo
+    /nix/store/…-cargo-0_88_0-bin-8cad88ffd54a16db/bin/cargo
 
-## 3. cargo+libnix used via **traditional nix code**
+## 3. traditional nix code
 
-With this you can extend your build system with a `cargo` (libnix) binary, you need to add a `rustc` and other rust toolchain parts in addition similar to the flake setup:
+A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.87.0+v3` with a pinned rustc/cargo 1.87.0 from [fenix](https://github.com/nix-community/fenix):
 
 ```nix
-cargo-libnix-1_87_0_plus_v3_src = builtins.fetchTarball {
-  url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv3/libnix-1.87.0+v3.tar.bz2";
-  sha256 = "sha256:00cqp5s8gdzz2abwlggz3v9qhizln7f06nilkb34fvkr9hywgk2v";
-};
-cargo-libnix-1_87_0_plus_v3 = (import (cargo-libnix-1_87_0_plus_v3_src + "/derivations/default.nix"){ 
-  inherit project_root pkgs;
-  external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v3_src + "/Cargo.dependencies.nix") { inherit pkgs; };
-  rustc = rustc_1_87_vanilla_pin;
-  cargo = cargo_1_87_vanilla_pin;
-}).cargo-0_88_0-bin-8cad88ffd54a16db;
-...
-systemPackages = [ cargo-libnix-1_87_0_plus_v3 rustc_1_87_vanilla_pin ];
+{ pkgs ? import <nixpkgs> { } }:
+let
+  fenix = import (builtins.fetchTarball {
+    url = "https://github.com/nix-community/fenix/archive/6ed03ef4c8ec36d193c18e06b9ecddde78fb7e42.tar.gz";
+    sha256 = "1mjmp9c5x3j6jqy50ymr07nxl4nrlp3iininxhnzc1ragdrg8pxn";
+  }) { inherit pkgs; };
+  toolchain = fenix.toolchainOf {
+    channel = "1.87.0";
+    sha256 = "sha256-KUm16pHj+cRedf8vxs/Hd2YWxpOrWZ7UOrwhILdSJBU=";
+  };
+  # the generated build system of cargo (libnix) and the cargo sources it builds
+  buildsystem = builtins.fetchTarball {
+    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv3/libnix-1.87.0+v3.tar.bz2";
+    sha256 = "sha256:00cqp5s8gdzz2abwlggz3v9qhizln7f06nilkb34fvkr9hywgk2v";
+  };
+  cargo-src = builtins.fetchTarball {
+    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.87.0%2Bv3.tar.gz";
+    sha256 = "sha256:02ng25i4vg17bpygm0397gs6n8kzblgc61ixy1vh4yvpf0bn6mmp";
+  };
+  cargo-libnix = (import (buildsystem + "/derivations/default.nix") {
+    inherit pkgs;
+    project_root = cargo-src;
+    external_crate_dependencies = import (buildsystem + "/Cargo.dependencies.nix") { inherit pkgs; };
+    rustc = toolchain.rustc;
+    cargo = toolchain.cargo;
+  }).cargo-0_88_0-bin-8cad88ffd54a16db;
+in
+pkgs.mkShell {
+  packages = [ cargo-libnix toolchain.rustc pkgs.nix-prefetch-scripts ];
+  shellHook = "export CARGO_BACKEND=nix";
+}
 ```
 
-WARNING: **cargo_build_caller.nix** acts like a flake.nix since it has its own input section and uses a different nixpkgs because this way we can share the build artifacts between machines. Feel free to also use the **nix/derivations/default.nix** as entry point while providing your own `cargo`, `rustc` and `pkgs`.
+For a NixOS configuration, put `cargo-libnix` and `toolchain.rustc` into `environment.systemPackages` instead and set `CARGO_BACKEND=nix` in `environment.variables`.
 
-# Injecting dependencies 
+# Injecting dependencies
 
-The cargo (libnix) supports fine grained dependencies per crate, so you can enhance individual `buildInputs` and `environment variables`!
+Crates that link against system libraries (`openssl-sys`, `libsqlite3-sys`, …) or need environment variables at build time get them from a `Cargo.dependencies.nix` next to `Cargo.toml` / `Cargo.lock`. Without the file, crates are built with the toolchain only; a `*-sys` crate whose build script can't find its library is the typical sign that an entry is missing.
 
-How to use it:
-
-1. create a file `Cargo.dependencies.nix` next to Cargo.lock / Cargo.toml
-
-2. fill it with your desired nix dependencies like `openssl` or `curl` or environment variables:
+1. create `Cargo.dependencies.nix` in the workspace root
+2. add `buildInputs` per crate in `deps` and environment variables per crate in `envs`; the name and version are the ones in `Cargo.lock`. The version is optional, but once a crate is keyed by version, `deps` must list every version of it in `Cargo.lock`:
 
     ```nix
-        { pkgs }:
-        with pkgs;
-        {
-            deps = {
-                "markup5ever_rcdom" = {
-                    "0.3.0" =
-                        [ pkg-config openssl ];
-                };
-                "unicode-ident" = [ pkg-config curl ];
-                "xml5ever" = {
-                    "0.20.0" = [];
-                };
-            };
-            envs = {
-                "cargo" = {
-                    "0.88.0" = {
-                        "FOO" = "bar11 asdf";
-                    };
-                };
-                "cargo-platform" = {
-                    "FOO" = "worx";
-                };
-            };
-        }
+    { pkgs }:
+    with pkgs;
+    {
+      deps = {
+        "openssl-sys" = [ pkg-config openssl ];       # every version
+        "libsqlite3-sys" = {
+          "0.30.1" = [ pkg-config sqlite ];           # only this version
+        };
+      };
+      envs = {
+        "proc-macro-test" = {
+          "PROC_MACRO_TEST_LOCATION" = "";
+        };
+      };
+    }
     ```
-  3. run `cargo build`, it should show something like
 
-Note: The name / version of a crate can be copied from `Cargo.lock` (version is optional).
+3. run `cargo build`; the inputs and variables are added to every derivation of that crate (build script, build script run, compilation)
 
-# Workflow for using cargo+libnix in your project
+More examples are in [Cargo.dependencies.nix](Cargo.dependencies.nix) (the one of cargo itself) and in [tests-libnix](tests-libnix).
 
-The command `cargo build` creates a nix toolchain on the fly in _target/debug/nix_ but you can also write it with `cargo build write-nix-buildsystem ...` so it can be used from a _flake_ or _nixpkgs_. When using _write-nix-buildsystem_ a URL/HASH is used with `builtins.fetchTarball` instead of the local source.
+# Exporting the build system
+
+`cargo build` writes the nix code to _target/&lt;profile&gt;/nix_ on every run. `cargo build write-nix-buildsystem` writes the same code to a directory of your choice, without building, so your project can be built by nix alone: from a flake, nixpkgs or another project.
 
 ```
    ┌─────────────────┐
@@ -197,7 +207,7 @@ The command `cargo build` creates a nix toolchain on the fly in _target/debug/ni
             │
             ▼
 ┌────────────────────────────┐
-│  Nix toolchain             │
+│  nix build system          │
 │  • cargo_build_caller.nix  │
 │  • derivations/default.nix │
 │  • derivations/ ...        │
@@ -205,50 +215,39 @@ The command `cargo build` creates a nix toolchain on the fly in _target/debug/ni
             │
             ▼
 ┌───────────────────────┐
-│  Project source code  │
+│  project source code  │
 │  • src/               │
 │  • Cargo.toml / ...   │
 └───────────────────────┘
 ```
 
-This are the steps:
+The project's own crates either come from a directory (the default, the `project_root` argument) or from a tarball given with `--url` and `--hash`. For a release of your project, e.g. tag `v1.0.0` on GitHub:
 
-1. create a `git` commit with a `git tag` you like and push it
-2. create a github release for the tag
-3. use `nix-prefetch-url https://github.com/nixcloud/cargo/archive/refs/tags/1.83-test-release.tar.gz` to create the hash
-4. create the static `nix build system`
+1. tag the release and push it
+2. get the hash of the source tarball:
+
+    ```bash
+    nix-prefetch-url https://github.com/<owner>/<project>/archive/refs/tags/v1.0.0.tar.gz
+    ```
+
+3. write the build system:
 
     ```bash
     CARGO_BACKEND=nix cargo build --release write-nix-buildsystem \
-      --out-dir ./libnix-1.83-test-release \
-      --url https://github.com/nixcloud/cargo/archive/refs/tags/1.83-test-release.tar.gz \
-      --hash 1h5j1kl7q7mysa943gvd4c8ih8yxx4igqrx4akv9ixf4zf411b8l
+      --out-dir ./nix \
+      --url https://github.com/<owner>/<project>/archive/refs/tags/v1.0.0.tar.gz \
+      --hash <hash from step 2>
     ```
 
-5. you can test it locally: `nix build --file libnix-1.83-test-release/cargo_build_caller.nix target -L` and see if it works
-6. finally add this to your git repo and use with a flake concept (done for libnix, see the ./nix folder) or
-   zip & upload the files and call the builder like:
+4. test it: `nix build --file nix/cargo_build_caller.nix target -L`
+5. publish it: commit the directory to your repository, or attach a tarball of it to the release (as cargo (libnix) does, see its [releases](https://github.com/nixcloud/cargo/releases))
 
-    ```nix
-    libnix_cargo_src = builtins.fetchTarball {
-      url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0-rc1/libnix-1.87.0-rc1.tar.bz2";
-      sha256 = "sha256:03lfx59j1kpbkcwx7pnbrwdyh2s8wzmsbnsrf0kla9gpsshdffmc";
-    };
-    libnix_cargo = (import (libnix_cargo_src + "/cargo_build_caller.nix"){ inherit system;}).cargo-0_88_0-bin-114d5ce240d74699;
-    ```
+The build system has two entry points:
 
-The generated nix build system has two entry points:
+1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and rust toolchain (from fenix), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
+2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](#3-traditional-nix-code) and this repository's [flake.nix](flake.nix)
 
-1. `./cargo_build_caller.nix` for `nix` (like from nixpkgs)
-2. `./derivations/default.nix` for `flake.nix` but you have to provide the environment (see the [flake.nix](flake.nix) in this repository).
-
-And you can build most rust projects without touching `cargo` again.
-
-Finally you can create a tar.bz2 of the build system and add it to the release section of your project. See https://github.com/nixcloud/cargo/releases/tag/libnix-1.87.0-rc2, which contains 3 files:
-
-* source code (zip)
-* source code (tar.gz)
-* libnix-1.87.0-rc2.tar.bz2 (the build system)
+Both return an attribute set with a derivation per unit (e.g. `cargo-0_88_0-bin-8cad88ffd54a16db`) and `target`, which links all root units like _target/&lt;profile&gt;_.
 
 # Branches and releases 🌿
 
@@ -277,10 +276,28 @@ Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87
 
 # Similar projects 📚
 
-* [crane](https://github.com/ipetkov/crane)
-* [naersk](https://github.com/nix-community/naersk)
-* [cargo2nix](https://github.com/cargo2nix/cargo2nix)
-* [crate2nix](https://github.com/nix-community/crate2nix)
+| project | how it differs from cargo (libnix) |
+|---|---|
+| [crane](https://github.com/ipetkov/crane) | nix library that runs cargo inside a few derivations (dependencies, then the workspace); you write the nix code |
+| [naersk](https://github.com/nix-community/naersk) | like crane: builds the dependencies and the project in two derivations from `Cargo.lock` |
+| [cargo2nix](https://github.com/cargo2nix/cargo2nix) | a separate tool generates a `Cargo.nix` with a derivation per crate, regenerated when `Cargo.lock` changes |
+| [crate2nix](https://github.com/nix-community/crate2nix) | like cargo2nix, based on nixpkgs' `buildRustCrate`, can also generate during evaluation (IFD) |
+
+cargo (libnix) is cargo itself: the derivation per unit comes from cargo's own build plan on every `cargo build`, during development as well, with no extra tool, nix code or generation step.
+
+# Motivation 💡
+
+* https://lastlog.de/blog/libnix_cargo-nix-backend.html
+* https://lastlog.de/blog/timeline.html?filter=tag::libnix
+
+This project is [xkcd 927](https://xkcd.com/927/).
+
+# Project resources
+
+* https://github.com/nixcloud/cargo - branch **master-libnix**, intended as a PR to incorporate nix into cargo (see [Branches and releases](#branches-and-releases-))
+* https://github.com/nixcloud/cargo/issues - for issues; do not report them on the upstream cargo tracker or forums!
+* https://link.excalidraw.com/l/3QhpSMKuoZA/6eoC5kkanvL - diagrams
+* https://link.excalidraw.com/p/readonly/HTEjH2WpzNJExWK81BaN - slides
 
 # Sponsors
 

@@ -39,7 +39,7 @@ https://github.com/qknight/cargo-experiments
     * built into /nix/store
   * sandboxing for all builds
   * full build.rs support using `build-rs-libnix` helper tool
-  * generates on static set of nix expressions for build
+  * generates a static set of nix expressions for the build
   * reuse of crate downloads and crate build artifacts between projects
 * advanced cargo like logging in nix with using `logone`
   * based on a new @cargo protocol (i.e. enhanced @nix protocol) - true story
@@ -69,7 +69,7 @@ https://github.com/qknight/cargo-experiments
     find the store path, not _target/debug_
 * Cargo.dependencies.nix per crate for custom buildInputs `dependencies` and `environment variables`
 * support for build system export:
-  * `cargo build write-nix-buildsystem --out-dir /tmp/nix --url https://github.com/nixcloud/cargo/archive/refs/tags/1.83-test-release.tar.gz --hash 1h5j1kl7q7mysa943gvd4c8ih8yxx4igqrx4akv9ixf4zf411b8l`
+  * `cargo build write-nix-buildsystem --out-dir ./nix [--url <tarball> --hash <sha256>]`, see [Exporting the build system](README.md#exporting-the-build-system)
 * full flake and nixpkgs support
 
 ## Regression tests
