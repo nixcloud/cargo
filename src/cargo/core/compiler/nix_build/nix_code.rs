@@ -11,6 +11,8 @@ use crate::core::compiler::nix_build::{NixNameMode, CrateBuildType, mode_string,
 use crate::util::command_prelude::NixBuildOptions;
 use crate::core::compiler::BuildRunner;
 use crate::core::compiler::Unit;
+use crate::core::compiler::CompileMode;
+use crate::core::TargetKind;
 use crate::core::workspace::Workspace;
 use crate::core::SourceKind;
 use crate::util::{CargoResult, GlobalContext};
@@ -107,12 +109,23 @@ pub fn cargo_crate_info<'a, 'gctx>(
     let meta = build_runner.files().metadata(&unit);
     let crate_hash: String = meta.unit_id().to_string();
 
-    let crate_type: &str = match crate_build_type(&unit) {
-        CrateBuildType::LibBuild => "",
-        CrateBuildType::ScriptBuild => "(build.rs build)",
-        CrateBuildType::ScriptBuildRun => "(build.rs run)",
-        CrateBuildType::BinBuild => "(bin)",
-        CrateBuildType::Other => "(?)",
+    let target_name = unit.target.name();
+    let crate_type: String = match crate_build_type(&unit) {
+        CrateBuildType::LibBuild => "".to_string(),
+        CrateBuildType::ScriptBuild => "(build.rs build)".to_string(),
+        CrateBuildType::ScriptBuildRun => "(build.rs run)".to_string(),
+        CrateBuildType::BinBuild => "(bin)".to_string(),
+        // a package has several test harnesses, the target tells them apart
+        CrateBuildType::TestBuild => match unit.target.kind() {
+            TargetKind::Lib(_) => "(lib test)".to_string(),
+            TargetKind::Bin => format!("(bin {target_name} test)"),
+            TargetKind::Test => format!("(test {target_name})"),
+            TargetKind::Bench => format!("(bench {target_name} test)"),
+            TargetKind::ExampleBin | TargetKind::ExampleLib(_) => format!("(example {target_name} test)"),
+            TargetKind::CustomBuild => "(build.rs test)".to_string(),
+        },
+        CrateBuildType::ExampleBuild => format!("(example {target_name})"),
+        CrateBuildType::Other => "(?)".to_string(),
     };
 
     let cargo_crate_info: String = format!(
@@ -163,10 +176,32 @@ pub fn create_nix_name<'a, 'gctx>(
     };
 }
 
+/// The binaries an integration test or bench depends on (those of its package): their names and their files in
+/// the store, as nix expressions.
+pub fn bins_in_store(unit: &Unit, build_runner: &BuildRunner<'_, '_>) -> Vec<(String, String)> {
+    let Some(deps) = build_runner.bcx.unit_graph.get(unit) else { return Vec::new() };
+    deps.iter()
+        .map(|dep| &dep.unit)
+        .filter(|bin| bin.target.is_bin() && bin.mode == CompileMode::Build)
+        .map(|bin| {
+            let name = bin.target.binary_filename().unwrap_or(bin.target.name().to_string());
+            let attr = create_nix_name(bin, build_runner, NixNameMode::AttributeName, false);
+            let hash = build_runner.files().metadata(bin).unit_id().to_string();
+            (name, format!("${{{attr}}}/{}-{hash}", bin.target.crate_name()))
+        })
+        .collect()
+}
+
+/// `CARGO_BIN_EXE_<name>` of an integration test or bench: the binary in the store, not in target/<profile>.
+fn bin_exe_in_store(unit: &Unit, build_runner: &BuildRunner<'_, '_>, name: &str) -> Option<String> {
+    bins_in_store(unit, build_runner).into_iter().find(|(n, _)| n == name).map(|(_, file)| file)
+}
+
 pub fn generate_environment_variables<'gctx>(
     workspace: &Workspace<'gctx>,
     unit: &Unit,
     process_builder: &ProcessBuilder,
+    build_runner: &BuildRunner<'_, 'gctx>,
 ) -> CargoResult<String> {
     let ret = process_builder
         .get_envs()
@@ -192,6 +227,10 @@ pub fn generate_environment_variables<'gctx>(
                             workspace,
                         )
                         .unwrap()
+                    }
+                    k if k.starts_with("CARGO_BIN_EXE_") => {
+                        bin_exe_in_store(unit, build_runner, &k["CARGO_BIN_EXE_".len()..])
+                            .unwrap_or_else(|| escape_environment_variable(env_value))
                     }
                     _ => escape_environment_variable(env_value),
                 };
@@ -374,14 +413,17 @@ pub fn generate_src<'gctx>(
                 },
                 None => {
                     // `project_root` (cargo_build_caller.nix) is the workspace root: `../../..` from target/<profile>/nix,
-                    // or for write-nix-buildsystem the path from --out-dir, overridable when importing (IFD)
+                    // or for write-nix-buildsystem the path from --out-dir, overridable when importing (IFD).
+                    // Only the workspace's own target dir and `nix build` result links are left out: deeper
+                    // `target` or `result` directories are sources (e.g. a `mod target;`)
                     let template_str =
                         indoc! {
                             r#"
                                 src = builtins.filterSource
                                 (path: type:
                                     let base = baseNameOf path;
-                                    in !(base == "target" || base == "result" || builtins.match "result-*" base != null)
+                                    in !(dirOf path == toString project_root
+                                      && (base == "target" || base == "result" || builtins.match "result-.*" base != null))
                                 ) project_root;
                             "#};
                     return Ok(template_str.to_string().indentation(4));

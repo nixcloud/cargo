@@ -12,18 +12,19 @@ use indoc::indoc;
 use std::collections::{BTreeSet, HashSet};
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs;
 
 use asserts::assert_escapes;
 use deps::{Dependencies, handle_dynamic_crate_aspects};
 use nix_files::{create_nix_filepath, write_nix_file};
-use nix_code::{IndentationExt, cargo_crate_info, create_nix_name, generate_environment_variables, generate_unpack_phase, generate_src};
+use nix_code::{IndentationExt, bins_in_store, cargo_crate_info, create_nix_name, generate_environment_variables, generate_unpack_phase, generate_src};
 use crate::core::compiler::nix_build::nix_build_runner::NixBuild;
+pub use crate::core::compiler::nix_build::nix_build_runner::gc_roots::BuildOutputs;
 use crate::core::compiler::nix_build::nix_files::ensure_garbage_collected_directory;
 use crate::core::compiler::unit_graph::UnitGraph;
 use crate::core::compiler::Unit;
-use crate::core::compiler::{BuildContext, BuildRunner, CompileMode};
+use crate::core::compiler::{BuildContext, BuildRunner, CompileMode, FileFlavor};
 use crate::core::workspace::Workspace;
 use crate::core::TargetKind;
 use crate::util::{CargoResult, Filesystem, GlobalContext};
@@ -91,6 +92,10 @@ enum CrateBuildType {
     ScriptBuild,
     ScriptBuildRun,
     BinBuild,
+    /// a test harness (`cargo test`): unit tests of a lib, bin, example or bench, or an integration test
+    TestBuild,
+    /// an example binary, built by `cargo test` (and `cargo build --examples`)
+    ExampleBuild,
     Other,
 }
 
@@ -98,7 +103,11 @@ fn crate_build_type(unit: &Unit) -> CrateBuildType {
     let target_kind: &TargetKind = unit.target.kind();
     let compile_mode: CompileMode = unit.mode;
 
-    if compile_mode == CompileMode::Build && matches!(*target_kind, TargetKind::Lib(_)) {
+    if compile_mode == CompileMode::Test {
+        CrateBuildType::TestBuild
+    } else if compile_mode == CompileMode::Build && *target_kind == TargetKind::ExampleBin {
+        CrateBuildType::ExampleBuild
+    } else if compile_mode == CompileMode::Build && matches!(*target_kind, TargetKind::Lib(_)) {
         CrateBuildType::LibBuild
     } else if compile_mode == CompileMode::Build && *target_kind == TargetKind::CustomBuild {
         CrateBuildType::ScriptBuild
@@ -120,7 +129,9 @@ struct SymlinkedTargets {
 pub struct NixBuildRunner {}
 
 impl<'a, 'gctx> NixBuildRunner {
-    pub fn build(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<()> {
+    /// Generates the build system and builds it; returns its outputs, or `None` if it was only written
+    /// (write-nix-buildsystem).
+    pub fn build(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<Option<BuildOutputs>> {
         let bcx: &BuildContext<'a, 'gctx> = &build_runner.bcx;
         let keep_going: bool = bcx.build_config.keep_going;
         let workspace: &Workspace<'gctx> = build_runner.bcx.ws;
@@ -165,7 +176,10 @@ impl<'a, 'gctx> NixBuildRunner {
             None => {
                 // files in target/nix should created if new, update if existent and deleted if not used anymore
                 let target_dir: Filesystem = workspace.target_dir();
-                target_dir.join(requested_profile).join("nix")
+                // `cargo test` builds other units (test harnesses, dev-dependencies) than `cargo build`: with a
+                // build system and GC roots of its own, neither deletes the store paths of the other
+                let dir_name = if bcx.build_config.mode.is_any_test() { "nix-test" } else { "nix" };
+                target_dir.join(requested_profile).join(dir_name)
             }
         };
 
@@ -393,7 +407,8 @@ impl<'a, 'gctx> NixBuildRunner {
 
         if write_nix_buildsystem_options.is_none() {
             let jobs = bcx.build_config.jobs;
-            NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names)?;
+            let target_dir = workspace.target_dir().into_path_unlocked();
+            return NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names, &target_dir).map(Some);
         } else if write_nix_buildsystem_options.as_ref().is_some_and(|o| o.remote_src.is_none()) {
             // project_root is the workspace itself, so its Cargo.dependencies.nix is used in place
             gctx.shell().status(
@@ -433,7 +448,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 )
             .unwrap();
         }
-        Ok(())
+        Ok(None)
     }
 
     fn process_script_build_run(
@@ -469,7 +484,7 @@ impl<'a, 'gctx> NixBuildRunner {
         handlebars.register_template_string("rustc-call", template_str)?;
 
         let environment_variables: String =
-            generate_environment_variables(workspace, unit, process_builder)?;
+            generate_environment_variables(workspace, unit, process_builder, build_runner)?;
 
         let phases: Vec<&str> = vec!["unpackPhase", "buildPhase"];
 
@@ -613,7 +628,7 @@ impl<'a, 'gctx> NixBuildRunner {
         handlebars.register_template_string("rustc-call", template_str)?;
 
         let environment_variables: String =
-            generate_environment_variables(workspace, unit, process_builder)?;
+            generate_environment_variables(workspace, unit, process_builder, build_runner)?;
 
         let template_str = indoc! {
         r#"
@@ -684,7 +699,14 @@ impl<'a, 'gctx> NixBuildRunner {
             .collect();
         let function_arguments: Vec<String> = [default_function_arguments, root_deps].concat();
 
-        let additional_build_phase_arguments = handle_dynamic_crate_aspects(unit, &deps);
+        let mut additional_build_phase_arguments = handle_dynamic_crate_aspects(unit, &deps);
+        // tests find the binaries of their package next to themselves (`snapbox::cmd::cargo_bin`,
+        // `assert_cmd`'s `cargo_bin`, which look beside `current_exe()`); that is the store path of the test
+        if crate_build_type(&unit) == CrateBuildType::TestBuild {
+            for (name, file) in bins_in_store(unit, build_runner) {
+                additional_build_phase_arguments.push(format!("      ln -s {file} $out/{name}"));
+            }
+        }
 
         let mut phases: Vec<&str> = vec!["unpackPhase", "buildPhase"];
         let mut append: Vec<String> = vec![];
@@ -721,8 +743,8 @@ impl<'a, 'gctx> NixBuildRunner {
                 script: format!(
                     indoc! {
                     r#"
-                      rm -f target/{}/{}
-                      ln -s ${{{}}}/bin/{} target/{}/
+                      rm -f "$1"/{}/{}
+                      ln -s ${{{}}}/bin/{} "$1"/{}/
                     "#},
                     requested_profile,
                     binary_name,
@@ -757,7 +779,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     indoc! {
                     r#"
                         if [[ -f "${{{}}}/{}" ]]; then
-                          ln -fs ${{{}}}/{} target/{}/{}
+                          ln -fs ${{{}}}/{} "$1"/{}/{}
                         fi
                     "#},
                     attribute_name, src_name, attribute_name, src_name, requested_profile, dst_name
@@ -768,6 +790,30 @@ impl<'a, 'gctx> NixBuildRunner {
                 attribute_name: attribute_name.clone(),
                 script: script_body,
             });
+        } else if is_root
+            && matches!(crate_build_type(&unit), CrateBuildType::TestBuild | CrateBuildType::ExampleBuild)
+        {
+            // where cargo expects them: `cargo test` runs the test harnesses from target/<profile>/deps, examples
+            // are in target/<profile>/examples
+            let attribute_name = create_nix_name(unit, build_runner, NixNameMode::AttributeName, false);
+            let target_dir = workspace.target_dir().into_path_unlocked();
+            let mut script = String::new();
+            for output in build_runner.outputs(unit)?.iter().filter(|o| o.flavor == FileFlavor::Normal) {
+                let file = output.path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+                let dst = output.bin_dst().strip_prefix(&target_dir)?;
+                let parent = dst.parent().unwrap_or(Path::new(""));
+                script.push_str(&format!(
+                    indoc! {r#"
+                        mkdir -p "$1/{}"
+                        ln -sfn ${{{}}}/{} "$1/{}"
+                    "#},
+                    parent.display(),
+                    attribute_name,
+                    file,
+                    dst.display(),
+                ));
+            }
+            symlinked_targets.push(SymlinkedTargets { attribute_name, script });
         }
 
         let rendered = handlebars.render(

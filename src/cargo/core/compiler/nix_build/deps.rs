@@ -39,7 +39,7 @@ pub fn handle_dynamic_crate_aspects(unit: &Unit, deps: &Dependencies) -> Vec<Str
     .to_string();
 
     match crate_build_type(unit) {
-        CrateBuildType::BinBuild => {
+        CrateBuildType::BinBuild | CrateBuildType::TestBuild | CrateBuildType::ExampleBuild => {
             additional_build_phase_arguments.push(source_environment_variables.indentation(6));
             match &deps.rust_crate_parent {
                 Some(_) => {
@@ -75,6 +75,21 @@ pub fn handle_dynamic_crate_aspects(unit: &Unit, deps: &Dependencies) -> Vec<Str
             };
         }
         _ => {}
+    }
+    // tests run outside of the sandbox, where the sandbox's copy of the sources (the working directory) is gone:
+    // env!("CARGO_MANIFEST_DIR") points at the sources in the store instead, e.g. for fixtures. The working
+    // directory is the root of that copy, as `src` is of the store path
+    if crate_build_type(unit) == CrateBuildType::TestBuild && unit.pkg.package_id().source_id().is_path() {
+        additional_build_phase_arguments.push(
+            indoc! {r#"
+                if [ -d "$src" ]; then
+                  export CARGO_MANIFEST_DIR=$(realpath "$src/$(realpath --relative-to="$PWD" "$CARGO_MANIFEST_DIR")")
+                  export CARGO_MANIFEST_PATH="$CARGO_MANIFEST_DIR/Cargo.toml"
+                fi
+            "#}
+            .to_string()
+            .indentation(6),
+        );
     }
     additional_build_phase_arguments
 }
@@ -165,7 +180,10 @@ pub fn create_unit_dependencies<'a, 'gctx>(
     //     "rustls-0_23_23-script_build",
     // ]
     let search: String = match crate_build_type(unit) {
-        CrateBuildType::BinBuild | CrateBuildType::LibBuild => {
+        CrateBuildType::BinBuild
+        | CrateBuildType::LibBuild
+        | CrateBuildType::TestBuild
+        | CrateBuildType::ExampleBuild => {
             format!("{}-{}-script_build_run", crate_name, crate_version).nix_attr_replace()
         }
         CrateBuildType::ScriptBuildRun => {

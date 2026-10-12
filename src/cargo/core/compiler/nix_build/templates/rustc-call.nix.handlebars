@@ -4,6 +4,8 @@
     name = "{{{nix_attribute_name}}}";
 {{{cargo_crate_info}}}
     buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
+    # rustc on PATH like with cargo (legacy): proc macros and build scripts run `rustc` (e.g. `rustc -V`)
+    nativeBuildInputs = [ rustc ];
     env = fn.inject_envs meta.cargo_crate_info;
 
     passthru.rust_crate_libraries = [{{{rust_crate_libraries}}}];

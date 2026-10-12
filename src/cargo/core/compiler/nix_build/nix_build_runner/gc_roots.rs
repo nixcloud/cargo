@@ -1,8 +1,10 @@
-//! GC roots of nix mode builds (nixcloud/cargo#4). Each profile has `target/<profile>/nix/gc`, whose links are
-//! named after the store objects they point to (see `README` below, which is written into the directory):
+//! GC roots of nix mode builds (nixcloud/cargo#4). Each profile has `target/<profile>/nix/gc` (`nix-test/gc` for
+//! `cargo test`), whose links are named after the store objects they point to (see `README` below, which is
+//! written into the directory):
 //! - `create-symlinks`: the script the symlinks in target/<profile> come from
 //! - `retained-paths-units-crates-toolchain-deps`: the file listing every unit output, crate tarball, the
-//!   toolchain and the external dependencies of the last successful build; its references keep them alive
+//!   toolchain and the external dependencies of the last successful build; its references keep them alive. It
+//!   also names the rustdoc and linker of the units, for the doc tests cargo runs
 //! - `<name>.drv`: the evaluated derivation of each
 //!
 //! When the retained paths move on, whatever the old file listed and the new one doesn't is deleted from the
@@ -11,7 +13,7 @@
 use super::daemon::{self, Daemon};
 use super::event::Event;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
 /// The script that creates the symlinks in target/<profile> (attribute `target` of cargo_build_caller.nix).
@@ -33,7 +35,8 @@ create-symlinks.drv
     its derivation, the evaluated build system
 retained-paths-units-crates-toolchain-deps
     a file listing every store path the build used: the unit outputs (crates, build scripts), the crate
-    sources (.crate tarballs), the toolchain and the external dependencies from Cargo.dependencies.nix
+    sources (.crate tarballs), the toolchain and the external dependencies from Cargo.dependencies.nix, then
+    (`# rustdoc`, `# linker`) the tools cargo runs on the unit outputs for doc tests
 retained-paths-units-crates-toolchain-deps.drv
     its derivation
 
@@ -78,11 +81,43 @@ pub fn rooted_paths(gc_dir: &Path) -> Vec<String> {
     paths
 }
 
-/// `cargo clean`: what the gc dirs below `dir` (`<profile>/nix/gc`, `<triple>/<profile>/nix/gc`) keep alive,
-/// collected before `dir` is removed. The `.drv` roots are left to nix-collect-garbage.
+/// What a successful build produced, from the list of retained paths `gc_dir` points to.
+#[derive(Debug, Default)]
+pub struct BuildOutputs {
+    /// store path of each derivation output by name (for units: their nix attribute name)
+    pub paths: HashMap<String, PathBuf>,
+    /// the rustdoc of the toolchain the units were built with
+    pub rustdoc: Option<PathBuf>,
+    /// the C compiler that linked them
+    pub linker: Option<PathBuf>,
+}
+
+pub fn build_outputs(gc_dir: &Path) -> BuildOutputs {
+    let mut outputs = BuildOutputs::default();
+    let Ok(file) = std::fs::read_link(gc_dir.join(RETAINED_PATHS)) else { return outputs };
+    let Ok(text) = std::fs::read_to_string(&file) else { return outputs };
+    for line in text.lines() {
+        if let Some(tool) = line.strip_prefix("# rustdoc ") {
+            outputs.rustdoc = Some(PathBuf::from(tool));
+        } else if let Some(tool) = line.strip_prefix("# linker ") {
+            outputs.linker = Some(PathBuf::from(tool));
+        } else if let Some(base) = line.strip_prefix("/nix/store/") {
+            // `<hash>-<name>`
+            if let Some((_, name)) = base.split_once('-') {
+                outputs.paths.insert(name.to_string(), PathBuf::from(line));
+            }
+        }
+    }
+    outputs
+}
+
+/// `cargo clean`: what the gc dirs below `dir` (`<profile>/nix/gc`, `<profile>/nix-test/gc` of `cargo test`,
+/// `<triple>/<profile>/nix/gc`) keep alive, collected before `dir` is removed. The `.drv` roots are left to
+/// nix-collect-garbage.
 pub fn rooted_below(dir: &Path) -> Vec<String> {
     fn walk(dir: &Path, depth: usize, out: &mut Vec<String>) {
-        if dir.file_name().is_some_and(|n| n == "gc") && dir.parent().is_some_and(|p| p.ends_with("nix")) {
+        let in_nix_dir = dir.parent().and_then(|p| p.file_name()).is_some_and(|n| n == "nix" || n == "nix-test");
+        if dir.file_name().is_some_and(|n| n == "gc") && in_nix_dir {
             out.extend(rooted_paths(dir));
             if let Ok(result) = std::fs::read_link(dir.join(CREATE_SYMLINKS)) {
                 out.push(result.to_string_lossy().into_owned());

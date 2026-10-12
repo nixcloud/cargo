@@ -33,10 +33,10 @@ let
     cargo = toolchain;
   };
 
-  # everything a build uses that is worth keeping: the units, their sources (crate tarballs), the toolchain and
-  # the external dependencies from Cargo.dependencies.nix. cargo roots it in target/<profile>/nix/gc, so
-  # nix-collect-garbage doesn't remove the dependency builds, and deletes what the previous build listed but
-  # this one doesn't (nixcloud/cargo#4)
+  # everything a build uses that is worth keeping: the units, their sources (crate tarballs), the toolchain (with
+  # the C compiler that links) and the external dependencies from Cargo.dependencies.nix. cargo roots it in
+  # target/<profile>/nix/gc, so nix-collect-garbage doesn't remove the dependency builds, and deletes what the
+  # previous build listed but this one doesn't (nixcloud/cargo#4)
   lib = pkgs.lib;
   derivationsIn = x:
     if lib.isDerivation x then [ x ]
@@ -49,13 +49,16 @@ let
     # they reference the unit outputs, so the old ones would keep old units alive
     ++ map (u: cargoPackages.fn.rustc_linker_arguments_dir u.rust_crate_libraries)
       (lib.filter (u: u ? rust_crate_libraries) units)
-    ++ [ toolchain ]
+    # only the `out` of the C compiler, not its man and info pages
+    ++ [ toolchain "${pkgs.stdenv.cc}" ]
     ++ derivationsIn external_crate_dependencies.deps;
   retainedPaths = lib.unique (lib.concatMap
     (r: if lib.isDerivation r then map (o: toString r.${o}) (r.outputs or [ "out" ]) else [ (toString r) ])
     roots);
+  # what cargo runs outside of nix on the unit outputs (doc tests), the same rustdoc and linker as the units use
+  tools = [ "# rustdoc ${toolchain}/bin/rustdoc" "# linker ${pkgs.stdenv.cc}/bin/cc" ];
   retainedName = "cargo-libnix-retained-paths-units-crates-toolchain-deps";
 in
   cargoPackages // {
-    ${retainedName} = pkgs.writeText retainedName (lib.concatLines retainedPaths);
+    ${retainedName} = pkgs.writeText retainedName (lib.concatLines (retainedPaths ++ tools));
   }

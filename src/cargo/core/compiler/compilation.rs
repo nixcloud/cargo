@@ -123,6 +123,9 @@ pub struct Compilation<'gctx> {
     /// The linker to use for each host or target.
     target_linkers: HashMap<CompileKind, Option<PathBuf>>,
 
+    /// nix mode: the rustdoc of the toolchain nix built with, for doc tests (instead of the configured one).
+    pub rustdoc: Option<PathBuf>,
+
     /// The total number of warnings emitted by the compilation.
     pub warning_count: usize,
 }
@@ -162,6 +165,7 @@ impl<'gctx> Compilation<'gctx> {
                 .chain(Some(&CompileKind::Host))
                 .map(|kind| Ok((*kind, target_linker(bcx, *kind)?)))
                 .collect::<CargoResult<HashMap<_, _>>>()?,
+            rustdoc: None,
             warning_count: 0,
         })
     }
@@ -199,7 +203,10 @@ impl<'gctx> Compilation<'gctx> {
         unit: &Unit,
         script_meta: Option<UnitHash>,
     ) -> CargoResult<ProcessBuilder> {
-        let mut rustdoc = ProcessBuilder::new(&*self.gctx.rustdoc()?);
+        let mut rustdoc = match &self.rustdoc {
+            Some(rustdoc) => ProcessBuilder::new(rustdoc),
+            None => ProcessBuilder::new(&*self.gctx.rustdoc()?),
+        };
         if self.gctx.extra_verbose() {
             rustdoc.display_env_vars();
         }

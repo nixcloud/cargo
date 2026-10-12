@@ -1,6 +1,5 @@
 use crate::command_prelude::*;
 use cargo::ops;
-use crate::util::BuildBackend;
 
 pub fn cli() -> Command {
     subcommand("test")
@@ -70,12 +69,6 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
-    if matches!(gctx.backend()?, BuildBackend::Nix) {
-        return Err(CliError::new(
-            anyhow::format_err!("cargo 'test' is not supported yet"),
-            101,
-        ));
-    }
     let ws = args.workspace(gctx)?;
 
     let mut compile_opts =

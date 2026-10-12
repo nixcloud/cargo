@@ -2,7 +2,7 @@
 mod tests {
     use std::fs;
     use tempfile::tempdir;
-    //use core::compiler::nix_build::nix_files::ensure_managed_directory;
+    use crate::core::compiler::nix_build::nix_files::ensure_managed_directory;
 
     #[test]
     fn test_no_directory() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,11 +46,8 @@ mod tests {
 
         // Call should return an error about missing marker
         let result = ensure_managed_directory(dir_path);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            "directory exists but is not managed by us: missing \".cargo-libnix-managed\""
-        );
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("exists but is not managed by cargo-libnix"), "{err}");
 
         Ok(())
     }

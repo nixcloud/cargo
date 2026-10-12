@@ -1309,6 +1309,29 @@ fn prev_build_output(
     )
 }
 
+/// nix mode: records the output of the build script run `unit`, which ran in nix with `out_dir` (its store path)
+/// as `OUT_DIR` and wrote its stdout to `nix/build_script_build.out` in there. Overridden build scripts keep
+/// their override.
+pub fn load_nix_output(build_runner: &BuildRunner<'_, '_>, unit: &Unit, out_dir: &Path) -> CargoResult<()> {
+    let metadata_hash = build_runner.get_run_build_script_metadata(unit);
+    let mut outputs = build_runner.build_script_outputs.lock().unwrap();
+    if outputs.contains_key(metadata_hash) {
+        return Ok(());
+    }
+    let parsed_output = BuildOutput::parse_file(
+        &out_dir.join("nix").join("build_script_build.out"),
+        unit.pkg.library().map(|t| t.crate_name()),
+        &unit.pkg.to_string(),
+        out_dir,
+        out_dir,
+        build_runner.bcx.gctx.nightly_features_allowed,
+        unit.pkg.targets(),
+        &unit.pkg.rust_version().cloned(),
+    )?;
+    outputs.insert(unit.pkg.package_id(), metadata_hash, parsed_output);
+    Ok(())
+}
+
 impl BuildScriptOutputs {
     /// Inserts a new entry into the map.
     fn insert(&mut self, pkg_id: PackageId, metadata: UnitHash, parsed_output: BuildOutput) {

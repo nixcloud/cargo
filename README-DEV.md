@@ -48,6 +48,17 @@ https://github.com/qknight/cargo-experiments
     * intermediate artefacts (crates.io libraries downloads): ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.3.1/ has been moved to the /nix/store
     * intermediate artefacts (crates.io libraries builds with different feature sets): target/debug/deps has been moved to the /nix/store
     * however, registry clone is still at ~/.cargo/registry
+* 'cargo test': unit, integration and doc tests, same output as cargo (legacy)
+  * the test harnesses are built in nix like any other unit, from _target/debug/nix-test_ with GC roots of
+    its own, so `cargo build` and `cargo test` don't delete each other's store paths
+  * the tests run outside of nix, like with cargo (legacy): from _target/debug/deps_ (symlinks to the store),
+    in the package directory, with `OUT_DIR` (the build script's output in the store) and its `rustc-env`
+  * `env!("CARGO_MANIFEST_DIR")` points at the sources in the store, which are read-only (fixtures can be read,
+    not written); at runtime `CARGO_MANIFEST_DIR` is the package directory as usual
+  * `CARGO_BIN_EXE_<name>` is the binary in the store; integration tests also find the binaries of their
+    package next to themselves (`snapbox::cmd::cargo_bin`, `assert_cmd`), as symlinks in their store path.
+    Tests that hard link those binaries into a temp dir fail (the store is another file system, or read-only)
+  * doc tests use the rustdoc and linker the units were built with, so the host needs no toolchain
 * Cargo.dependencies.nix per crate for custom buildInputs `dependencies` and `environment variables`
 * support for build system export:
   * `cargo build write-nix-buildsystem --out-dir /tmp/nix --url https://github.com/nixcloud/cargo/archive/refs/tags/1.83-test-release.tar.gz --hash 1h5j1kl7q7mysa943gvd4c8ih8yxx4igqrx4akv9ixf4zf411b8l`
@@ -257,7 +268,6 @@ until 1.may 2026
 * figure max cpu utilization https://github.com/nixcloud/cargo/issues/11
 
 * no rustdoc support
-* no testing support
 * no rust-analyzer support (whith code for dependencies referencing the nix store at /nix/store)
 * using `CARGO_BACKEND=nix cargo build` still downloads deps the legacy way unnecessarly
 * in theory we could get rid of -C metadata=8abf83ef020a3059 / -C extra-filename=-27e7993d9cf32df7 (did not want to touch this early)
@@ -265,7 +275,6 @@ until 1.may 2026
 * improved gc handling: 
   * reference all active sources from somewhere (to prevent GC)
   * reference active toolchain (to prevent GC)
-* cargo tests execution
 * cargo doc
 * add " Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s" to the end of the build
 
@@ -285,12 +294,12 @@ until 1.may 2026
     [x] build                Compile a local package and all of its dependencies
     [0] run                  Run a binary or example of the local package
     [0] doc                  Build a package's documentation
-    [0] test                 Execute all unit and integration tests and build examples of a local package
+    [x] test                 Execute all unit and integration tests and build examples of a local package
     [0] check                Check a local package and all of its dependencies for errors
     
     # less common commands (which require backend adaptions)
 
-    [0] clean                Remove artifacts that cargo has generated in the past
+    [x] clean                Remove artifacts that cargo has generated in the past
     [0] install              Install a Rust binary
     [0] uninstall            Remove a Rust binary
     [0] rustdoc              Build a package's documentation, using specified custom flags.

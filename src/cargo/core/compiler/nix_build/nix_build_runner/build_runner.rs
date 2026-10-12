@@ -45,13 +45,15 @@ enum Failure {
 
 impl NixBuild {
     /// `units`: derivation names of the generated units, so logone prints `Building` only for other derivations.
+    /// `target_dir`: where the symlinks to the results go. Returns the outputs of the build.
     pub fn build<'gctx>(
         nix_base_dir: Filesystem,
         gctx: &'gctx GlobalContext,
         keep_going: bool,
         jobs: u32,
         units: HashSet<String>,
-    ) -> CargoResult<()> {
+        target_dir: &Path,
+    ) -> CargoResult<gc_roots::BuildOutputs> {
         let base = nix_base_dir.into_path_unlocked();
         let caller = base.join("cargo_build_caller.nix");
         gctx.shell().status("Evaluating", caller.display())?;
@@ -61,7 +63,8 @@ impl NixBuild {
         let verbose = gctx.shell().verbosity() == Verbosity::Verbose;
         let renderer = std::thread::spawn(move || logone::run(rx, color, units, true, verbose));
         let opts = BuildOptions { keep_going, max_jobs: u64::from(jobs) };
-        let result = run(&caller, &base.join("gc"), &opts, &tx);
+        let gc_dir = base.join("gc");
+        let result = run(&caller, &gc_dir, &opts, &tx);
         // `tx` is gone after this, so logone drains the channel, prints the summary and returns.
         drop(tx);
         renderer
@@ -85,12 +88,13 @@ impl NixBuild {
             s.status("Symlink", format!("Symlinking results using '{activation_script}'"))
         })?;
         let status = Command::new(&activation_script)
+            .arg(target_dir)
             .status()
             .map_err(|e| anyhow::format_err!("failed to execute {activation_script}: {e}"))?;
         if !status.success() {
             anyhow::bail!("{activation_script} failed: {status}");
         }
-        Ok(())
+        Ok(gc_roots::build_outputs(&gc_dir))
     }
 }
 
