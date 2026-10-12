@@ -84,7 +84,7 @@
             })
             (builtins.filter (p: (p.source or "") == "registry+https://github.com/rust-lang/crates.io-index") lock.package);
 
-          generated = pkgs.runCommand "cargo-nix-generated" { inherit crateTarballs; nativeBuildInputs = [ pkgs.openssl pkgs.pkg-config cargo-libnix-1_87_0_plus_v3 rustc_1_87_vanilla_pin ]; } ''
+          generated = pkgs.runCommand "cargo-nix-generated" { inherit crateTarballs; nativeBuildInputs = [ cargo-libnix-1_87_0_plus_v3 rustc_1_87_vanilla_pin ]; } ''
             export HOME=$TMPDIR CARGO_BACKEND=nix
             cp -r ${src} project && chmod -R u+w project && cd project
             ${cargo-libnix-1_87_0_plus_v3}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
