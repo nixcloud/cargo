@@ -320,7 +320,7 @@ until 1.may 2026
     [x] run                  Run a binary or example of the local package
     [0] doc                  Build a package's documentation
     [x] test                 Execute all unit and integration tests and build examples of a local package
-    [0] check                Check a local package and all of its dependencies for errors
+    [0] check                Check a local package and all of its dependencies for errors (planned)
     
     # less common commands (which require backend adaptions)
 
@@ -328,12 +328,12 @@ until 1.may 2026
     [0] install              Install a Rust binary
     [0] uninstall            Remove a Rust binary
     [0] rustdoc              Build a package's documentation, using specified custom flags.
-    [0] fetch                Fetch dependencies of a package from the network
-    [0] generate-lockfile    Generate the lockfile for a package
+    [!] fetch                Fetch dependencies of a package from the network
+    [!] generate-lockfile    Generate the lockfile for a package
     [0] vendor               Vendor all dependencies for a project locally
     [0] bench                Execute all benchmarks of a local package
-    [0] build-man            alias: run --package xtask-build-man --
-    [0] bump-check           alias: run --package xtask-bump-check --
+    [x] build-man            alias: run --package xtask-build-man --
+    [x] bump-check           alias: run --package xtask-bump-check --
     [0] rustc                Compile a package, and pass extra options to the compiler
     [0] package              Assemble the local package into a distributable tarball
 
@@ -341,7 +341,7 @@ until 1.may 2026
 
     [!] verify-project       DEPRECATED: Check correctness of crate manifest.
     [!] config               Inspect configuration values
-    [!] fix                  Automatically fix lint warnings reported by rustc
+    [ ] fix                  Automatically fix lint warnings reported by rustc (untested, builds in check mode)
     [!] fmt                  Formats all bin and lib files of the current crate using rustfmt.
     [!] help                 Displays help for a cargo subcommand
     [!] info                 Display information about a package
@@ -359,7 +359,7 @@ until 1.may 2026
     [!] report               Generate and display various kinds of reports
     [!] rm                   alias: remove
     [!] search               Search packages in the registry. Default registry is crates.io
-    [!] stale-label          alias: run --package xtask-stale-label --
+    [x] stale-label          alias: run --package xtask-stale-label --
     [!] tree                 Display a tree visualization of a dependency graph
     [!] update               Update dependencies as recorded in the local lock file
     [!] version              Show version information

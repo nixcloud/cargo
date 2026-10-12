@@ -35,58 +35,42 @@ We use these resources:
 * https://link.excalidraw.com/l/3QhpSMKuoZA/6eoC5kkanvL - diagrams
 * https://link.excalidraw.com/p/readonly/HTEjH2WpzNJExWK81BaN - slides
 
-# Success stories 👋
+# Supported subcommands and features 🧰
 
-Using `cargo-libnix-1_87_0_rc2` it can compile these projects out of the box. Occasionally you might have to add a `Cargo.dependencies.nix` with some dependencies and environment variables.
+With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all others are plain cargo. Details and the state of development are in [README-DEV.md](README-DEV.md).
 
-```
-                       /- cargo legacy    (both use the same cargo / rustc so we know it is buildable)
-name                 |   | /-cargo libnix
-cargo          v1.87 | + | + |   "openssl-sys" = [ pkg-config openssl ];
-build-rs-libnix 0.1.11 x | x | 
-build_rs_example     | x | x |   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
-rust-analyzer        | x | x | requires deps = { "proc-macro-test" = [ cargo ]; }; envs = { "proc-macro-test" = { "PROC_MACRO_TEST_LOCATION" = ""; }; };
-atuin        v18.5.0 | x | x |
-nushell      0.102.0 | + | + |   "openssl-sys" = [ pkg-config openssl ];
-ripgrep      v14.1.1 | x | x |
-fd            v7.3.0 | x | x |
-eza   58b98cfa       | x | x |   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
-bat          v0.25.0 | x | x |
-sd            v1.0.0 | x | x |
-coreutils            | x | x |   - OUT_DIR problem in bin (using cp -r build_script_run/* $out/ now)
-synapse        1.0.0 | x | x |
-nix-installer 3.15.1 | + | + |   envs = { "nix-installer" = { NIX_TARBALL_URL = "foo.tar.xz"; 
-                                 DETERMINATE_NIX_TARBALL_PATH = "../README.md"; DETERMINATE_NIXD_BINARY_PATH = "../README.md"; }; };
-delta        v0.18.2 | x | x |
-   2025-01-07     
-sniffnet             | + | + |   deps = {"alsa-sys" = [ pkg-config alsa-lib ]; "sniffnet" = [ pkg-config libpcap ]; };
-RustPython           | x | x |   - requires nix-prefetch-git
-   2024-12-30-main-4
-axum                 | x | x | 
-tokio                | x | x |
-yew                  | x | x |
-lightningcss         | x | x |
-klick         v0.5.7 | x | x | requires 'just run' before compile
-trunk       v0.21.14 | x | x |
-just           v1.46 | x | x |
-leptos               | x | x | 
-cargo-leptos         | + | + | deps = { "openssl-sys" = [ pkg-config openssl pkg-config perl ]; ... }
-vaultwarden          | x | x | legacy+nix: `cargo build  --features sqlite` works
-mdBook        v0.5.2 | x | x |
-pankat-rs     v0.1.1 | + | + |   "libsqlite3-sys" = [ pkg-config sqlite ];
-rustpad       v0.1.0 | x | x |
-fuse-rs              | + | + | deps = { "fuse-sys" = [ pkg-config fuse ];};envs = {};
-codex                | + | + | cd doex-rs; -> deps = { "openssl-sys" = [ pkg-config openssl ]; }
-typst                | + | + | deps = { "openssl-sys" = [ pkg-config openssl ];};
-starship    ~v1.24.1 | + | + | "openssl-sys" = [ pkg-config openssl ];  "libz-ng-sys" = [ cmake ];
-                                rev 37b6225a12ba2e8576cc8d6181c3fba7c9661395
+| subcommand | nix mode | notes |
+|---|---|---|
+| `build` | ✅ | every unit is built in nix; `build write-nix-buildsystem` exports the build system for flakes and nixpkgs |
+| `run` | ✅ | binaries and examples; `std::env::current_exe()` is the binary in the store |
+| `test` | ✅ | unit, integration and doc tests; the tests run outside of nix, the sources at `env!("CARGO_MANIFEST_DIR")` are read-only |
+| `clean` | ✅ partial | the target directory or a profile, together with the store paths it rooted; `clean -p` and `clean gc` are refused |
+| `check` | ❌ planned | refused with "not supported yet" |
+| `doc`, `rustdoc`, `rustc`, `bench`, `install`, `uninstall`, `package`, `vendor` | ❌ | refused with "not supported yet" |
+| `new`, `init`, `add`, `remove`, `update`, `fetch`, `generate-lockfile`, `tree`, `metadata`, `fmt`, `publish`, … | unchanged | vanilla cargo, the backend is not involved |
+| `fix` | ❓ | untested, it builds in check mode internally |
 
-x builds out of the box
-+ builds, but requires Cargo.dependencies.nix
-```
+| feature | state | notes |
+|---|---|---|
+| crates.io dependencies | ✅ | downloaded and built in `/nix/store`, shared between projects and machines |
+| path dependencies, workspaces, `-p`, `--features` | ✅ | |
+| build scripts (`build.rs`), proc macros | ✅ | build scripts run in the nix sandbox |
+| system libraries, environment variables | ✅ | per crate in `Cargo.dependencies.nix`, see [Injecting dependencies](#injecting-dependencies) |
+| git dependencies | ✅ | needs `nix-prefetch-git` in `PATH` |
+| vendored sources, source replacement | ✅ | |
+| `--offline` | ✅ | crates.io is served from the store tarballs of `Cargo.lock`, so the build system can be generated inside a nix build (IFD) |
+| `--release` | ✅ | profile options (`lto`, `codegen-units`, `panic`, …) are passed on, but untested |
+| GC roots | ✅ | per selection of units in `target/<profile>/nix/gc`, the 8 most recent are kept; `cargo clean` removes them |
+| cargo-like output | ✅ | nix logs are shown in cargo's format |
+| other registries | ❌ | only crates.io; others fail when the build system is generated |
+| incremental builds / fingerprints | ❌ | changed crates are always compiled from scratch, so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |
+| cross-compilation, `--target` (e.g. wasm) | ❓ | untested, known failures (wasm) |
+| platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
+| toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.87.0) |
 
-* https://github.com/EvanLi/Github-Ranking/blob/master/Top100/Rust.md
-* https://perf.rust-lang.org/compare.html
+## Regression tests
+
+[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently 23 of 31 projects pass, the others need a newer rustc than 1.87. Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix).
 
 # Using cargo (libnix)
 
