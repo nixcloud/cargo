@@ -112,7 +112,7 @@ Add the cargo (libnix) binary and the matching `rustc` to your project's devshel
         devShells.default = pkgs.mkShell {
           buildInputs = [
             libnix-flake.packages.${system}.rustc_1_87_vanilla_pin
-            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v3
+            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v4
             pkgs.nix-prefetch-scripts
           ];
           shellHook = ''
@@ -130,7 +130,7 @@ Afterwards check that `cargo` is the one from the store:
 
 ## 3. traditional nix code
 
-A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.87.0+v3` with a pinned rustc/cargo 1.87.0 from [fenix](https://github.com/nix-community/fenix):
+A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.87.0+v4` with a pinned rustc/cargo 1.87.0 from [fenix](https://github.com/nix-community/fenix):
 
 ```nix
 { pkgs ? import <nixpkgs> { } }:
@@ -145,12 +145,12 @@ let
   };
   # the generated build system of cargo (libnix) and the cargo sources it builds
   buildsystem = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv3/libnix-1.87.0+v3.tar.bz2";
-    sha256 = "sha256:00cqp5s8gdzz2abwlggz3v9qhizln7f06nilkb34fvkr9hywgk2v";
+    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv4/libnix-1.87.0+v4.tar.bz2";
+    sha256 = "sha256:0zhj8sl05g861c7pkwgd1ij26mf68qj1flbad2ivwj113vac9chq";
   };
   cargo-src = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.87.0%2Bv3.tar.gz";
-    sha256 = "sha256:02ng25i4vg17bpygm0397gs6n8kzblgc61ixy1vh4yvpf0bn6mmp";
+    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.87.0%2Bv4.tar.gz";
+    sha256 = "sha256:0lm951801chcdnjni4068jjwlzyf94byjgjk5qzlr9vihsp5i3ym";
   };
   cargo-libnix = (import (buildsystem + "/derivations/default.nix") {
     inherit pkgs;
@@ -273,7 +273,7 @@ Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87
 
 ## maintenance branches
 
-`rust-<version>-libnix` branches only get fixes (cherry-picked), no new features; a fix released there gets the next tag of that line, e.g. `libnix-1.87.0+v4`.
+`rust-<version>-libnix` branches only get fixes (cherry-picked), no new features; a fix released there gets the next tag of that line, e.g. `libnix-1.87.0+v5`.
 
 # Similar projects 📚
 
