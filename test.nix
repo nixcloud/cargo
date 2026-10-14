@@ -26,16 +26,19 @@ let
     atuin = { owner = "atuinsh"; repo = "atuin"; rev = "53acf850f37d8cc8ffdcfebd7a73343f8dc339b6"; };
     axum = { owner = "tokio-rs"; repo = "axum"; rev = "05de165de2245dcd685c96dc78d67150ce8679fe"; };
     bat = { owner = "sharkdp"; repo = "bat"; rev = "4e84e838a32e3b326a3d1f9e2cd4c879597ad74d"; };
-    codex = { owner = "openai"; repo = "codex"; rev = "246f50655111fda3d4fa4f2032285d03464fe249"; subdir = "codex-rs"; };
+    # rust-v0.0.2506060849 (2025-06-06); 246f5065 needs rustc 1.88
+    codex = { owner = "openai"; repo = "codex"; rev = "5fc3c3023d9f179fb416b2722d1434bac278e916"; subdir = "codex-rs"; };
     coreutils = { owner = "uutils"; repo = "coreutils"; rev = "44e0bba5ec95fcca0c4fc01e7aa815afc377cbb3"; };
     delta = { owner = "dandavison"; repo = "delta"; rev = "acd758f7a08df6c2ac5542a2c5a4034c664a9ed8"; };
     eza = { owner = "eza-community"; repo = "eza"; rev = "58b98cfa542fdd6ac5bba8fb13f077e9f6fd1f5b"; };
     fd = { owner = "sharkdp"; repo = "fd"; rev = "7f58e8f7064346ffe569563b657fe92f24830e6a"; };
     fuse-rs = { owner = "zargony"; repo = "fuse-rs"; rev = "39fde4a5c47ce370d228ac190f950bd835db7f47"; };
     just = { owner = "casey"; repo = "just"; rev = "5732ee083a58c534804d184acbdede11d1bbaac5"; };
-    leptos = { owner = "leptos-rs"; repo = "leptos"; rev = "dd507168fa47b5eead64339431b0bd654bd1c951"; };
+    # v0.8.2 (2025-05-06); dd507168 needs rustc 1.88
+    leptos = { owner = "leptos-rs"; repo = "leptos"; rev = "2ee4444bb44310e73e908b98ccd2b353f534da01"; };
     lightningcss = { owner = "parcel-bundler"; repo = "lightningcss"; rev = "400f705e63e139c326f480aed11e1416f5a3a61f"; };
-    mdBook = { owner = "rust-lang"; repo = "mdBook"; rev = "cc78fb4ff18b129099ce9daec49613f0a6b513e0"; };
+    # v0.4.51 (2025-05-26); cc78fb4f needs rustc 1.88
+    mdBook = { owner = "rust-lang"; repo = "mdBook"; rev = "f93b2675ffde5bf22a108a9d65725b65d5b153d4"; };
     nix-installer = { owner = "DeterminateSystems"; repo = "nix-installer"; rev = "d2feb9836f5af7085ba84388d59a38f8998f65dc"; };
     nushell = { owner = "nushell"; repo = "nushell"; rev = "1aa2ed1947a0b891398558fcf4e4289849cc5a1d"; };
     ripgrep = { owner = "BurntSushi"; repo = "ripgrep"; rev = "0a88cccd5188074de96f54a4b6b44a63971ac157"; };
@@ -43,17 +46,22 @@ let
     rustpad = { owner = "ekzhang"; repo = "rustpad"; rev = "54e4a9383c84d7317af42a7ddb177ce8bcba058d"; };
     RustPython = { owner = "RustPython"; repo = "RustPython"; rev = "1abaf87abe241da7a9836bd387f2aee33a1d6378"; };
     sd = { owner = "chmln"; repo = "sd"; rev = "87d1ba5b3401329a07c1874e49a822026e1cbf3f"; };
-    sniffnet = { owner = "GyulyVGC"; repo = "sniffnet"; rev = "7290ba22829009cc28d71e1b8a20ba62564efc4c"; };
-    starship = { owner = "starship"; repo = "starship"; rev = "37b6225a12ba2e8576cc8d6181c3fba7c9661395"; };
+    # v1.4.0 (2025-06-27); 7290ba22 needs rustc 1.88
+    sniffnet = { owner = "GyulyVGC"; repo = "sniffnet"; rev = "069a7bd314483e7639c7078d47c77a9308832715"; };
+    # v1.23.0 (2025-04-27); 37b6225a needs rustc 1.89
+    starship = { owner = "starship"; repo = "starship"; rev = "661c8a2c1cc43b1c0ba1f034ee1dd17442cce815"; };
     synapse = { owner = "Luminarys"; repo = "synapse"; rev = "f2a55724d5571d2b438294f691b7b6f262510c47"; };
     todo = { owner = "sioodmy"; repo = "todo"; rev = "02a002153a4536a15a9fd3b5ddbeed93aff80780"; };
     tokio = { owner = "tokio-rs"; repo = "tokio"; rev = "df73fa21884f65ac4f5556ec72814cefed94897f"; };
     trunk = { owner = "trunk-rs"; repo = "trunk"; rev = "f1ee3d4032cb939b8513d1d8fabfcb84ce46d811"; };
-    typst = { owner = "typst"; repo = "typst"; rev = "9f3a9e72326a00306bfc02d9e6b94cb79c9d6e68"; };
-    union = { owner = "unionlabs"; repo = "union"; rev = "c68c3b2d575b3b4401a09c0b50f97c568eef3a4a"; };
+    # v0.13.1 (2025-03-07); 9f3a9e72 needs rustc 1.89
+    typst = { owner = "typst"; repo = "typst"; rev = "8ace67d942a4b8c6b9d95b73b3a39f5d0259c7b2"; };
+    # main (2025-06-14, no release tags); c68c3b2d needs rustc 1.90. Fails either way: union pins nightly-2025-03-28 (#![feature])
+    union = { owner = "unionlabs"; repo = "union"; rev = "64d943d04294c6c4637b22082c9feee88ce8be13"; };
     # a database backend is required (README: `cargo build --features sqlite`)
     vaultwarden = { owner = "dani-garcia"; repo = "vaultwarden"; rev = "5d84f17600e179280e44c391b92ee9eecc2b7cdc"; cargoFlags = [ "--features" "sqlite" ]; };
-    wasmtime = { owner = "bytecodealliance"; repo = "wasmtime"; rev = "ecd1cb3d96f046cbf1a8cc2e8ea82eb7c0205fde"; };
+    # v33.0.0 (2025-05-20); ecd1cb3d needs rustc 1.90
+    wasmtime = { owner = "bytecodealliance"; repo = "wasmtime"; rev = "4ce8232ab9ac86bcb299ed670593ed26f69e63df"; };
     yew = { owner = "yewstack"; repo = "yew"; rev = "2019f4577cbdcd389b34973fdec3164be3af941a"; };
   };
 
