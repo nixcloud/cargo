@@ -2,7 +2,7 @@
 #
 # For each project, cargo (libnix) built from this working tree (flake output cargo-libnix-git-head-via-ifd)
 # writes the nix build system of the pinned revision (IFD), which is then built with the same rustc/cargo
-# version the generator runs with (1.87), not the fenix stable toolchain cargo_build_caller.nix would use.
+# version the generator runs with (1.87), like cargo_build_caller.nix does.
 #
 #   nix-build test.nix -A fd.smoke                # one project: its root units (`cargo build`), binaries run
 #   nix-build test.nix -A fd.target               # only build the root units
