@@ -71,7 +71,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 
 ## Regression tests
 
-[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently 23 of 31 projects pass, the others need a newer rustc than 1.87. Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix).
+[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently 30 of 31 projects pass with rustc 1.87.0 (codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are pinned to their last release before they needed a newer rustc). union fails: it needs a nightly rustc (`#![feature]`), and `tikv-jemalloc-sys`'s build script uses `cargo:rustc-link-arg`, which build-rs-libnix doesn't support yet. Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix).
 
 # Using cargo (libnix)
 
@@ -245,7 +245,7 @@ The project's own crates either come from a directory (the default, the `project
 
 The build system has two entry points:
 
-1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and rust toolchain (from fenix), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
+1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and rustc/cargo 1.87.0 (from fenix, without `rust-src`, which would end up in the runtime closure of every binary), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
 2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](#3-traditional-nix-code) and this repository's [flake.nix](flake.nix)
 
 Both return an attribute set with a derivation per unit (e.g. `cargo-0_88_0-bin-8cad88ffd54a16db`) and `target`, which links all root units like _target/&lt;profile&gt;_.
