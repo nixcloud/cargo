@@ -293,6 +293,32 @@ cargo (libnix) is cargo itself: the derivation per unit comes from cargo's own b
 
 This project is [xkcd 927](https://xkcd.com/927/).
 
+# Commercial support & consulting 🤝
+
+cargo (libnix) is open source and stays that way. If your team wants to use it, or wants Nix builds for Rust in general, I'm available for paid work:
+
+* **adoption**: move your Rust workspace to cargo (libnix), write the `Cargo.dependencies.nix` for your `*-sys` crates and get your project building in the nix sandbox
+* **CI and caching**: binary caches, remote builders and shared store paths, so crates built once are never built again on another machine or pipeline
+* **exporting**: ship your project as a flake or nixpkgs package with `write-nix-buildsystem`, pinned and reproducible
+* **toolchains and platforms**: port cargo (libnix) to the Rust version you're on, or to Darwin
+* **funded features**: `cargo check`, incremental builds ([#3](https://github.com/nixcloud/cargo/issues/3)), cross-compilation and wasm. If you need one of these, sponsoring it is the fastest way to get it upstream-ready
+* **Nix in general**: NixOS deployments, build systems for C/C++ projects, reproducible toolchains
+
+All work is clearly separate from the Rust Project; this is not official Cargo support.
+
+## About me
+
+I'm Joachim Schiele, a freelance software engineer based in Germany. I've worked on Nix for over a decade: at Daimler I spent almost three years researching distributed deployment with Nix/NixOS, and before that my diploma thesis covered multi-platform software package management. I founded nixcloud GmbH and have worked on several projects with NLnet, including this one.
+
+Outside Nix, I build web apps in Rust/Leptos and Go backends. I've also done C++ and CMake build systems for embedded and industrial software, and run Linux infrastructure at scale (5000 RHEL machines at Bosch).
+
+* CV: https://lastlog.de/cv/
+* blog: https://lastlog.de/blog
+* GitHub: [qknight](https://github.com/qknight), [nixcloud](https://github.com/nixcloud)
+* YouTube: https://www.youtube.com/@nixcloud
+
+📧 **js@lastlog.de**: tell me what you're building and where your builds hurt, and I'll reply with how I can help.
+
 # Project resources
 
 * https://github.com/nixcloud/cargo - branch **master-libnix**, intended as a PR to incorporate nix into cargo (see [Branches and releases](#branches-and-releases-))
