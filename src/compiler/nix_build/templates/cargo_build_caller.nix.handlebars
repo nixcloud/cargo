@@ -28,7 +28,18 @@ let
 
   # rustc with std only: a toolchain with rust-src makes rustc map std's /rustc/<commit>/ panic locations to
   # the toolchain's store path, which then lands in every binary's runtime closure (nixcloud/pankat-rs#24)
-  rustc_1_99_vanilla_pin = toolchain_1_99_vanilla_pin.rustc;
+  #
+  # since 1.90 rustc links with its own lld on x86_64-linux (-fuse-ld=lld -B<sysroot>/gcc-ld), which bypasses the ld
+  # wrapper of nix's cc: no rpath for the -L directories (e.g. openssl), so the binaries miss their libraries at
+  # runtime. -C linker-features=-lld links with the cc's ld, as before
+  rustc_1_99_vanilla_pin = pkgs.symlinkJoin {
+    name = "rustc-1.99.0-nix-ld";
+    paths = [ toolchain_1_99_vanilla_pin.rustc ];
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postBuild = ''
+      for b in rustc rustdoc; do wrapProgram $out/bin/$b --add-flags "-C linker-features=-lld"; done
+    '';
+  };
   cargo_1_99_vanilla_pin = toolchain_1_99_vanilla_pin.cargo;
   # the rustc the units build with, also for the gc roots and the rustdoc of the doc tests
   toolchain = rustc_1_99_vanilla_pin;
