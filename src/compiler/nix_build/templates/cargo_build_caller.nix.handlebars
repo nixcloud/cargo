@@ -21,17 +21,17 @@ let
   fenix = import fenixSrc { inherit system; };
 
   # import of fenix's default.nix (not its flake): the package set itself, no packages.${system}
-  toolchain_1_87_vanilla_pin = fenix.toolchainOf {
-    channel = "1.87.0";
-    sha256 = "sha256-KUm16pHj+cRedf8vxs/Hd2YWxpOrWZ7UOrwhILdSJBU=";
+  toolchain_1_99_vanilla_pin = fenix.toolchainOf {
+    channel = "1.99.0";
+    sha256 = "sha256-zm3dyIY2T414ZRR3EhLOvptzG6gta4WZUcawzMUWtqI=";
   };
 
   # rustc with std only: a toolchain with rust-src makes rustc map std's /rustc/<commit>/ panic locations to
   # the toolchain's store path, which then lands in every binary's runtime closure (nixcloud/pankat-rs#24)
-  rustc_1_87_vanilla_pin = toolchain_1_87_vanilla_pin.rustc;
-  cargo_1_87_vanilla_pin = toolchain_1_87_vanilla_pin.cargo;
+  rustc_1_99_vanilla_pin = toolchain_1_99_vanilla_pin.rustc;
+  cargo_1_99_vanilla_pin = toolchain_1_99_vanilla_pin.cargo;
   # the rustc the units build with, also for the gc roots and the rustdoc of the doc tests
-  toolchain = rustc_1_87_vanilla_pin;
+  toolchain = rustc_1_99_vanilla_pin;
 
   external_crate_dependencies = { deps = {}; envs = {}; } //
     (if builtins.pathExists (project_root + "/Cargo.dependencies.nix")
@@ -41,8 +41,8 @@ let
 
   cargoPackages = import ./derivations/default.nix {
     inherit pkgs external_crate_dependencies project_root;
-    rustc = rustc_1_87_vanilla_pin;
-    cargo = cargo_1_87_vanilla_pin;
+    rustc = rustc_1_99_vanilla_pin;
+    cargo = cargo_1_99_vanilla_pin;
   };
 
   # everything a build uses that is worth keeping: the units, their sources (crate tarballs), the toolchain (with
