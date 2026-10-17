@@ -316,6 +316,25 @@ impl<'a, 'gctx> NixBuildRunner {
         let mut file = File::create(&build_rs_libnix_path)?;
         write!(file, "{}", rendered)?;
 
+        // the source of build-rs-libnix (vendored in build-rs-libnix/), next to build_rs_libnix.nix, which builds it
+        // from there: no fetch of its repository, and it's always the version of this cargo
+        const BUILD_RS_LIBNIX_SRC: &[(&str, &str)] = &[
+            ("Cargo.toml", include_str!("build-rs-libnix/Cargo.toml")),
+            ("Cargo.lock", include_str!("build-rs-libnix/Cargo.lock")),
+            ("LICENSE-THIRD-PARTY", include_str!("build-rs-libnix/LICENSE-THIRD-PARTY")),
+            ("build-rs-libnix/Cargo.toml", include_str!("build-rs-libnix/build-rs-libnix/Cargo.toml")),
+            ("build-rs-libnix/src/lib.rs", include_str!("build-rs-libnix/build-rs-libnix/src/lib.rs")),
+            ("build-rs-libnix/src/tests.rs", include_str!("build-rs-libnix/build-rs-libnix/src/tests.rs")),
+            ("cli/Cargo.toml", include_str!("build-rs-libnix/cli/Cargo.toml")),
+            ("cli/src/main.rs", include_str!("build-rs-libnix/cli/src/main.rs")),
+        ];
+        let build_rs_libnix_src = nix_derivations_dir.clone().join("build-rs-libnix").into_path_unlocked();
+        for (path, content) in BUILD_RS_LIBNIX_SRC {
+            let path = build_rs_libnix_src.join(path);
+            fs::create_dir_all(path.parent().expect("a file in a directory"))?;
+            fs::write(&path, content)?;
+        }
+
         // default.nix //////////////////////////////////////////////////////////////////////////////////
         gctx.shell()
             .verbose(|s| s.status("Generating", "default.nix"))?;

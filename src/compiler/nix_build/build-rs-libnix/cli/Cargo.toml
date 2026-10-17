@@ -1,0 +1,15 @@
+[package]
+name = "cli"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+regex = { workspace = true }
+colored = { workspace = true }
+anyhow = { workspace = true }
+clap = { version = "4.5.28", features = ["derive"] }
+build-rs-libnix = { path = "../build-rs-libnix" }
+
+[[bin]]
+name = "build-rs-libnix"
+path = "src/main.rs"

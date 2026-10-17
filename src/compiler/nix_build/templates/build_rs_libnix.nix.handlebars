@@ -1,30 +1,30 @@
 # This build-rs-libnix target is used for bootstrapping cargo (libnix)'s generated source code from nixpkgs.
+#
+# Its source is vendored in cargo (libnix) (src/compiler/nix_build/build-rs-libnix, originally
+# github.com/nixcloud/build-rs-libnix) and written next to this file, in ./build-rs-libnix. Its tests run there,
+# not here (their test data isn't written).
 
 { pkgs, lib ? pkgs.lib }:
 
 pkgs.rustPlatform.buildRustPackage rec {
   pname = "build-rs-libnix-cli";
-  version = "0.1.11";
+  version = "0.1.12";
 
-  src = pkgs.fetchFromGitHub {
-    owner = "nixcloud";
-    repo = "build-rs-libnix";
-    rev = "8b5b8adad644a842429ca8fe060325630789ea5a";
-    sha256 = "sha256-s/2C5G36uCNIoHDz6sNadZLcG3OoKihqWB1UZAq7+qQ=";
-  };
+  src = ./build-rs-libnix;
 
-  cargoHash = "sha256-gJ35ScjnwgBMux4i4oHOyxcNc3jqolMkGhoJGEA1On4=";
+  # the crates by their checksums in Cargo.lock: no vendor hash to keep in sync with the vendored source
+  cargoLock.lockFile = ./build-rs-libnix/Cargo.lock;
 
   nativeBuildInputs = [];
   buildInputs = [];
 
   cargoBuildFlags = [ "-p cli" ];
 
-  doCheck = true;
+  doCheck = false;
 
   meta = with lib; {
     description = "A command-line utility that extracts `--cfg` and `--check-cfg` flags from `cargo:`";
-    license = licenses.mit;
+    license = with licenses; [ mit asl20 ];
     maintainers = with maintainers; [ ];
     platforms = platforms.all;
   };
