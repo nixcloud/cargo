@@ -7,9 +7,13 @@ let
   callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo project_root; });
   fn = rec {
     build_rs_libnix = "${build_rs_libnix'}/bin/build-rs-libnix";
-    allCollectedInputs = a: lib.unique (
-      builtins.foldl' (acc: el: acc ++ [el] ++ (allCollectedInputs el.rust_crate_libraries)) [] a
-    );
+    # the libraries and all they depend on, each once. genericClosure visits every unit once (key: its name, which
+    # carries cargo's unit hash); a plain recursion visits every path through the dependency graph, which grows
+    # exponentially with its depth (minutes to hours of evaluation for ~1500 units)
+    allCollectedInputs = a: map (x: x.drv) (builtins.genericClosure {
+      startSet = map (d: { key = d.name; drv = d; }) a;
+      operator = x: map (d: { key = d.name; drv = d; }) x.drv.rust_crate_libraries;
+    });
     rustc_linker_arguments = rust_crate_libraries: builtins.concatStringsSep " " (map (lib: "-L ${lib}") (allCollectedInputs rust_crate_libraries));
     rustc_linker_arguments_dir = rust_crate_libraries: 
       pkgs.stdenv.mkDerivation {
