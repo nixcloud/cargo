@@ -16,7 +16,7 @@
 , flake ? builtins.getFlake "git+file://${toString ./.}"
 , pkgs ? flake.inputs.nixpkgs.legacyPackages.${system}
 , cargo-libnix ? flake.packages.${system}.cargo-libnix-git-head-via-ifd
-, rustc ? flake.packages.${system}.rustc_1_99_vanilla_pin
+, rustc ? flake.packages.${system}.rustc_1_99_nix_ld
 , cargo ? flake.packages.${system}.cargo_1_99_vanilla_pin
 }:
 let

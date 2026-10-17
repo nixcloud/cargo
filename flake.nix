@@ -33,6 +33,16 @@
           };
           rustc_1_99_vanilla_pin = (fenix.packages.${system}.toolchainOf toolchain_1_99).rustc;
           cargo_1_99_vanilla_pin = (fenix.packages.${system}.toolchainOf toolchain_1_99).cargo;
+          # the rustc the generated build system of this branch builds with (cargo_build_caller.nix.handlebars):
+          # without rustc's own lld, which bypasses the ld wrapper of nix's cc (and with it the rpaths)
+          rustc_1_99_nix_ld = pkgs.symlinkJoin {
+            name = "rustc-1.99.0-nix-ld";
+            paths = [ rustc_1_99_vanilla_pin ];
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            postBuild = ''
+              for b in rustc rustdoc; do wrapProgram $out/bin/$b --add-flags "-C linker-features=-lld"; done
+            '';
+          };
 
           ######################## cargo-libnix-1_87_0_plus_v1 ###########################
 
@@ -155,6 +165,7 @@
             inherit cargo_1_87_vanilla_pin;
             inherit rustc_1_99_vanilla_pin;
             inherit cargo_1_99_vanilla_pin;
+            inherit rustc_1_99_nix_ld;
             inherit cargo-libnix-1_87_0_plus_v1;
             inherit cargo-libnix-1_87_0_plus_v2;
             inherit cargo-libnix-1_87_0_plus_v3;

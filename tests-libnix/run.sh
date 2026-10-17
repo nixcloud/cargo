@@ -63,7 +63,7 @@ done
 {
   echo "# cargo (libnix) regression tests"
   echo
-  rustc=$(nix eval --impure --raw --expr '(builtins.getFlake "git+file://${toString ./.}").packages.${builtins.currentSystem}.rustc_1_87_vanilla_pin.name' 2>/dev/null)
+  rustc=$(nix eval --impure --raw --expr '(builtins.getFlake "git+file://${toString ./.}").packages.${builtins.currentSystem}.rustc_1_99_nix_ld.name' 2>/dev/null)
   echo "$(date -u '+%Y-%m-%d %H:%M UTC'), cargo (libnix) $(git rev-parse --short HEAD)$(git diff --quiet HEAD -- || echo ' with uncommitted changes'), $rustc"
   echo
   echo "| project | revision | result | details |"
