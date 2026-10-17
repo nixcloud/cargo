@@ -275,12 +275,12 @@ impl<'a, 'gctx> NixBuildRunner {
         let project_root: String = match &write_nix_buildsystem_options {
             // exported with --url/--hash: sources are fetched; it only holds the Cargo.dependencies.nix copy
             Some(NixBuildOptions { remote_src: Some(_), .. }) => ".".to_string(),
-            // exported for the local checkout: the workspace root, relative to --out-dir
-            Some(NixBuildOptions { remote_src: None, .. }) => {
+            // exported for the local checkout: the workspace root, relative to --out-dir; in normal
+            // 'CARGO_BACKEND=nix cargo build' relative to <target-dir>/<profile>/nix (the target dir may be anywhere,
+            // e.g. CARGO_TARGET_DIR)
+            Some(NixBuildOptions { remote_src: None, .. }) | None => {
                 relative_nix_path(&nix_base_dir_path, workspace.root())?
             }
-            // build system used in normal 'CARGO_BACKEND=nix cargo build', in target/<profile>/nix
-            None => "../../..".to_string(),
         };
 
         let rendered = handlebars.render(
