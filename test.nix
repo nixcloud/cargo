@@ -33,6 +33,9 @@ let
     eza = { owner = "eza-community"; repo = "eza"; rev = "58b98cfa542fdd6ac5bba8fb13f077e9f6fd1f5b"; };
     fd = { owner = "sharkdp"; repo = "fd"; rev = "7f58e8f7064346ffe569563b657fe92f24830e6a"; };
     fuse-rs = { owner = "zargony"; repo = "fuse-rs"; rev = "39fde4a5c47ce370d228ac190f950bd835db7f47"; };
+    # main (2025-09-29, 1.0.45); the TUI binary only (README: `cargo build -p xai-grok-pager-bin --release`; release
+    # embeds the rg/fd its build scripts would download, see its Cargo.dependencies.nix). 1457 units, rust-version 1.94
+    grok-build = { owner = "xai-org"; repo = "grok-build"; rev = "2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8"; cargoFlags = [ "-p" "xai-grok-pager-bin" "--release" ]; };
     just = { owner = "casey"; repo = "just"; rev = "5732ee083a58c534804d184acbdede11d1bbaac5"; };
     # v0.8.2 (2025-05-06); dd507168 needs rustc 1.88
     leptos = { owner = "leptos-rs"; repo = "leptos"; rev = "2ee4444bb44310e73e908b98ccd2b353f534da01"; };
