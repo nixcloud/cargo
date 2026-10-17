@@ -2,7 +2,7 @@
 #
 # For each project, cargo (libnix) built from this working tree (flake output cargo-libnix-git-head-via-ifd)
 # writes the nix build system of the pinned revision (IFD), which is then built with the same rustc/cargo
-# version the generator runs with (1.87), like cargo_build_caller.nix does.
+# version the generator runs with (1.99), like cargo_build_caller.nix does.
 #
 #   nix-build test.nix -A fd.smoke                # one project: its root units (`cargo build`), binaries run
 #   nix-build test.nix -A fd.target               # only build the root units
@@ -16,8 +16,8 @@
 , flake ? builtins.getFlake "git+file://${toString ./.}"
 , pkgs ? flake.inputs.nixpkgs.legacyPackages.${system}
 , cargo-libnix ? flake.packages.${system}.cargo-libnix-git-head-via-ifd
-, rustc ? flake.packages.${system}.rustc_1_87_vanilla_pin
-, cargo ? flake.packages.${system}.cargo_1_87_vanilla_pin
+, rustc ? flake.packages.${system}.rustc_1_99_vanilla_pin
+, cargo ? flake.packages.${system}.cargo_1_99_vanilla_pin
 }:
 let
   lib = pkgs.lib;
