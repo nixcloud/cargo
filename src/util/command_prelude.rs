@@ -35,6 +35,7 @@ use std::path::PathBuf;
 pub use crate::compiler::UserIntent;
 pub use crate::{CliError, CliResult, GlobalContext};
 pub use clap::{Arg, ArgAction, ArgMatches, value_parser};
+pub use crate::compiler::nix_build::{NixBuildOptions, RemoteSrc};
 
 pub use clap::Command;
 

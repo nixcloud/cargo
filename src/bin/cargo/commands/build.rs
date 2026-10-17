@@ -1,6 +1,6 @@
 use crate::command_prelude::*;
-
 use cargo::ops;
+// use build_rs_libnix::process_buildrs_output;
 
 pub fn cli() -> Command {
     subcommand("build")
@@ -40,6 +40,22 @@ pub fn cli() -> Command {
         .arg_compile_time_deps()
         .arg_manifest_path()
         .arg_ignore_rust_version()
+
+        .subcommand(
+            Command::new("write-nix-buildsystem")
+                .about("Export the nix buildsystem to be called from nixpkgs or flakes, won't trigger a compile")
+                .arg(
+                    opt("out-dir", "The directory the build system is exported to (must be new or at least empty)")
+                        .value_name("PATH"),
+                )
+                .arg(
+                    opt("url", "Fetch the project source from this tarball URL (with --hash); default: the local project directory")
+                        .value_name("URI"),
+                )
+                .arg(
+                    opt("hash", "The hash (sha256) of the --url tarball, created with nix-prefetch-url")
+                )
+        )
         .after_help(color_print::cstr!(
             "Run `<bright-cyan,bold>cargo help build</>` for more detailed information.\n"
         ))
@@ -47,6 +63,40 @@ pub fn cli() -> Command {
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
     let ws = args.workspace(gctx)?;
+    let write_nix_buildsystem_options: Option<NixBuildOptions> = match args.subcommand() {
+        Some(("write-nix-buildsystem", sub_args)) => {
+            let out_dir = sub_args.value_of_path("out-dir", gctx).ok_or_else(|| {
+                CliError::new(
+                    anyhow::format_err!(
+                        "`cargo build write-nix-buildsystem` requires --out-dir\n\
+                        Please specify the --out-dir option."
+                    ),
+                    101,
+                )
+            })?.clone();
+
+            // without --url/--hash the build system references the local project directory
+            let remote_src = match (sub_args.get_one::<String>("url"), sub_args.get_one::<String>("hash")) {
+                (Some(url), Some(hash)) => Some(RemoteSrc { url: url.clone(), hash: hash.clone() }),
+                (None, None) => None,
+                _ => {
+                    return Err(CliError::new(
+                        anyhow::format_err!(
+                            "`cargo build write-nix-buildsystem` requires --url and --hash together\n\
+                            Omit both to reference the local project directory."
+                        ),
+                        101,
+                    ))
+                }
+            };
+            Some(NixBuildOptions { out_dir, remote_src })
+        },
+        Some((&_, _)) => {None},
+        None => {None}
+    };
+    if gctx.write_nix_buildsystem_options.set(write_nix_buildsystem_options).is_err() {
+        panic!("write_nix_buildsystem_options should only be set once");
+    }
     let mut compile_opts =
         args.compile_options(gctx, UserIntent::Build, Some(&ws), ProfileChecking::Custom)?;
 

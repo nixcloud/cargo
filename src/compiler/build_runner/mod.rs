@@ -27,6 +27,11 @@ use super::unit_graph::UnitDep;
 use super::unused_deps::UnusedDepState;
 use super::{BuildContext, Compilation, CompileKind, CompileMode, Executor, FileFlavor};
 
+use crate::compiler::nix_build::nix_code::create_nix_name;
+use crate::compiler::nix_build::{BuildOutputs, NixBuildRunner, NixNameMode};
+pub use crate::context::BuildBackend;
+use cargo_util::ProcessBuilder;
+
 mod compilation_files;
 use self::compilation_files::CompilationFiles;
 pub use self::compilation_files::{Metadata, OutputFile, UnitHash};
@@ -94,6 +99,9 @@ pub struct BuildRunner<'a, 'gctx> {
 
     /// Manages locks for build units when fine grain locking is enabled.
     pub lock_manager: Arc<LockManager>,
+
+    /// The raw ProcessBuilder for creating the nix-build system
+    pub raw_process_builder: Arc<Mutex<Vec<(ProcessBuilder, Unit)>>>,
 }
 
 impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
@@ -135,6 +143,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
             failed_scrape_units: Arc::new(Mutex::new(HashSet::default())),
             unused_dep_state: UnusedDepState::new(bcx),
             lock_manager: Arc::new(LockManager::new()),
+            raw_process_builder: Arc::new(Mutex::new(vec![])),
         })
     }
 
@@ -179,7 +188,6 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         self.prepare_units()?;
         self.prepare()?;
         custom_build::build_map(&mut self)?;
-        self.check_collisions()?;
         self.compute_metadata_for_doc_units();
 
         // We need to make sure that if there were any previous docs already compiled,
@@ -204,8 +212,23 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
             fingerprint.clear_memoized();
         }
 
-        // Now that we've figured out everything that we're going to do, do it!
-        queue.execute(&mut self)?;
+        // nix mode: nix builds the units instead of the job queue; the results are collected the same way, from
+        // the store (`cargo test` runs them)
+        let nix_outputs = if self.bcx.gctx.backend()? == BuildBackend::Nix {
+            match NixBuildRunner::build(&self)? {
+                Some(outputs) => Some(outputs),
+                // write-nix-buildsystem: nothing was built
+                None => return Ok(self.compilation),
+            }
+        } else {
+            // Now that we've figured out everything that we're going to do, do it!
+            queue.execute(&mut self)?;
+            None
+        };
+        if let Some(outputs) = &nix_outputs {
+            self.load_nix_build_script_outputs(outputs)?;
+            self.compilation.rustdoc = outputs.rustdoc.clone();
+        }
 
         // Add `OUT_DIR` to env vars if unit has a build script.
         let units_with_build_script = &self
@@ -218,10 +241,13 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         for unit in units_with_build_script {
             for dep in &self.bcx.unit_graph[unit] {
                 if dep.unit.mode.is_run_custom_build() {
-                    let out_dir = if self.bcx.gctx.cli_unstable().build_dir_new_layout {
-                        self.files().out_dir_new_layout(&dep.unit)
-                    } else {
-                        self.files().build_script_out_dir(&dep.unit)
+                    let out_dir = match &nix_outputs {
+                        // the output of the build script run in the store
+                        Some(outputs) => self.nix_output(outputs, &dep.unit)?,
+                        None if self.bcx.gctx.cli_unstable().build_dir_new_layout => {
+                            self.files().out_dir_new_layout(&dep.unit)
+                        }
+                        None => self.files().build_script_out_dir(&dep.unit),
                     };
                     let script_meta = self.get_run_build_script_metadata(&dep.unit);
                     self.compilation
@@ -241,12 +267,31 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
 
             // Collect information for `rustdoc --test`.
             if unit.mode.is_doc_test() {
+                // doc tests run outside of nix, in nix mode too: the arguments aren't escaped for nix
+                let is_nix_build = false;
                 let mut unstable_opts = false;
                 let mut args = compiler::extern_args(&self, unit, &mut unstable_opts)?;
                 args.extend(compiler::lib_search_paths(&self, unit)?);
+                if let Some(outputs) = &nix_outputs {
+                    // `--extern name=${attr}/file` (see extern_args) becomes the file in the store
+                    args = args.iter().map(|a| nix_resolve_attrs(a, outputs)).collect::<CargoResult<_>>()?;
+                    // rustc finds transitive dependencies in -L dependency=..., one per store path
+                    for dir in self.nix_doctest_dependency_dirs(outputs, unit)? {
+                        let mut arg = std::ffi::OsString::from("dependency=");
+                        arg.push(dir);
+                        args.push("-L".into());
+                        args.push(arg);
+                    }
+                    if let Some(linker) = &outputs.linker {
+                        let mut arg = std::ffi::OsString::from("linker=");
+                        arg.push(linker);
+                        args.push("-C".into());
+                        args.push(arg);
+                    }
+                }
                 args.extend(compiler::lto_args(&self, unit));
-                args.extend(compiler::features_args(unit));
-                args.extend(compiler::check_cfg_args(unit));
+                args.extend(compiler::features_args(unit, is_nix_build));
+                args.extend(compiler::check_cfg_args(unit, is_nix_build));
 
                 let script_metas = self.find_build_script_metadatas(unit);
                 if let Some(meta_vec) = script_metas.clone() {
@@ -254,18 +299,21 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
                         if let Some(output) = self.build_script_outputs.lock().unwrap().get(meta) {
                             for cfg in &output.cfgs {
                                 args.push("--cfg".into());
-                                args.push(cfg.into());
+                                args.push(compiler::escape_args(cfg.into(), is_nix_build).into());
                             }
 
                             for check_cfg in &output.check_cfgs {
                                 args.push("--check-cfg".into());
-                                args.push(check_cfg.into());
+                                args.push(compiler::escape_args(check_cfg.into(), is_nix_build).into());
                             }
 
                             for (lt, arg) in &output.linker_args {
                                 if lt.applies_to(&unit.target, unit.mode) {
                                     args.push("-C".into());
-                                    args.push(format!("link-arg={}", arg).into());
+                                    args.push(
+                                        compiler::escape_args(format!("link-arg={}", arg), is_nix_build)
+                                            .into(),
+                                    );
                                 }
                             }
                         }
@@ -295,7 +343,10 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
                 });
             }
 
-            super::output_depinfo(&mut self, unit)?;
+            // nix mode: the dep-info files are in the store
+            if nix_outputs.is_none() {
+                super::output_depinfo(&mut self, unit)?;
+            }
         }
 
         for (script_meta, output) in self.build_script_outputs.lock().unwrap().iter() {
@@ -397,6 +448,45 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         );
 
         Ok(())
+    }
+
+    /// nix mode: the store path `unit` was built to.
+    fn nix_output(&self, outputs: &BuildOutputs, unit: &Unit) -> CargoResult<PathBuf> {
+        let attr = create_nix_name(unit, self, NixNameMode::AttributeName, false);
+        outputs
+            .paths
+            .get(&attr)
+            .cloned()
+            .ok_or_else(|| anyhow::format_err!("nix build: no output of `{attr}` among the retained paths"))
+    }
+
+    /// nix mode: the build scripts ran in nix; what they printed (`cargo:` lines) is read from the store, so it is
+    /// used as if cargo had run them: rustc-env for running tests, link search paths, cfgs for doc tests.
+    fn load_nix_build_script_outputs(&self, outputs: &BuildOutputs) -> CargoResult<()> {
+        for unit in self.bcx.unit_graph.keys().filter(|u| u.mode.is_run_custom_build()) {
+            let out_dir = self.nix_output(outputs, unit)?;
+            custom_build::load_nix_output(self, unit, &out_dir)?;
+        }
+        Ok(())
+    }
+
+    /// nix mode: the store paths of the libraries a doc test depends on, directly or not (cargo's deps dir has
+    /// all of them in one place).
+    fn nix_doctest_dependency_dirs(&self, outputs: &BuildOutputs, unit: &Unit) -> CargoResult<Vec<PathBuf>> {
+        let mut dirs = Vec::new();
+        let mut seen = HashSet::new();
+        let mut todo = vec![unit];
+        while let Some(u) = todo.pop() {
+            for dep in &self.bcx.unit_graph[u] {
+                // build scripts and their dependencies are only needed to build
+                if dep.unit.target.is_custom_build() || !dep.unit.target.is_lib() || !seen.insert(&dep.unit) {
+                    continue;
+                }
+                dirs.push(self.nix_output(outputs, &dep.unit)?);
+                todo.push(&dep.unit);
+            }
+        }
+        Ok(dirs)
     }
 
     /// Returns the executable for the specified unit (if any).
@@ -510,6 +600,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
         Ok(())
     }
 
+    /// An abstraction of the files and directories that will be generated by the compilation.
     pub fn files(&self) -> &CompilationFiles<'a, 'gctx> {
         self.files.as_ref().unwrap()
     }
@@ -815,4 +906,24 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
                 .insert(unit.clone(), self.files().metadata(metadata_unit));
         }
     }
+}
+
+/// nix mode: replaces the `${attr}` of a unit in an argument meant for a nix file (see `extern_args`) with the
+/// store path of the unit.
+fn nix_resolve_attrs(arg: &std::ffi::OsString, outputs: &BuildOutputs) -> CargoResult<std::ffi::OsString> {
+    let Some(mut rest) = arg.to_str() else { return Ok(arg.clone()) };
+    let mut resolved = String::new();
+    while let Some(start) = rest.find("${") {
+        let Some(len) = rest[start..].find('}') else { break };
+        let attr = &rest[start + 2..start + len];
+        let path = outputs
+            .paths
+            .get(attr)
+            .ok_or_else(|| anyhow::format_err!("nix build: no output of `{attr}` among the retained paths"))?;
+        resolved.push_str(&rest[..start]);
+        resolved.push_str(&path.to_string_lossy());
+        rest = &rest[start + len + 1..];
+    }
+    resolved.push_str(rest);
+    Ok(resolved.into())
 }

@@ -139,6 +139,9 @@ pub struct Compilation<'gctx> {
     /// The linker to use for each host or target.
     linkers: HashMap<CompileKind, Option<PathBuf>>,
 
+    /// nix mode: the rustdoc of the toolchain nix built with, for doc tests (instead of the configured one).
+    pub rustdoc: Option<PathBuf>,
+
     /// The total number of lint warnings emitted by the compilation.
     pub lint_warning_count: usize,
 }
@@ -209,6 +212,7 @@ impl<'gctx> Compilation<'gctx> {
             primary_rustc_process,
             runners,
             linkers,
+            rustdoc: None,
             lint_warning_count: 0,
         })
     }
@@ -246,7 +250,10 @@ impl<'gctx> Compilation<'gctx> {
         unit: &Unit,
         script_metas: Option<&Vec<UnitHash>>,
     ) -> CargoResult<ProcessBuilder> {
-        let mut rustdoc = ProcessBuilder::new(&*self.gctx.rustdoc()?);
+        let mut rustdoc = match &self.rustdoc {
+            Some(rustdoc) => ProcessBuilder::new(rustdoc),
+            None => ProcessBuilder::new(&*self.gctx.rustdoc()?),
+        };
         if self.gctx.extra_verbose() {
             rustdoc.display_env_vars();
         }

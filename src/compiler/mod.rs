@@ -43,6 +43,7 @@ pub(crate) mod layout;
 mod links;
 mod locking;
 mod lto;
+pub mod nix_build;
 mod output_depinfo;
 mod output_sbom;
 pub mod rustdoc;
@@ -54,6 +55,7 @@ pub mod unit_dependencies;
 pub mod unit_graph;
 pub mod unused_deps;
 
+use crate::util::BuildBackend;
 use crate::util::data_structures::{HashMap, HashSet};
 use std::borrow::Cow;
 use std::cell::OnceCell;
@@ -294,6 +296,8 @@ fn rustc(
     unit: &Unit,
     exec: &Arc<dyn Executor>,
 ) -> CargoResult<Work> {
+    //println!("rustc for: {}", unit.target.name());
+
     let mut rustc = prepare_rustc(build_runner, unit)?;
 
     let name = unit.pkg.name();
@@ -374,6 +378,12 @@ fn rustc(
         output_options.show_diagnostics = false;
     }
     let env_config = Arc::clone(build_runner.bcx.gctx.env_config()?);
+
+    build_runner
+        .raw_process_builder
+        .lock()
+        .unwrap()
+        .push((rustc.clone(), unit.clone()));
     return Ok(Work::new(move |state| {
         // Artifacts are in a different location than typical units,
         // hence we must assure the crate- and target-dependent
@@ -596,6 +606,7 @@ fn rustc(
                 if pass_l_flag {
                     for name in output.library_links.iter() {
                         rustc.arg("-l").arg(name);
+                        //println!("add_native_deps: -l {}", name);
                     }
                 }
             }
@@ -610,6 +621,7 @@ fn rustc(
                     && (key.0 == current_id || *lt == LinkArgTarget::Cdylib)
                 {
                     rustc.arg("-C").arg(format!("link-arg={}", arg));
+                    println!("add_native_deps: -C link-arg={}", arg);
                 }
             }
         }
@@ -651,6 +663,7 @@ fn link_targets(
     unit: &Unit,
     fresh: bool,
 ) -> CargoResult<Work> {
+    //println!("link_targets called");
     let bcx = build_runner.bcx;
     let outputs = build_runner.outputs(unit)?;
     let export_dir = build_runner.files().export_dir();
@@ -668,6 +681,7 @@ fn link_targets(
             .pkg
             .manifest()
             .metabuild_path(build_runner.bcx.ws.build_dir());
+        // println!("TargetSourcePath::Path(path): {:#?}", path);
         target.set_src_path(TargetSourcePath::Path(path));
     }
 
@@ -869,6 +883,7 @@ fn prepare_rustc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult
 /// from build scripts.
 fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<ProcessBuilder> {
     let bcx = build_runner.bcx;
+    let is_nix_build: bool = build_runner.bcx.gctx.backend()? == BuildBackend::Nix;
     // script_metadata is not needed here, it is only for tests.
     let mut rustdoc = build_runner.compilation.rustdoc_process(unit, None)?;
     let wants_json_output = build_runner.bcx.build_config.intent.wants_doc_json_output();
@@ -900,10 +915,11 @@ fn prepare_rustdoc(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> CargoResu
     };
 
     rustdoc.arg("-o").arg(&doc_dir);
-    rustdoc.args(&features_args(unit));
-    rustdoc.args(&check_cfg_args(unit));
+    rustdoc.args(&features_args(unit, is_nix_build));
+    rustdoc.args(&check_cfg_args(unit, is_nix_build));
 
-    add_error_format_and_color(build_runner, &mut rustdoc);
+    let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
+    add_error_format_and_color(build_runner, &mut rustdoc, is_nix_build);
     add_allow_features(build_runner, &mut rustdoc);
 
     if build_runner.bcx.gctx.cli_unstable().rustdoc_depinfo {
@@ -1224,7 +1240,11 @@ fn add_allow_features(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuild
 /// which Cargo will extract and display to the user.
 ///
 /// [`--error-format`]: https://doc.rust-lang.org/nightly/rustc/command-line-arguments.html#--error-format-control-how-errors-are-produced
-fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut ProcessBuilder) {
+fn add_error_format_and_color(
+    build_runner: &BuildRunner<'_, '_>,
+    cmd: &mut ProcessBuilder,
+    is_nix_build: bool,
+) {
     let enable_timings =
         build_runner.bcx.gctx.cli_unstable().section_timings && build_runner.bcx.logger.is_some();
     if enable_timings {
@@ -1252,8 +1272,10 @@ fn add_error_format_and_color(build_runner: &BuildRunner<'_, '_>, cmd: &mut Proc
     cmd.arg(json);
 
     let gctx = build_runner.bcx.gctx;
-    if let Some(width) = gctx.shell().err_width().diagnostic_terminal_width() {
-        cmd.arg(format!("--diagnostic-width={width}"));
+    if !is_nix_build {
+        if let Some(width) = gctx.shell().err_width().diagnostic_terminal_width() {
+            cmd.arg(format!("--diagnostic-width={width}"));
+        }
     }
 }
 
@@ -1307,7 +1329,8 @@ fn build_base_args(
     edition.cmd_edition_arg(cmd);
 
     add_path_args(bcx.ws, unit, cmd);
-    add_error_format_and_color(build_runner, cmd);
+    let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
+    add_error_format_and_color(build_runner, cmd, is_nix_build);
     add_allow_features(build_runner, cmd);
 
     let mut contains_dy_lib = false;
@@ -1448,8 +1471,10 @@ fn build_base_args(
         cmd.arg("--cfg").arg("test");
     }
 
-    cmd.args(&features_args(unit));
-    cmd.args(&check_cfg_args(unit));
+    let is_nix_build: bool = bcx.gctx.backend()? == BuildBackend::Nix;
+
+    cmd.args(&features_args(unit, is_nix_build));
+    cmd.args(&check_cfg_args(unit, is_nix_build));
 
     let meta = build_runner.files().metadata(unit);
     cmd.arg("-C")
@@ -1463,8 +1488,15 @@ fn build_base_args(
         cmd.arg("-C").arg("rpath");
     }
 
-    cmd.arg("--out-dir")
-        .arg(&build_runner.files().output_dir(unit));
+    match bcx.gctx.backend()? {
+        BuildBackend::Legacy => {
+            cmd.arg("--out-dir")
+                .arg(&build_runner.files().output_dir(unit));
+        }
+        BuildBackend::Nix => {
+            cmd.arg("--out-dir $OUT_DIR");
+        }
+    }
 
     unit.kind.add_target_arg(cmd);
 
@@ -1530,20 +1562,30 @@ fn build_base_args(
     Ok(())
 }
 
-/// All active features for the unit passed as `--cfg features=<feature-name>`.
-fn features_args(unit: &Unit) -> Vec<OsString> {
-    let mut args = Vec::with_capacity(unit.features.len() * 2);
+/// A way to support bash escape sequences required the the nix builder
+pub fn escape_args(feature_args: String, is_nix_build: bool) -> String {
+    if is_nix_build {
+        format!("'{}'", feature_args)
+    } else {
+        format!("{}", feature_args)
+    }
+}
 
+/// All active features for the unit passed as `--cfg features=<feature-name>`.
+fn features_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
+    let mut args = Vec::with_capacity(unit.features.len() * 2);
     for feat in &unit.features {
         args.push(OsString::from("--cfg"));
-        args.push(OsString::from(format!("feature=\"{}\"", feat)));
+        args.push(OsString::from(escape_args(
+            format!("feature=\"{}\"", feat),
+            is_nix_build,
+        )));
     }
-
     args
 }
 
 /// Generates the `--check-cfg` arguments for the `unit`.
-fn check_cfg_args(unit: &Unit) -> Vec<OsString> {
+fn check_cfg_args(unit: &Unit, is_nix_build: bool) -> Vec<OsString> {
     // The routine below generates the --check-cfg arguments. Our goals here are to
     // enable the checking of conditionals and pass the list of declared features.
     //
@@ -1585,9 +1627,12 @@ fn check_cfg_args(unit: &Unit) -> Vec<OsString> {
 
     vec![
         OsString::from("--check-cfg"),
-        OsString::from("cfg(docsrs,test)"),
+        OsString::from(escape_args("cfg(docsrs,test)".to_string(), is_nix_build)),
         OsString::from("--check-cfg"),
-        arg_feature,
+        OsString::from(escape_args(
+            arg_feature.to_str().unwrap().to_string(),
+            is_nix_build,
+        )),
     ]
 }
 
@@ -1624,8 +1669,13 @@ fn build_deps_args(
 ) -> CargoResult<()> {
     let bcx = build_runner.bcx;
 
-    for arg in lib_search_paths(build_runner, unit)? {
-        cmd.arg(arg);
+    if bcx.gctx.backend()? == BuildBackend::Nix {
+        cmd.arg("@rustc-extra.rsp");
+        cmd.arg("\\\n        -L dependency=${fn.rustc_linker_arguments_dir passthru.rust_crate_libraries}/deps");
+    } else {
+        for arg in lib_search_paths(build_runner, unit)? {
+            cmd.arg(arg);
+        }
     }
 
     let deps = build_runner.unit_deps(unit);
@@ -1844,11 +1894,33 @@ pub fn extern_args(
         value.push(extern_crate_name.as_str());
         value.push("=");
 
-        let mut pass = |file| {
-            let mut value = value.clone();
-            value.push(file);
-            result.push(OsString::from("--extern"));
-            result.push(value);
+        let mut pass = |file: &PathBuf| {
+            match build_runner.bcx.gctx.backend().unwrap() {
+                BuildBackend::Legacy => {
+                    let mut value = value.clone();
+                    value.push(file);
+                    result.push(OsString::from("--extern"));
+                    result.push(value);
+                }
+                BuildBackend::Nix => {
+                    let binding = OsString::new();
+                    let file = file.file_name().unwrap_or(&binding);
+                    let mut value: OsString = value.clone();
+
+                    // ${lib-termcolor-1_4_1}
+                    let nix_attribute_name = crate::compiler::nix_build::nix_code::create_nix_name(
+                        &dep.unit,
+                        &build_runner,
+                        crate::compiler::nix_build::NixNameMode::AttributeName,
+                        false,
+                    );
+                    value.push(format!("${{{}}}/", nix_attribute_name));
+
+                    value.push(file);
+                    result.push(OsString::from("--extern"));
+                    result.push(value);
+                }
+            };
         };
 
         let outputs = build_runner.outputs(&dep.unit)?;
@@ -1923,7 +1995,10 @@ fn add_codegen_incremental(
     build_runner: &BuildRunner<'_, '_>,
     unit: &Unit,
 ) {
-    let dir = build_runner.files().incremental_dir(&unit);
+    let dir: OsString = match build_runner.bcx.gctx.backend() {
+        Ok(BuildBackend::Nix) => OsString::from("$INC_DIR"),
+        _ => build_runner.files().incremental_dir(&unit).into(),
+    };
     let mut arg = OsString::from("incremental=");
     arg.push(dir.as_os_str());
     cmd.arg("-C").arg(arg);

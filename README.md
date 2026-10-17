@@ -1,129 +1,353 @@
-# Cargo
+# WARNING ⚠️
 
-Cargo downloads your Rust project’s dependencies and compiles your project.
+This is an unofficial fork of Cargo — not endorsed by the Rust Project.
 
-**To start using Cargo**, learn more at [The Cargo Book].
+This fork is intended as a PR to contribute this to the official cargo project and to engineer the solution and to get feedback on the work from the nix community.
 
-**To start developing Cargo itself**, read the [Cargo Contributor Guide].
+# What is this?
 
-[The Cargo Book]: https://doc.rust-lang.org/cargo/
-[Cargo Contributor Guide]: https://rust-lang.github.io/cargo/contrib/
+This project integrates nix as a build backend into cargo (libnix), so you get the advantages of nix during development and deployment. The detailed technical status is in [README-DEV.md](README-DEV.md).
 
-> The Cargo binary distributed through with Rust is maintained by the Cargo
-> team for use by the wider ecosystem.
-> For all other uses of this crate (as a binary or library) this is maintained
-> by the Cargo team, primarily for use by Cargo and not intended for external
-> use (except as a transitive dependency). This crate may make major changes to
-> its APIs.
-
-## Code Status
-
-[![CI](https://github.com/rust-lang/cargo/actions/workflows/main.yml/badge.svg?branch=auto-cargo)](https://github.com/rust-lang/cargo/actions/workflows/main.yml)
-
-Code documentation: <https://doc.rust-lang.org/nightly/nightly-rustc/cargo/>
-
-## Compiling from Source
-
-### Requirements
-
-Cargo requires the following tools and packages to build:
-
-* `cargo` and `rustc`
-* A C compiler [for your platform](https://github.com/rust-lang/cc-rs#compile-time-requirements)
-* `git` (to clone this repository)
-
-**Other requirements:**
-
-The following are optional based on your platform and needs.
-
-* `pkg-config` — This is used to help locate system packages, such as `libssl` headers/libraries. This may not be required in all cases, such as using vendored OpenSSL, or on Windows.
-* OpenSSL — Only needed on Unix-like systems and only if the `vendored-openssl` Cargo feature is not used.
-
-  This requires the development headers, which can be obtained from the `libssl-dev` package on Ubuntu or `openssl-devel` with apk or yum or the `openssl` package from Homebrew on macOS.
-
-  If using the `vendored-openssl` Cargo feature, then a static copy of OpenSSL will be built from source instead of using the system OpenSSL.
-  This may require additional tools such as `perl` and `make`.
-
-  On macOS, common installation directories from Homebrew, MacPorts, or pkgsrc will be checked. Otherwise it will fall back to `pkg-config`.
-
-  On Windows, the system-provided Schannel will be used instead.
-
-  LibreSSL is also supported.
-
-**Optional system libraries:**
-
-The build will automatically use vendored versions of the following libraries. However, if they are provided by the system and can be found with `pkg-config`, then the system libraries will be used instead:
-
-* [`libcurl`](https://curl.se/libcurl/) — Used for network transfers.
-* [`libgit2`](https://libgit2.org/) — Used for fetching git dependencies.
-* [`libssh2`](https://www.libssh2.org/) — Used for SSH access to git repositories.
-* [`libz`](https://zlib.net/) (AKA zlib) — Used by the above C libraries for data compression. (Rust code uses [`zlib-rs`](https://github.com/trifectatechfoundation/zlib-rs) instead.)
-
-It is recommended to use the vendored versions as they are the versions that are tested to work with Cargo.
-
-### Compiling
-
-First, you'll want to check out this repository
+Ideally you type these commands: 🚀
 
 ```
-git clone https://github.com/rust-lang/cargo.git
-cd cargo
+nix develop github:nixcloud/cargo
+export CARGO_BACKEND=nix 
+cargo build
 ```
 
-With `cargo` already installed, you can simply run:
+[![asciicast](asciinema.png)](https://asciinema.org/a/1268068)
+
+The nix backend is switched on with the environment variable `CARGO_BACKEND=nix` the devshell above sets it. Without it, or with any other value, this cargo behaves like the upstream cargo (legacy).
+
+## How it works
+
+cargo resolves the dependencies and plans the build as usual. In nix mode it then writes one nix derivation per unit (a crate with its features and profile, a build script, a build script run, a test harness) to _target/&lt;profile&gt;/nix_, builds them with `nix build` and links the results into _target/&lt;profile&gt;_, so `target/debug/<bin>` is a symlink into `/nix/store`.
+
+* every crate is built in the nix sandbox, with its system libraries from `Cargo.dependencies.nix`
+* crates.io downloads and crate builds are store paths, shared between projects and machines (and between `cargo build`, `cargo run` and `cargo test`)
+* the same nix code can be exported with `cargo build write-nix-buildsystem` and built by nix alone, from a flake or nixpkgs, without calling cargo again
+
+## Requirements
+
+* nix with the `nix-command` and `flakes` features, a running nix-daemon and the sandbox enabled (the defaults on NixOS)
+* Linux; developed and tested on x86_64-linux
+* `rustc` of the same version as the cargo (currently 1.87.0), the devshell and flake provide both
+* `nix-prefetch-git` in `PATH` for git dependencies (part of the devshell)
+
+# Supported subcommands and features 🧰
+
+With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all others are plain cargo. Details and the state of development are in [README-DEV.md](README-DEV.md).
+
+| subcommand | nix mode | notes |
+|---|---|---|
+| `build` | ✅ | every unit is built in nix; `build write-nix-buildsystem` exports the build system for flakes and nixpkgs |
+| `run` | ✅ | binaries and examples; `std::env::current_exe()` is the binary in the store |
+| `test` | ✅ | unit, integration and doc tests; the tests run outside of nix, the sources at `env!("CARGO_MANIFEST_DIR")` are read-only |
+| `clean` | ✅ partial | the target directory or a profile, together with the store paths it rooted; `clean -p` and `clean gc` are refused |
+| `check` | ❌ planned | refused with "not supported yet" |
+| `install`, `uninstall` | ✅ | binaries stay in the store, rooted in `<root>/nix/install`, `<root>/bin` links to them; uninstall deletes the store paths nothing else uses |
+| `doc`, `rustdoc`, `rustc`, `bench`, `package`, `vendor` | ❌ | refused with "not supported yet" |
+| `new`, `init`, `add`, `remove`, `update`, `fetch`, `generate-lockfile`, `tree`, `metadata`, `fmt`, `publish`, … | unchanged | vanilla cargo, the backend is not involved |
+| `fix` | ❓ | untested, it builds in check mode internally |
+
+| feature | state | notes |
+|---|---|---|
+| crates.io dependencies | ✅ | downloaded and built in `/nix/store`, shared between projects and machines |
+| path dependencies, workspaces, `-p`, `--features` | ✅ | |
+| build scripts (`build.rs`), proc macros | ✅ | build scripts run in the nix sandbox |
+| system libraries, environment variables | ✅ | per crate in `Cargo.dependencies.nix`, see [Injecting dependencies](#injecting-dependencies) |
+| git dependencies | ✅ | needs `nix-prefetch-git` in `PATH` |
+| vendored sources, source replacement | ✅ | |
+| `--offline` | ✅ | crates.io is served from the store tarballs of `Cargo.lock`, so the build system can be generated inside a nix build (IFD) |
+| `--release` | ✅ | profile options (`lto`, `codegen-units`, `panic`, …) are passed on, but untested |
+| GC roots | ✅ | per selection of units in `target/<profile>/nix/gc`, the 8 most recent are kept; `cargo clean` removes them |
+| cargo-like output | ✅ | nix logs are shown in cargo's format |
+| other registries | ❌ | only crates.io; others fail when the build system is generated |
+| incremental builds / fingerprints | ❌ | changed crates are always compiled from scratch, so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |
+| cross-compilation, `--target` (e.g. wasm) | ❓ | untested, known failures (wasm) |
+| platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
+| toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.87.0) |
+
+## Regression tests
+
+[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently 30 of 31 projects pass with rustc 1.87.0 (codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are pinned to their last release before they needed a newer rustc). union fails: it needs a nightly rustc (`#![feature]`), and `tikv-jemalloc-sys`'s build script uses `cargo:rustc-link-arg`, which build-rs-libnix doesn't support yet. Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix).
+
+# Using cargo (libnix)
+
+There are three ways to use cargo (libnix):
+
+1. **devshell**: try it without changing anything
+2. **flake**: add it to your project's devshell
+3. **traditional nix code**: `shell.nix`, NixOS configuration, …
+
+## 1. devshell
+
+```bash
+nix develop github:nixcloud/cargo
+cargo build
+```
+
+This adds `cargo` (libnix), a matching `rustc` and `nix-prefetch-git` to your environment and sets `CARGO_BACKEND=nix`.
+
+## 2. flake
+
+Add the cargo (libnix) binary and the matching `rustc` to your project's devshell:
+
+```nix
+{
+  description = "myproject";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    libnix-flake.url = "github:nixcloud/cargo";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils, libnix-flake }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs { inherit system; };
+      in {
+        devShells.default = pkgs.mkShell {
+          buildInputs = [
+            libnix-flake.packages.${system}.rustc_1_87_vanilla_pin
+            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v4
+            pkgs.nix-prefetch-scripts
+          ];
+          shellHook = ''
+            export CARGO_BACKEND=nix
+          '';
+        };
+      });
+}
+```
+
+Afterwards check that `cargo` is the one from the store:
+
+    $ which cargo
+    /nix/store/…-cargo-0_88_0-bin-8cad88ffd54a16db/bin/cargo
+
+## 3. traditional nix code
+
+A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.87.0+v4` with a pinned rustc/cargo 1.87.0 from [fenix](https://github.com/nix-community/fenix):
+
+```nix
+{ pkgs ? import <nixpkgs> { } }:
+let
+  fenix = import (builtins.fetchTarball {
+    url = "https://github.com/nix-community/fenix/archive/6ed03ef4c8ec36d193c18e06b9ecddde78fb7e42.tar.gz";
+    sha256 = "1mjmp9c5x3j6jqy50ymr07nxl4nrlp3iininxhnzc1ragdrg8pxn";
+  }) { inherit pkgs; };
+  toolchain = fenix.toolchainOf {
+    channel = "1.87.0";
+    sha256 = "sha256-KUm16pHj+cRedf8vxs/Hd2YWxpOrWZ7UOrwhILdSJBU=";
+  };
+  # the generated build system of cargo (libnix) and the cargo sources it builds
+  buildsystem = builtins.fetchTarball {
+    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv4/libnix-1.87.0+v4.tar.bz2";
+    sha256 = "sha256:0zhj8sl05g861c7pkwgd1ij26mf68qj1flbad2ivwj113vac9chq";
+  };
+  cargo-src = builtins.fetchTarball {
+    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.87.0%2Bv4.tar.gz";
+    sha256 = "sha256:0lm951801chcdnjni4068jjwlzyf94byjgjk5qzlr9vihsp5i3ym";
+  };
+  cargo-libnix = (import (buildsystem + "/derivations/default.nix") {
+    inherit pkgs;
+    project_root = cargo-src;
+    external_crate_dependencies = import (buildsystem + "/Cargo.dependencies.nix") { inherit pkgs; };
+    rustc = toolchain.rustc;
+    cargo = toolchain.cargo;
+  }).cargo-0_88_0-bin-8cad88ffd54a16db;
+in
+pkgs.mkShell {
+  packages = [ cargo-libnix toolchain.rustc pkgs.nix-prefetch-scripts ];
+  shellHook = "export CARGO_BACKEND=nix";
+}
+```
+
+For a NixOS configuration, put `cargo-libnix` and `toolchain.rustc` into `environment.systemPackages` instead and set `CARGO_BACKEND=nix` in `environment.variables`.
+
+# Injecting dependencies
+
+Crates that link against system libraries (`openssl-sys`, `libsqlite3-sys`, …) or need environment variables at build time get them from a `Cargo.dependencies.nix` next to `Cargo.toml` / `Cargo.lock`. Without the file, crates are built with the toolchain only; a `*-sys` crate whose build script can't find its library is the typical sign that an entry is missing.
+
+1. create `Cargo.dependencies.nix` in the workspace root
+2. add `buildInputs` per crate in `deps` and environment variables per crate in `envs`; the name and version are the ones in `Cargo.lock`. The version is optional, but once a crate is keyed by version, `deps` must list every version of it in `Cargo.lock`:
+
+    ```nix
+    { pkgs }:
+    with pkgs;
+    {
+      deps = {
+        "openssl-sys" = [ pkg-config openssl ];       # every version
+        "libsqlite3-sys" = {
+          "0.30.1" = [ pkg-config sqlite ];           # only this version
+        };
+      };
+      envs = {
+        "proc-macro-test" = {
+          "PROC_MACRO_TEST_LOCATION" = "";
+        };
+      };
+    }
+    ```
+
+3. run `cargo build`; the inputs and variables are added to every derivation of that crate (build script, build script run, compilation)
+
+More examples are in [Cargo.dependencies.nix](Cargo.dependencies.nix) (the one of cargo itself) and in [tests-libnix](tests-libnix).
+
+# Exporting the build system
+
+`cargo build` writes the nix code to _target/&lt;profile&gt;/nix_ on every run. `cargo build write-nix-buildsystem` writes the same code to a directory of your choice, without building, so your project can be built by nix alone: from a flake, nixpkgs or another project.
 
 ```
-cargo build --release
+   ┌─────────────────┐
+   │  flake.nix      │
+   └────────┬────────┘
+            │
+            ▼
+┌────────────────────────────┐
+│  nix build system          │
+│  • cargo_build_caller.nix  │
+│  • derivations/default.nix │
+│  • derivations/ ...        │
+└───────────┬────────────────┘
+            │
+            ▼
+┌───────────────────────┐
+│  project source code  │
+│  • src/               │
+│  • Cargo.toml / ...   │
+└───────────────────────┘
 ```
 
-## Adding new subcommands to Cargo
+The project's own crates either come from a directory (the default, the `project_root` argument) or from a tarball given with `--url` and `--hash`. For a release of your project, e.g. tag `v1.0.0` on GitHub:
 
-Cargo is designed to be extensible with new subcommands without having to modify
-Cargo itself. See [the Wiki page][third-party-subcommands] for more details and
-a list of known community-developed subcommands.
+1. tag the release and push it
+2. get the hash of the source tarball:
 
-[third-party-subcommands]: https://github.com/rust-lang/cargo/wiki/Third-party-cargo-subcommands
+    ```bash
+    nix-prefetch-url https://github.com/<owner>/<project>/archive/refs/tags/v1.0.0.tar.gz
+    ```
 
+3. write the build system:
 
-## Releases
+    ```bash
+    CARGO_BACKEND=nix cargo build --release write-nix-buildsystem \
+      --out-dir ./nix \
+      --url https://github.com/<owner>/<project>/archive/refs/tags/v1.0.0.tar.gz \
+      --hash <hash from step 2>
+    ```
 
-Cargo releases coincide with Rust releases.
-High level release notes are available as part of [Rust's release notes][rel].
-Detailed release notes are available in the [changelog].
+4. test it: `nix build --file nix/cargo_build_caller.nix target -L`
+5. publish it: commit the directory to your repository, or attach a tarball of it to the release (as cargo (libnix) does, see its [releases](https://github.com/nixcloud/cargo/releases))
 
-[rel]: https://github.com/rust-lang/rust/blob/master/RELEASES.md
-[changelog]: https://doc.rust-lang.org/nightly/cargo/CHANGELOG.html
+The build system has two entry points:
 
-## Reporting issues
+1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and rustc/cargo 1.87.0 (from fenix, without `rust-src`, which would end up in the runtime closure of every binary), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
+2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](#3-traditional-nix-code) and this repository's [flake.nix](flake.nix)
 
-Found a bug? We'd love to know about it!
+Both return an attribute set with a derivation per unit (e.g. `cargo-0_88_0-bin-8cad88ffd54a16db`) and `target`, which links all root units like _target/&lt;profile&gt;_.
 
-Please report all issues on the GitHub [issue tracker][issues].
+# Branches and releases 🌿
 
-[issues]: https://github.com/rust-lang/cargo/issues
+cargo (libnix) does not follow every upstream cargo release, only selected Rust toolchains. Each supported toolchain is a patch stack on top of upstream's release of that toolchain.
 
-## Contributing
+| branch | what it is |
+|---|---|
+| `master-libnix` | the main line, on the newest supported toolchain (currently Rust 1.87.0) |
+| `rust-<version>-libnix` | one maintenance branch per supported toolchain, e.g. `rust-1.87.0-libnix`; mirrors upstream's `rust-<version>` branch |
+| `master` | upstream cargo, untouched |
 
-See the **[Cargo Contributor Guide]** for a complete introduction
-to contributing to Cargo.
+The naming follows upstream: cargo has a release branch per toolchain (`rust-1.87.0`, `rust-1.99.0`) and tags the cargo crate version (`0.88.0` is the cargo of Rust 1.87.0, `0.100.0` the one of Rust 1.99.0).
 
-## License
+Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87.0+v1`, `libnix-1.87.0+v2`, … The tags stay valid no matter what happens to the branches; flakes and nix code should pin a tag or a release tarball, not a branch.
 
-Cargo is primarily distributed under the terms of both the MIT license
-and the Apache License (Version 2.0).
+## supporting a new toolchain
 
-See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
+1. base on upstream's release of that toolchain (the cargo crate tag, e.g. `0.100.0`, or the `rust-<version>` branch), not on an upstream `master` commit, so the upstream backports are included
+2. rebase the libnix patch stack onto it on a work branch; squashing the stack into a few logical patches first (nix backend, daemon/runner, templates, write-nix-buildsystem, crate store/GC roots, flake) keeps the conflicts manageable and `git diff <upstream tag>..` readable
+3. once cargo builds itself with `CARGO_BACKEND=nix` and the example projects work, the previous toolchain's state is kept in its `rust-<version>-libnix` branch and the work branch becomes the main line
+4. tag the first release of the new line, e.g. `libnix-1.99.0+v1`
 
-### Third party software
+## maintenance branches
 
-This product includes software developed by the OpenSSL Project
-for use in the OpenSSL Toolkit (https://www.openssl.org/).
+`rust-<version>-libnix` branches only get fixes (cherry-picked), no new features; a fix released there gets the next tag of that line, e.g. `libnix-1.87.0+v5`.
 
-In binary form, this product includes software that is licensed under the
-terms of the GNU General Public License, version 2, with a linking exception,
-which can be obtained from the [upstream repository][1].
+# Similar projects 📚
 
-See [LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY) for details.
+| project | how it differs from cargo (libnix) |
+|---|---|
+| [crane](https://github.com/ipetkov/crane) | nix library that runs cargo inside a few derivations (dependencies, then the workspace); you write the nix code |
+| [naersk](https://github.com/nix-community/naersk) | like crane: builds the dependencies and the project in two derivations from `Cargo.lock` |
+| [cargo2nix](https://github.com/cargo2nix/cargo2nix) | a separate tool generates a `Cargo.nix` with a derivation per crate, regenerated when `Cargo.lock` changes |
+| [crate2nix](https://github.com/nix-community/crate2nix) | like cargo2nix, based on nixpkgs' `buildRustCrate`, can also generate during evaluation (IFD) |
 
-[1]: https://github.com/libgit2/libgit2
+cargo (libnix) is cargo itself: the derivation per unit comes from cargo's own build plan on every `cargo build`, during development as well, with no extra tool, nix code or generation step.
 
+# Motivation 💡
+
+* https://lastlog.de/blog/libnix_cargo-nix-backend.html
+* https://lastlog.de/blog/timeline.html?filter=tag::libnix
+
+This project is [xkcd 927](https://xkcd.com/927/).
+
+# Commercial support & consulting 🤝
+
+cargo (libnix) is open source and stays that way. If your team wants to use it, or wants Nix builds for Rust in general, I'm available for paid work:
+
+* **adoption**: move your Rust workspace to cargo (libnix), write the `Cargo.dependencies.nix` for your `*-sys` crates and get your project building in the nix sandbox
+* **CI and caching**: binary caches, remote builders and shared store paths, so crates built once are never built again on another machine or pipeline
+* **exporting**: ship your project as a flake or nixpkgs package with `write-nix-buildsystem`, pinned and reproducible
+* **toolchains and platforms**: port cargo (libnix) to the Rust version you're on, or to Darwin
+* **funded features**: `cargo check`, incremental builds ([#3](https://github.com/nixcloud/cargo/issues/3)), cross-compilation and wasm. If you need one of these, sponsoring it is the fastest way to get it upstream-ready
+* **Nix in general**: NixOS deployments, build systems for C/C++ projects, reproducible toolchains
+
+All work is clearly separate from the Rust Project; this is not official Cargo support.
+
+## About me
+
+I'm Joachim Schiele, a freelance software engineer based in Germany. I've worked on Nix for over a decade: at Daimler I spent almost three years researching distributed deployment with Nix/NixOS, and before that my diploma thesis covered multi-platform software package management. I founded nixcloud GmbH and have worked on several projects with NLnet, including this one.
+
+Outside Nix, I build web apps in Rust/Leptos and Go backends. I've also done C++ and CMake build systems for embedded and industrial software, and run Linux infrastructure at scale (5000 RHEL machines at Bosch).
+
+* CV: https://lastlog.de/cv/
+* blog: https://lastlog.de/blog
+* GitHub: [qknight](https://github.com/qknight), [nixcloud](https://github.com/nixcloud)
+* YouTube: https://www.youtube.com/@nixcloud
+
+📧 **js@lastlog.de**: tell me what you're building and where your builds hurt, and I'll reply with how I can help.
+
+# Project resources
+
+* https://github.com/nixcloud/cargo - branch **master-libnix**, intended as a PR to incorporate nix into cargo (see [Branches and releases](#branches-and-releases-))
+* https://github.com/nixcloud/cargo/issues - for issues; do not report them on the upstream cargo tracker or forums!
+* https://link.excalidraw.com/l/3QhpSMKuoZA/6eoC5kkanvL - diagrams
+* https://link.excalidraw.com/p/readonly/HTEjH2WpzNJExWK81BaN - slides
+
+# Sponsors
+
+This project was sponsored by nlnet
+
+![nlnet](https://lastlog.de/blog/media/nlnet-logo.gif)
+
+# Legal 📝
+
+This is the email response of the Rust Foundation to https://internals.rust-lang.org/t/new-rust-backend-libnix/23848 
+
+> Your fork falls under the explicit allowance in the Rust trademark policy to "host a fork of the code for the purpose of making changes, additions, or deletions that will be submitted as proposed improvements to the Rust Project". The policy does not restrict the size, depth, or architectural significance of the changes. Adding a new build backend is permitted by this allowance.
+
+> You're entitled to publicly host and distribute a fork, in source form, under the Cargo name, provided that:
+> it is clearly presented as unofficial,
+> it is not marketed or promoted as an official or endorsed version of Cargo, and
+> it is positioned as work intended for upstream contribution rather than as a competing product.
+> The measures you mention (namespaced repository, clear disclaimers, experimental framing) are sufficient and appropriate for this, and we appreciate the care you've taken to do that!
+> 
+> Providing commercial support or consulting around this work does not, in itself, violate the trademark policy. The requirement is simply that such services must not be presented as official Cargo support, and must not imply endorsement by the Rust Project or the Rust Foundation. You would only need to seek explicit written permission if you intended to market, brand, or distribute your fork as a product in its own right using the Cargo name, or in a way that a reasonable user could interpret as official Cargo. In those circumstances I think the Rust Foundation's board would most likely want you to choose a new name for it to avoid any confusion.
+> 
+> I hope that's helpful.
+> 
+> Abi Broom
+> Director of Operations
+> Rust Foundation

@@ -1,3 +1,4 @@
+use crate::compiler::nix_build::nix_build_runner::gc_roots;
 use crate::compiler::trim_paths;
 use crate::compiler::{CompileKind, CompileMode, Layout, RustcTargetData};
 use crate::ops;
@@ -6,7 +7,7 @@ use crate::util::data_structures::{IndexMap, IndexSet};
 use crate::util::edit_distance;
 use crate::util::errors::CargoResult;
 use crate::util::interning::InternedString;
-use crate::util::{GlobalContext, Progress, ProgressStyle};
+use crate::util::{BuildBackend, GlobalContext, Progress, ProgressStyle};
 use crate::workspace::profiles::Profiles;
 use crate::workspace::{PackageIdSpec, PackageIdSpecQuery, TargetKind, Workspace};
 use anyhow::bail;
@@ -136,7 +137,29 @@ pub fn clean(ws: &Workspace<'_>, opts: &CleanOptions<'_>) -> CargoResult<()> {
             } else {
                 &[target_dir.into_path_unlocked()]
             };
+            // nix mode: the store paths the builds in there rooted go too, unless something else uses them
+            let rooted: Vec<String> = match gctx.backend()? {
+                BuildBackend::Nix => paths.iter().flat_map(|p| gc_roots::rooted_below(p)).collect(),
+                BuildBackend::Legacy => Vec::new(),
+            };
             clean_ctx.remove_paths(paths)?;
+            if !rooted.is_empty() {
+                if opts.dry_run {
+                    let msg = format!("would delete up to {} store path(s) not used elsewhere", rooted.len());
+                    gctx.shell().status("Summary", msg)?;
+                } else {
+                    match gc_roots::delete_unused_now(rooted) {
+                        Ok((count, bytes)) => {
+                            let freed = format!("{:.1}", crate::util::HumanBytes(bytes));
+                            gctx.shell().status("Removed", format!("{count} store path(s), {freed}"))?;
+                        }
+                        Err(e) => gctx.shell().warn(format!(
+                            "could not delete the store paths of the nix builds ({e}); \
+                             they are not rooted anymore, `nix-collect-garbage` removes them"
+                        ))?,
+                    }
+                }
+            }
         } else {
             clean_specs(
                 &mut clean_ctx,

@@ -27,6 +27,8 @@ async-trait = "0.1.89"
 base64 = "0.22.1"
 blake3 = "1.8.4"
 build-rs = { version = "0.3.5", path = "crates/build-rs" }
+build-rs-libnix = { version = "0.1.11" }
+colored = "3.0.0"
 cargo = { path = "" }
 cargo-credential = { version = "0.4.11", path = "credential/cargo-credential" }
 cargo-credential-libsecret = { version = "0.5.10", path = "credential/cargo-credential-libsecret" }
@@ -234,6 +236,10 @@ unicode-ident.workspace = true
 url.workspace = true
 walkdir.workspace = true
 winnow.workspace = true
+handlebars.workspace = true
+indoc = "2.0.6"
+colored.workspace = true
+build-rs-libnix.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

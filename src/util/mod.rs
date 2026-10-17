@@ -28,7 +28,7 @@ pub use self::workspace::{
     add_path_args, path_args, print_available_benches, print_available_binaries,
     print_available_examples, print_available_packages, print_available_tests,
 };
-pub use crate::context::{ConfigValue, GlobalContext, homedir};
+pub use crate::context::{BuildBackend, ConfigValue, GlobalContext, homedir};
 
 pub mod auth;
 pub mod cache_lock;

@@ -76,6 +76,7 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 use std::time::Instant;
 
 use self::ConfigValue as CV;
+use crate::compiler::nix_build::NixBuildOptions;
 use crate::compiler::rustdoc::RustdocExternMap;
 use crate::ops::RegistryCredentialConfig;
 use crate::sources::CRATES_IO_INDEX;
@@ -260,6 +261,8 @@ pub struct GlobalContext {
     env: Env,
     /// Tracks which sources have been updated to avoid multiple updates.
     updated_sources: Mutex<HashSet<SourceId>>,
+    /// nix mode, offline: directory source unpacked from the crates.io tarballs in the nix store
+    nix_crates_io_dir: Mutex<Option<PathBuf>>,
     /// Cache of credentials from configuration or credential providers.
     /// Maps from url to credential value.
     credential_cache: Mutex<HashMap<CanonicalUrl, CredentialCacheValue>>,
@@ -300,6 +303,13 @@ pub struct GlobalContext {
     /// A cache of modifications to make to [`GlobalContext::global_cache_tracker`],
     /// saved to disk in a batch to improve performance.
     deferred_global_last_use: OnceLock<Mutex<DeferredGlobalLastUse>>,
+    /// The build backend used for compiling crates, either:
+    ///  - "Legacy" or
+    ///  - "Nix"
+    // Note: This should live in build_config but I didn't understand the deserializer and
+    //       did not get it working properly. That why this hack is here now.
+    backend: BuildBackend,
+    pub write_nix_buildsystem_options: OnceLock<Option<NixBuildOptions>>,
 }
 
 impl GlobalContext {
@@ -360,6 +370,18 @@ impl GlobalContext {
             _ => true,
         };
 
+        let build_backend_key = "CARGO_BACKEND";
+        let backend: BuildBackend = match env.get_env_os(build_backend_key) {
+            Some(value) => match value.to_str() {
+                Some(value) => match value.to_lowercase().as_str() {
+                    "nix" => BuildBackend::Nix,
+                    _ => BuildBackend::Legacy,
+                },
+                None => BuildBackend::Legacy,
+            },
+            None => BuildBackend::Legacy,
+        };
+
         #[expect(
             clippy::disallowed_methods,
             reason = "testing only, no reason for config support"
@@ -394,6 +416,7 @@ impl GlobalContext {
             target_dir: None,
             env,
             updated_sources: Default::default(),
+            nix_crates_io_dir: Default::default(),
             credential_cache: Default::default(),
             registry_config: Default::default(),
             package_cache_lock: CacheLocker::new(),
@@ -410,6 +433,8 @@ impl GlobalContext {
             ws_roots: Default::default(),
             global_cache_tracker: Default::default(),
             deferred_global_last_use: Default::default(),
+            backend,
+            write_nix_buildsystem_options: Default::default(),
         }
     }
 
@@ -1265,6 +1290,16 @@ impl GlobalContext {
 
     pub fn network_allowed(&self) -> bool {
         !self.offline_flag().is_some()
+    }
+
+    /// Where crates.io is served from instead of its index in nix mode offline, see
+    /// `crate_store::prepare_offline_registry`.
+    pub fn nix_crates_io_dir(&self) -> Option<PathBuf> {
+        self.nix_crates_io_dir.lock().unwrap().clone()
+    }
+
+    pub fn set_nix_crates_io_dir(&self, dir: PathBuf) {
+        *self.nix_crates_io_dir.lock().unwrap() = Some(dir);
     }
 
     pub fn offline_flag(&self) -> Option<&'static str> {
@@ -2172,6 +2207,10 @@ impl GlobalContext {
     /// Get the global [`WarningHandling`] configuration.
     pub fn warning_handling(&self) -> CargoResult<WarningHandling> {
         Ok(self.build_config()?.warnings.unwrap_or_default())
+    }
+
+    pub fn backend(&self) -> CargoResult<BuildBackend> {
+        Ok(self.backend)
     }
 
     pub fn ws_roots(&self) -> MutexGuard<'_, HashMap<PathBuf, WorkspaceRootConfig>> {

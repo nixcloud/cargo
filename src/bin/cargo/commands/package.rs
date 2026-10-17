@@ -4,6 +4,7 @@ use cargo::ops;
 use cargo::ops::PackageMessageFormat;
 use cargo::ops::PackageOpts;
 use clap_complete::ArgValueCandidates;
+use crate::util::BuildBackend;
 
 pub fn cli() -> Command {
     subcommand("package")
@@ -58,6 +59,12 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'package' is not supported yet"),
+            101,
+        ));
+    }
     let reg_or_index = args.registry_or_index(gctx)?;
     let ws = args.workspace(gctx)?;
     if ws.root_maybe().is_embedded() {

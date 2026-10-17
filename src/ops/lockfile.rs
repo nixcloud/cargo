@@ -1,9 +1,10 @@
 use std::io::prelude::*;
 
+use crate::compiler::nix_build::nix_build_runner::crate_store;
 use crate::resolver::encode::into_resolve;
 use crate::resolver::{Resolve, ResolveVersion};
-use crate::util::Filesystem;
 use crate::util::errors::CargoResult;
+use crate::util::{BuildBackend, Filesystem};
 use crate::workspace::Workspace;
 
 use anyhow::Context as _;
@@ -29,6 +30,12 @@ pub fn load_pkg_lockfile(ws: &Workspace<'_>) -> CargoResult<Option<Resolve>> {
         Ok(Some(into_resolve(v, &s, ws)?))
     })()
     .with_context(|| format!("failed to parse lock file at: {}", f.path().display()))?;
+    if let Some(resolve) = &resolve {
+        let gctx = ws.gctx();
+        if gctx.backend()? == BuildBackend::Nix && !gctx.network_allowed() {
+            crate_store::prepare_offline_registry(ws, resolve)?;
+        }
+    }
     Ok(resolve)
 }
 

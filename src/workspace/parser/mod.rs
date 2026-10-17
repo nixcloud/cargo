@@ -1,3 +1,4 @@
+use crate::compiler;
 use crate::util::data_structures::HashMap;
 use cargo_util_terminal::report::{AnnotationKind, Group, Level, Snippet};
 use std::borrow::Cow;
@@ -29,6 +30,7 @@ use crate::diagnostics::cwd_rel_path;
 use crate::diagnostics::get_key_value_span;
 use crate::resolver::ResolveBehavior;
 use crate::sources::{CRATES_IO_INDEX, CRATES_IO_REGISTRY};
+pub use crate::context::BuildBackend;
 use crate::util::errors::{CargoResult, ManifestError};
 use crate::util::interning::InternedString;
 use crate::util::{self, GlobalContext, IntoUrl, OnceExt, OptVersionReq};
@@ -1668,11 +1670,13 @@ pub fn to_real_manifest(
         warnings,
     )?;
     let default = manifest::TomlLints::default();
+    let is_nix_build: bool = gctx.backend()? == BuildBackend::Nix;
     let rustflags = lints_to_rustflags(
         normalized_toml
             .normalized_lints()
             .expect("previously normalized")
             .unwrap_or(&default),
+        is_nix_build,
     )?;
 
     let hints = normalized_toml.hints.clone();
@@ -2781,7 +2785,7 @@ switch to nightly channel you can pass
     warnings.push(message);
 }
 
-fn lints_to_rustflags(lints: &manifest::TomlLints) -> CargoResult<Vec<String>> {
+fn lints_to_rustflags(lints: &manifest::TomlLints, is_nix_build: bool) -> CargoResult<Vec<String>> {
     let mut rustflags = lints
         .iter()
         // We don't want to pass any of the `cargo` lints to `rustc`
@@ -2823,7 +2827,8 @@ fn lints_to_rustflags(lints: &manifest::TomlLints) -> CargoResult<Vec<String>> {
                     {
                         for check_cfg in check_cfgs {
                             rustflags.push("--check-cfg".to_string());
-                            rustflags.push(check_cfg);
+                            rustflags
+                                .push(compiler::escape_args(check_cfg.into(), is_nix_build).into());
                         }
                     // error about `check-cfg` not being a list-of-string
                     } else {

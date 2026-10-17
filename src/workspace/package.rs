@@ -28,7 +28,7 @@ use crate::util::cache_lock::{CacheLock, CacheLockMode};
 use crate::util::errors::{CargoResult, HttpNotSuccessful};
 use crate::util::interning::InternedString;
 use crate::util::network::retry::{Retry, RetryResult};
-use crate::util::{self, GlobalContext, Progress, ProgressStyle, internal};
+use crate::util::{self, BuildBackend, GlobalContext, Progress, ProgressStyle, internal};
 use crate::workspace::dependency::DepKind;
 use crate::workspace::{
     CliUnstable, Dependency, Features, Manifest, PackageId, PackageIdSpec, SerializedDependency,
@@ -701,6 +701,15 @@ impl<'gctx> PackageSet<'gctx> {
             .into_iter()
             .map(|(p, _)| p)
             .collect::<BTreeSet<_>>();
+        if self.gctx.backend()? == BuildBackend::Nix {
+            // crates.io `.crate`s come from the nix store (fetched there in one daemon request), never from
+            // cargo's own downloader; the registry source reads them from their store paths
+            crate::compiler::nix_build::nix_build_runner::crate_store::fetch_crates(
+                self.gctx,
+                &to_download,
+                resolve,
+            )?;
+        }
         self.get_many(to_download.into_iter())?;
         Ok(())
     }

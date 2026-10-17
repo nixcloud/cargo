@@ -1,6 +1,6 @@
 use crate::command_prelude::*;
-
 use cargo::ops;
+use crate::util::BuildBackend;
 
 pub fn cli() -> Command {
     subcommand("check")
@@ -44,6 +44,12 @@ pub fn cli() -> Command {
 }
 
 pub fn exec(gctx: &mut GlobalContext, args: &ArgMatches) -> CliResult {
+    if matches!(gctx.backend()?, BuildBackend::Nix) {
+        return Err(CliError::new(
+            anyhow::format_err!("cargo 'check' is not supported yet"),
+            101,
+        ));
+    }
     let ws = args.workspace(gctx)?;
     // This is a legacy behavior that causes `cargo check` to pass `--test`.
     let test = matches!(

@@ -240,6 +240,14 @@ pub enum WarningHandling {
     Deny,
 }
 
+#[derive(Debug, Copy, Clone, Default, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum BuildBackend {
+    #[default]
+    Legacy,
+    Nix,
+}
+
 /// Configuration for `build.target`.
 ///
 /// Accepts in the following forms:
