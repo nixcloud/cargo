@@ -76,8 +76,7 @@ pub fn mode_string(mode: &CompileMode) -> &str {
         CompileMode::Test => "-test",
         CompileMode::Build => "", // default, so we leave it empty
         CompileMode::Check { test: _ } => "-check",
-        CompileMode::Bench => "-bench",
-        CompileMode::Doc { deps: _, json: _ } => "-doc",
+        CompileMode::Doc => "-doc",
         CompileMode::Doctest => "-doc_test",
         CompileMode::Docscrape => "-doc_scrape",
         CompileMode::RunCustomBuild => "_run",
@@ -178,7 +177,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 let target_dir: Filesystem = workspace.target_dir();
                 // `cargo test` builds other units (test harnesses, dev-dependencies) than `cargo build`: with a
                 // build system and GC roots of its own, neither deletes the store paths of the other
-                let dir_name = if bcx.build_config.mode.is_any_test() { "nix-test" } else { "nix" };
+                let dir_name = if bcx.build_config.intent.is_any_test() { "nix-test" } else { "nix" };
                 target_dir.join(requested_profile).join(dir_name)
             }
         };

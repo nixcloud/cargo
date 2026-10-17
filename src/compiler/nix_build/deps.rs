@@ -2,7 +2,7 @@ use regex::Regex;
 use indoc::indoc;
 
 use crate::workspace::TargetKind;
-use crate::util::command_prelude::CompileMode;
+use crate::compiler::CompileMode;
 use crate::compiler::Unit;
 use crate::compiler::BuildRunner;
 use crate::compiler::unit_graph::UnitGraph;

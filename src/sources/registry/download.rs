@@ -18,7 +18,6 @@ use crate::compiler::nix_build::nix_build_runner::crate_store::{self, CrateTarba
 use crate::util::{BuildBackend, Filesystem, GlobalContext};
 use crate::workspace::PackageId;
 use crate::workspace::global_cache_tracker;
-use std::fmt::Write as FmtWrite;
 use std::fs::{self, File, OpenOptions};
 use std::io::SeekFrom;
 use std::io::prelude::*;

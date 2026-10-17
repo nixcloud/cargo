@@ -474,7 +474,7 @@ impl<'a, 'gctx> BuildRunner<'a, 'gctx> {
     /// all of them in one place).
     fn nix_doctest_dependency_dirs(&self, outputs: &BuildOutputs, unit: &Unit) -> CargoResult<Vec<PathBuf>> {
         let mut dirs = Vec::new();
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         let mut todo = vec![unit];
         while let Some(u) = todo.pop() {
             for dep in &self.bcx.unit_graph[u] {

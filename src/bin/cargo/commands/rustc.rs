@@ -1,6 +1,5 @@
 use crate::command_prelude::*;
 use cargo::ops;
-use cargo::util::interning::InternedString;
 use crate::util::BuildBackend;
 
 const PRINT_ARG_NAME: &str = "print";
