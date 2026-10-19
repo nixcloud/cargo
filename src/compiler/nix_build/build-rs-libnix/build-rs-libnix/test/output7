@@ -1,4 +1,0 @@
-cargo:link-target=sqlite3
-cargo:rustc-link-search=native=/nix/store/yfjzkkkyxcalyj7l1n4d4y6s81i65hmy-sqlite-3.48.0/lib
-cargo:rustc-link-lib=sqlite3
-cargo:rustc-link-arg-benches=-rdynamic

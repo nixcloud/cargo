@@ -1,8 +1,4 @@
 # This build-rs-libnix target is used for bootstrapping cargo (libnix)'s generated source code from nixpkgs.
-#
-# Its source is vendored in cargo (libnix) (src/compiler/nix_build/build-rs-libnix, originally
-# github.com/nixcloud/build-rs-libnix) and written next to this file, in ./build-rs-libnix. Its tests run there,
-# not here (their test data isn't written).
 
 { pkgs, lib ? pkgs.lib }:
 
@@ -10,17 +6,21 @@ pkgs.rustPlatform.buildRustPackage rec {
   pname = "build-rs-libnix-cli";
   version = "0.1.12";
 
-  src = ./build-rs-libnix;
+  src = pkgs.fetchFromGitHub {
+    owner = "nixcloud";
+    repo = "build-rs-libnix";
+    rev = "aaa61830b82cb0f4840c1dc5f370750ec4f14d99";
+    sha256 = "sha256-QuP3CrWdrDOZ4Z2xU+BtPvHT6WarUoOEW0uMxABcy4c=";
+  };
 
-  # the crates by their checksums in Cargo.lock: no vendor hash to keep in sync with the vendored source
-  cargoLock.lockFile = ./build-rs-libnix/Cargo.lock;
+  cargoHash = "sha256-dMHQxYFCwW1vMzt18jk03aYR/cr/R8SzjaJkLUsuVYU=";
 
   nativeBuildInputs = [];
   buildInputs = [];
 
   cargoBuildFlags = [ "-p cli" ];
 
-  doCheck = false;
+  doCheck = true;
 
   meta = with lib; {
     description = "A command-line utility that extracts `--cfg` and `--check-cfg` flags from `cargo:`";
