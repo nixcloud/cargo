@@ -112,7 +112,7 @@
           # a pinned commit of nixcloud/cargo
           revision-src = builtins.fetchGit {
             url = "https://github.com/nixcloud/cargo";
-            ref = "master-libnix";
+            ref = "rust-1.87.0-libnix";
             rev = "4445af918349cec57adc3c431c9eb8b1f46054a2";
           };
 

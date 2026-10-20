@@ -256,7 +256,7 @@ cargo (libnix) does not follow every upstream cargo release, only selected Rust 
 
 | branch | what it is |
 |---|---|
-| `master-libnix` | the main line, on the newest supported toolchain (currently Rust 1.87.0) |
+| `master-libnix` | the main line, on the newest supported toolchain (currently Rust 1.99.0) |
 | `rust-<version>-libnix` | one maintenance branch per supported toolchain, e.g. `rust-1.87.0-libnix`; mirrors upstream's `rust-<version>` branch |
 | `master` | upstream cargo, untouched |
 
