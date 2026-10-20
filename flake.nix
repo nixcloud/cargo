@@ -96,6 +96,20 @@
             cargo = cargo_1_87_vanilla_pin;
           }).cargo-0_88_0-bin-8cad88ffd54a16db;
 
+          ######################## cargo-libnix-1_99_0_plus_v1 ###########################
+
+          cargo-libnix-1_99_0_plus_v1_src = builtins.fetchTarball {
+            url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.99.0%2Bv1/libnix-1.99.0+v1.tar.bz2";
+            sha256 = "sha256:1mwxjyr9ccbq71p1mq296xvs2b10kxb159a90dh3w6wbgs5qizg4";
+          };
+          cargo-libnix-1_99_0_plus_v1 = (import (cargo-libnix-1_99_0_plus_v1_src + "/derivations/default.nix"){ 
+            inherit project_root pkgs;
+            external_crate_dependencies = import (cargo-libnix-1_99_0_plus_v1_src + "/Cargo.dependencies.nix") { inherit pkgs; };
+            # rustc >= 1.90 links with its own lld otherwise, past nix's ld wrapper: no rpath (libssl.so.3 not found)
+            rustc = rustc_1_99_nix_ld;
+            cargo = cargo_1_99_vanilla_pin;
+          }).cargo-0_100_0-bin-463824861cef8abc;
+
           ######################## cargo-libnix-*-via-ifd ###########################
 
           # the cargo binary unit (cargo-0_88_0-bin-…, cargo-0_100_0-bin-…)
@@ -104,10 +118,10 @@
 
           # src -> generated nix build system (IFD) -> cargo binary
           #
-          # The generator is the cargo-libnix-1.87.0+v4 release. Its generated cargo_build_caller.nix pins rustc 1.87,
-          # which is too old for sources of a newer cargo (rust-version). With `toolchain`, the generator runs with that
-          # rustc instead, and the pin of the generated build system is rewritten to it.
-          buildCargoBin = { src, toolchain ? null }:
+          # The generator is a cargo (libnix) release, run with the rustc of its line (cargo needs `rustc -vV`; nix mode
+          # builds with the toolchain the generated cargo_build_caller.nix pins itself). libnix-1.99.0+v1 pins rustc
+          # 1.99.0, wrapped without rustc's own lld; libnix-1.87.0+v4 pins 1.87.0, for sources of the 1.87 line.
+          buildCargoBin = { src, generator ? cargo-libnix-1_99_0_plus_v1, rustc ? rustc_1_99_nix_ld }:
             let
               lock = builtins.fromTOML (builtins.readFile "${src}/Cargo.lock");
               crateTarballs = map (p: pkgs.fetchurl {
@@ -117,24 +131,11 @@
                 })
                 (builtins.filter (p: (p.source or "") == "registry+https://github.com/rust-lang/crates.io-index") lock.package);
 
-              rustc = if toolchain == null then rustc_1_87_vanilla_pin else (fenix.packages.${system}.toolchainOf toolchain).rustc;
-
-              generated = pkgs.runCommand "cargo-nix-generated" { inherit crateTarballs; nativeBuildInputs = [ cargo-libnix-1_87_0_plus_v4 rustc ]; } (''
+              generated = pkgs.runCommand "cargo-nix-generated" { inherit crateTarballs; nativeBuildInputs = [ generator rustc ]; } ''
                 export HOME=$TMPDIR CARGO_BACKEND=nix
                 cp -r ${src} project && chmod -R u+w project && cd project
-                ${cargo-libnix-1_87_0_plus_v4}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
-              '' + pkgs.lib.optionalString (toolchain != null) ''
-                # the v4 generator builds with the stable toolchain of its pinned fenix revision; use rustc (with std,
-                # like the newer cargo_build_caller.nix template) and cargo of the given channel instead
-                # (and without rustc's own lld, which bypasses nix's ld wrapper: see cargo_build_caller.nix.handlebars)
-                substituteInPlace $out/cargo_build_caller.nix \
-                  --replace-fail 'toolchain = fenix.stable.toolchain;' \
-                    'pin = fenix.toolchainOf { channel = "${toolchain.channel}"; sha256 = "${toolchain.sha256}"; };
-  toolchain = pkgs.symlinkJoin { name = "rustc-${toolchain.channel}-nix-ld"; paths = [ pin.rustc ];
-    nativeBuildInputs = [ pkgs.makeWrapper ];
-    postBuild = "for b in rustc rustdoc; do wrapProgram $out/bin/$b --add-flags \"-C linker-features=-lld\"; done"; };' \
-                  --replace-fail 'cargo = toolchain;' 'cargo = pin.cargo;'
-              '');
+                ${generator}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
+              '';
             in
             cargoBin (import "${generated}/cargo_build_caller.nix" { inherit system; project_root = src; });
 
@@ -152,8 +153,8 @@
             rev = "4445af918349cec57adc3c431c9eb8b1f46054a2";
           };
 
-          cargo-libnix-git-head-via-ifd = buildCargoBin { src = head-src; toolchain = toolchain_1_99; };
-          cargo-libnix-git-revision-via-ifd = buildCargoBin { src = revision-src; };
+          cargo-libnix-git-head-via-ifd = buildCargoBin { src = head-src; };
+          cargo-libnix-git-revision-via-ifd = buildCargoBin { src = revision-src; generator = cargo-libnix-1_87_0_plus_v4; rustc = rustc_1_87_vanilla_pin; };
 
           ######################################################################################
 
@@ -170,23 +171,24 @@
             inherit cargo-libnix-1_87_0_plus_v2;
             inherit cargo-libnix-1_87_0_plus_v3;
             inherit cargo-libnix-1_87_0_plus_v4;
+            inherit cargo-libnix-1_99_0_plus_v1;
             inherit cargo-libnix-git-head-via-ifd;
             inherit cargo-libnix-git-revision-via-ifd;
 
             default = pkgs.symlinkJoin {
-              name = "cargo-libnix-1_87_0_plus_v4-with-rustc";
+              name = "cargo-libnix-1_99_0_plus_v1-with-rustc";
               paths = [
-                cargo-libnix-1_87_0_plus_v4
-                rustc_1_87_vanilla_pin
+                cargo-libnix-1_99_0_plus_v1
+                rustc_1_99_vanilla_pin
               ];
             };
           };
           devShells.default = mkShell {
             buildInputs = [
-              # rust toolchain: this branch needs rustc 1.99 (rust-version), driven by the cargo-libnix-1.87.0+v4
+              # rust toolchain: this branch needs rustc 1.99 (rust-version), driven by the cargo-libnix-1.99.0+v1
               # release; nix mode pins its own rustc, so building this repository itself needs CARGO_BACKEND=legacy
               rustc_1_99_vanilla_pin
-              cargo-libnix-1_87_0_plus_v4
+              cargo-libnix-1_99_0_plus_v1
               # for the legacy backend: openssl-sys
               openssl
               pkg-config

@@ -90,7 +90,7 @@ There are three ways to use cargo (libnix):
 2. **flake**: add it to your project's devshell
 3. **traditional nix code**: `shell.nix`, NixOS configuration, …
 
-The flake and nix code examples pin the latest release, `libnix-1.87.0+v4` (Rust 1.87.0); the 1.99 line has no release yet.
+The flake and nix code examples pin the latest release, `libnix-1.99.0+v1` (Rust 1.99.0); the 1.87 line's latest is `libnix-1.87.0+v4`.
 
 ## 1. devshell
 
@@ -122,8 +122,8 @@ Add the cargo (libnix) binary and the matching `rustc` to your project's devshel
       in {
         devShells.default = pkgs.mkShell {
           buildInputs = [
-            libnix-flake.packages.${system}.rustc_1_87_vanilla_pin
-            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v4
+            libnix-flake.packages.${system}.rustc_1_99_nix_ld
+            libnix-flake.packages.${system}.cargo-libnix-1_99_0_plus_v1
             pkgs.nix-prefetch-scripts
           ];
           shellHook = ''
@@ -137,11 +137,11 @@ Add the cargo (libnix) binary and the matching `rustc` to your project's devshel
 Afterwards check that `cargo` is the one from the store:
 
     $ which cargo
-    /nix/store/…-cargo-0_88_0-bin-8cad88ffd54a16db/bin/cargo
+    /nix/store/…-cargo-0_100_0-bin-463824861cef8abc/bin/cargo
 
 ## 3. traditional nix code
 
-A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.87.0+v4` with a pinned rustc/cargo 1.87.0 from [fenix](https://github.com/nix-community/fenix):
+A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.99.0+v1` with a pinned rustc/cargo 1.99.0 from [fenix](https://github.com/nix-community/fenix):
 
 ```nix
 { pkgs ? import <nixpkgs> { } }:
@@ -151,33 +151,42 @@ let
     sha256 = "1mjmp9c5x3j6jqy50ymr07nxl4nrlp3iininxhnzc1ragdrg8pxn";
   }) { inherit pkgs; };
   toolchain = fenix.toolchainOf {
-    channel = "1.87.0";
-    sha256 = "sha256-KUm16pHj+cRedf8vxs/Hd2YWxpOrWZ7UOrwhILdSJBU=";
+    channel = "1.99.0";
+    sha256 = "sha256-zm3dyIY2T414ZRR3EhLOvptzG6gta4WZUcawzMUWtqI=";
+  };
+  # since 1.90 rustc links with its own lld, which bypasses nix's ld wrapper (no rpath: the binaries miss their
+  # libraries, e.g. libssl.so.3); -C linker-features=-lld links with the cc's ld again
+  rustc = pkgs.symlinkJoin {
+    name = "rustc-1.99.0-nix-ld";
+    paths = [ toolchain.rustc ];
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postBuild = ''
+      for b in rustc rustdoc; do wrapProgram $out/bin/$b --add-flags "-C linker-features=-lld"; done
+    '';
   };
   # the generated build system of cargo (libnix) and the cargo sources it builds
   buildsystem = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv4/libnix-1.87.0+v4.tar.bz2";
-    sha256 = "sha256:0zhj8sl05g861c7pkwgd1ij26mf68qj1flbad2ivwj113vac9chq";
+    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.99.0%2Bv1/libnix-1.99.0+v1.tar.bz2";
+    sha256 = "sha256:1mwxjyr9ccbq71p1mq296xvs2b10kxb159a90dh3w6wbgs5qizg4";
   };
   cargo-src = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.87.0%2Bv4.tar.gz";
-    sha256 = "sha256:0lm951801chcdnjni4068jjwlzyf94byjgjk5qzlr9vihsp5i3ym";
+    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.99.0%2Bv1.tar.gz";
+    sha256 = "sha256:03fywzj68mj56m1lis3ghjn4i35kjd8frfkydlwldn8y6a87qviv";
   };
   cargo-libnix = (import (buildsystem + "/derivations/default.nix") {
-    inherit pkgs;
+    inherit pkgs rustc;
     project_root = cargo-src;
     external_crate_dependencies = import (buildsystem + "/Cargo.dependencies.nix") { inherit pkgs; };
-    rustc = toolchain.rustc;
     cargo = toolchain.cargo;
-  }).cargo-0_88_0-bin-8cad88ffd54a16db;
+  }).cargo-0_100_0-bin-463824861cef8abc;
 in
 pkgs.mkShell {
-  packages = [ cargo-libnix toolchain.rustc pkgs.nix-prefetch-scripts ];
+  packages = [ cargo-libnix rustc pkgs.nix-prefetch-scripts ];
   shellHook = "export CARGO_BACKEND=nix";
 }
 ```
 
-For a NixOS configuration, put `cargo-libnix` and `toolchain.rustc` into `environment.systemPackages` instead and set `CARGO_BACKEND=nix` in `environment.variables`.
+For a NixOS configuration, put `cargo-libnix` and `rustc` into `environment.systemPackages` instead and set `CARGO_BACKEND=nix` in `environment.variables`.
 
 # Injecting dependencies
 
@@ -259,7 +268,7 @@ The build system has two entry points:
 1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and rustc/cargo 1.99.0 (from fenix, without `rust-src`, which would end up in the runtime closure of every binary), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
 2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](#3-traditional-nix-code) and this repository's [flake.nix](flake.nix)
 
-Both return an attribute set with a derivation per unit (e.g. `cargo-0_88_0-bin-8cad88ffd54a16db`) and `target`, which links all root units like _target/&lt;profile&gt;_.
+Both return an attribute set with a derivation per unit (e.g. `cargo-0_100_0-bin-463824861cef8abc`) and `target`, which links all root units like _target/&lt;profile&gt;_.
 
 # Branches and releases 🌿
 
