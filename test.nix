@@ -45,7 +45,8 @@ let
     nix-installer = { owner = "DeterminateSystems"; repo = "nix-installer"; rev = "d2feb9836f5af7085ba84388d59a38f8998f65dc"; };
     nushell = { owner = "nushell"; repo = "nushell"; rev = "1aa2ed1947a0b891398558fcf4e4289849cc5a1d"; };
     ripgrep = { owner = "BurntSushi"; repo = "ripgrep"; rev = "0a88cccd5188074de96f54a4b6b44a63971ac157"; };
-    rust-analyzer = { owner = "rust-lang"; repo = "rust-analyzer"; rev = "cd12ef8547d3a760461b5361cb81ca4084197232"; };
+    # release 2026-10-19 (rust-version 1.98); cd12ef85, the pin of the 1.87 line, doesn't compile with rustc 1.99 (E0365)
+    rust-analyzer = { owner = "rust-lang"; repo = "rust-analyzer"; rev = "5ec20d044dbf04895877a55921ddc0ae6e73e127"; };
     rustpad = { owner = "ekzhang"; repo = "rustpad"; rev = "54e4a9383c84d7317af42a7ddb177ce8bcba058d"; };
     RustPython = { owner = "RustPython"; repo = "RustPython"; rev = "1abaf87abe241da7a9836bd387f2aee33a1d6378"; };
     sd = { owner = "chmln"; repo = "sd"; rev = "87d1ba5b3401329a07c1874e49a822026e1cbf3f"; };
@@ -59,8 +60,6 @@ let
     trunk = { owner = "trunk-rs"; repo = "trunk"; rev = "f1ee3d4032cb939b8513d1d8fabfcb84ce46d811"; };
     # v0.13.1 (2025-03-07); 9f3a9e72 needs rustc 1.89
     typst = { owner = "typst"; repo = "typst"; rev = "8ace67d942a4b8c6b9d95b73b3a39f5d0259c7b2"; };
-    # main (2025-06-14, no release tags); c68c3b2d needs rustc 1.90. Fails either way: union pins nightly-2025-03-28 (#![feature])
-    union = { owner = "unionlabs"; repo = "union"; rev = "64d943d04294c6c4637b22082c9feee88ce8be13"; };
     # a database backend is required (README: `cargo build --features sqlite`)
     vaultwarden = { owner = "dani-garcia"; repo = "vaultwarden"; rev = "5d84f17600e179280e44c391b92ee9eecc2b7cdc"; cargoFlags = [ "--features" "sqlite" ]; };
     # v33.0.0 (2025-05-20); ecd1cb3d needs rustc 1.90
