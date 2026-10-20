@@ -32,7 +32,7 @@ cargo resolves the dependencies and plans the build as usual. In nix mode it the
 
 * nix with the `nix-command` and `flakes` features, a running nix-daemon and the sandbox enabled (the defaults on NixOS)
 * Linux; developed and tested on x86_64-linux
-* `rustc` of the same version as the cargo (currently 1.87.0), the devshell and flake provide both
+* `rustc` of the same version as the cargo (currently 1.99.0), the devshell and flake provide both
 * `nix-prefetch-git` in `PATH` for git dependencies (part of the devshell)
 
 # Supported subcommands and features 🧰
@@ -67,11 +67,11 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | incremental builds / fingerprints | ❌ | changed crates are always compiled from scratch, so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |
 | cross-compilation, `--target` (e.g. wasm) | ❓ | untested, known failures (wasm) |
 | platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
-| toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.87.0) |
+| toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.99.0); rustc ≥ 1.90 links with its bundled lld, which bypasses nix's linker wrapper, so the units are built with a wrapped rustc passing `-C linker-features=-lld` |
 
 ## Regression tests
 
-[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently 30 of 31 projects pass with rustc 1.87.0 (codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are pinned to their last release before they needed a newer rustc). union fails: it needs a nightly rustc (`#![feature]`), and `tikv-jemalloc-sys`'s build script uses `cargo:rustc-link-arg`, which build-rs-libnix doesn't support yet. Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix).
+[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently 30 of 32 projects pass with rustc 1.99.0 (2026-10-19), among them [grok-build](https://github.com/xai-org/grok-build) (~1600 units; `tikv-jemalloc-sys` uses `cargo:rustc-link-arg`, supported since build-rs-libnix 0.1.12). rust-analyzer fails: its pinned revision doesn't compile with rustc 1.99 (`E0365` in `hir-def`; it builds with 1.87). union fails: it needs a nightly rustc (`#![feature]`). codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are still pinned to their last release before they needed a rustc newer than 1.87; they can move to newer revisions now. The 1.87 line passes 30 of 31, see [rust-1.87.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix). Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix).
 
 # Using cargo (libnix)
 
@@ -80,6 +80,8 @@ There are three ways to use cargo (libnix):
 1. **devshell**: try it without changing anything
 2. **flake**: add it to your project's devshell
 3. **traditional nix code**: `shell.nix`, NixOS configuration, …
+
+The flake and nix code examples pin the latest release, `libnix-1.87.0+v4` (Rust 1.87.0); the 1.99 line has no release yet.
 
 ## 1. devshell
 
@@ -245,7 +247,7 @@ The project's own crates either come from a directory (the default, the `project
 
 The build system has two entry points:
 
-1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and rustc/cargo 1.87.0 (from fenix, without `rust-src`, which would end up in the runtime closure of every binary), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
+1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and rustc/cargo 1.99.0 (from fenix, without `rust-src`, which would end up in the runtime closure of every binary), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
 2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](#3-traditional-nix-code) and this repository's [flake.nix](flake.nix)
 
 Both return an attribute set with a derivation per unit (e.g. `cargo-0_88_0-bin-8cad88ffd54a16db`) and `target`, which links all root units like _target/&lt;profile&gt;_.
