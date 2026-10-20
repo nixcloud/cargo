@@ -71,7 +71,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 
 ## Regression tests
 
-[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently 30 of 31 projects pass with rustc 1.87.0 (codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are pinned to their last release before they needed a newer rustc). union fails: it needs a nightly rustc (`#![feature]`), and `tikv-jemalloc-sys`'s build script uses `cargo:rustc-link-arg`, which build-rs-libnix doesn't support yet. Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix).
+[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently 30 of 31 projects pass with rustc 1.87.0 (2026-10-19, with build-rs-libnix 0.1.12; codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are pinned to their last release before they needed a newer rustc). union fails: it needs a nightly rustc (`#![feature]`). `cargo:rustc-link-arg` (`tikv-jemalloc-sys`) is supported since build-rs-libnix 0.1.12. For the 1.99 line, see [master-libnix](https://github.com/nixcloud/cargo/tree/master-libnix). Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix).
 
 # Using cargo (libnix)
 
