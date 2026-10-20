@@ -255,17 +255,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "build-rs-libnix"
-version = "0.1.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26e2aeb7ef73805c80667abab8382f9ebdf6de81dc842a18eac0d880d3b43eab"
-dependencies = [
- "anyhow",
- "colored",
- "regex",
-]
-
-[[package]]
 name = "build-rs-test-lib"
 version = "0.0.0"
 dependencies = [
@@ -319,7 +308,6 @@ dependencies = [
  "anyhow",
  "base64",
  "blake3",
- "build-rs-libnix",
  "cargo-credential",
  "cargo-credential-libsecret",
  "cargo-credential-macos-keychain",
