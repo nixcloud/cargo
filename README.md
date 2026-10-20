@@ -28,6 +28,14 @@ cargo resolves the dependencies and plans the build as usual. In nix mode it the
 * crates.io downloads and crate builds are store paths, shared between projects and machines (and between `cargo build`, `cargo run` and `cargo test`)
 * the same nix code can be exported with `cargo build write-nix-buildsystem` and built by nix alone, from a flake or nixpkgs, without calling cargo again
 
+### build scripts and build-rs-libnix
+
+cargo (legacy) runs a `build.rs`, reads the `cargo:` directives it prints (`rustc-cfg`, `rustc-link-lib`, `rustc-env`, …) and applies them to the rustc calls that follow. In nix mode the build script run is a derivation of its own, and the units built after it can't ask cargo anything, so the parsing happens inside that derivation: its output goes through [build-rs-libnix](https://github.com/nixcloud/build-rs-libnix), a small CLI that writes the result to `$out/nix` (`rustc-arguments` for the crate itself, `rustc-propagated-arguments` for the crates linking it, `environment-variables`, e.g. `DEP_<LINKS>_<KEY>`), which the dependent derivations read.
+
+* the generated `build_rs_libnix.nix` builds it from a pinned commit of nixcloud/build-rs-libnix; the 1.87 and the 1.99 line pin the same version, as the `cargo:` protocol didn't change between them
+* every build script run depends on it, so changing the pin rebuilds all build script runs and everything after them; fixes go to nixcloud/build-rs-libnix first and each branch bumps its pin in one step
+* not supported yet (planned for 0.1.13): the `cargo::` syntax (Rust ≥ 1.77) and old-style `cargo:KEY=VALUE` metadata other than `include`, `root`, `conf`, `version_number` and `static` are skipped with a warning; `metadata`, `rustc-flags` and `rustc-link-arg-{bin,bins,tests,examples,cdylib}` fail the build script run
+
 ## Requirements
 
 * nix with the `nix-command` and `flakes` features, a running nix-daemon and the sandbox enabled (the defaults on NixOS)
@@ -56,6 +64,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | crates.io dependencies | ✅ | downloaded and built in `/nix/store`, shared between projects and machines |
 | path dependencies, workspaces, `-p`, `--features` | ✅ | |
 | build scripts (`build.rs`), proc macros | ✅ | build scripts run in the nix sandbox |
+| `cargo:` directives of build scripts | ⚠️ | parsed by build-rs-libnix; `cargo::` syntax, generic metadata, `rustc-flags` and the target-specific `rustc-link-arg-*` are not supported yet, see [build scripts and build-rs-libnix](#build-scripts-and-build-rs-libnix) |
 | system libraries, environment variables | ✅ | per crate in `Cargo.dependencies.nix`, see [Injecting dependencies](#injecting-dependencies) |
 | git dependencies | ✅ | needs `nix-prefetch-git` in `PATH` |
 | vendored sources, source replacement | ✅ | |
