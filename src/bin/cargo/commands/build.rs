@@ -1,6 +1,5 @@
 use crate::command_prelude::*;
 use cargo::ops;
-// use build_rs_libnix::process_buildrs_output;
 
 pub fn cli() -> Command {
     subcommand("build")
