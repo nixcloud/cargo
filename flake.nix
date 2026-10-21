@@ -44,44 +44,8 @@
             '';
           };
 
-          ######################## cargo-libnix-1_87_0_plus_v1 ###########################
-
-          cargo-libnix-1_87_0_plus_v1_src = builtins.fetchTarball {
-            url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv1/libnix-1.87.0+v1.tar.bz2";
-            sha256 = "sha256:1pa5yg6i5rk0f50f0syv3ci0864ca3w9ch60rx2q6mp7fy86h086";
-          };
-          cargo-libnix-1_87_0_plus_v1 = (import (cargo-libnix-1_87_0_plus_v1_src + "/derivations/default.nix"){ 
-            inherit project_root pkgs;
-            external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v1_src + "/Cargo.dependencies.nix") { inherit pkgs; };
-            rustc = rustc_1_87_vanilla_pin;
-            cargo = cargo_1_87_vanilla_pin;
-          }).cargo-0_88_0-bin-b4cc6eeacb818d24;
-
-          ######################## cargo-libnix-1_87_0_plus_v2 ###########################
-
-          cargo-libnix-1_87_0_plus_v2_src = builtins.fetchTarball {
-            url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv2/libnix-1.87.0+v2-release.tar.bz2";
-            sha256 = "sha256:1w3hksx45jdr11l1ccs8i34h98ll5pf9ldc3mdv7sp94p7zs9168";
-          };
-          cargo-libnix-1_87_0_plus_v2 = (import (cargo-libnix-1_87_0_plus_v2_src + "/derivations/default.nix"){ 
-            inherit project_root pkgs;
-            external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v2_src + "/Cargo.dependencies.nix") { inherit pkgs; };
-            rustc = rustc_1_87_vanilla_pin;
-            cargo = cargo_1_87_vanilla_pin;
-          }).cargo-0_88_0-bin-8cad88ffd54a16db;
-
-          ######################## cargo-libnix-1_87_0_plus_v3 ###########################
-
-          cargo-libnix-1_87_0_plus_v3_src = builtins.fetchTarball {
-            url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv3/libnix-1.87.0+v3.tar.bz2";
-            sha256 = "sha256:00cqp5s8gdzz2abwlggz3v9qhizln7f06nilkb34fvkr9hywgk2v";
-          };
-          cargo-libnix-1_87_0_plus_v3 = (import (cargo-libnix-1_87_0_plus_v3_src + "/derivations/default.nix"){ 
-            inherit project_root pkgs;
-            external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v3_src + "/Cargo.dependencies.nix") { inherit pkgs; };
-            rustc = rustc_1_87_vanilla_pin;
-            cargo = cargo_1_87_vanilla_pin;
-          }).cargo-0_88_0-bin-8cad88ffd54a16db;
+          # the releases this branch uses as generators (cargo-libnix-*-via-ifd); for users, master-libnix serves the
+          # releases of every line
 
           ######################## cargo-libnix-1_87_0_plus_v4 ###########################
 
@@ -167,9 +131,6 @@
             inherit rustc_1_99_vanilla_pin;
             inherit cargo_1_99_vanilla_pin;
             inherit rustc_1_99_nix_ld;
-            inherit cargo-libnix-1_87_0_plus_v1;
-            inherit cargo-libnix-1_87_0_plus_v2;
-            inherit cargo-libnix-1_87_0_plus_v3;
             inherit cargo-libnix-1_87_0_plus_v4;
             inherit cargo-libnix-1_99_0_plus_v1;
             inherit cargo-libnix-git-head-via-ifd;

@@ -84,109 +84,21 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 
 # Using cargo (libnix)
 
-There are three ways to use cargo (libnix):
-
-1. **devshell**: try it without changing anything
-2. **flake**: add it to your project's devshell
-3. **traditional nix code**: `shell.nix`, NixOS configuration, …
-
-The flake and nix code examples pin the latest release, `libnix-1.99.0+v1` (Rust 1.99.0); the 1.87 line's latest is `libnix-1.87.0+v4`.
-
-## 1. devshell
+The releases of every supported toolchain are served by the flake of [master-libnix](https://github.com/nixcloud/cargo/tree/master-libnix), with 1.99 as the default; its README shows how to use them from a devshell, a flake or traditional nix code:
 
 ```bash
-nix develop github:nixcloud/cargo
-cargo build
+nix develop github:nixcloud/cargo              # libnix-1.99.0+v1; `cargo +1.87 build` for libnix-1.87.0+v4
+nix develop github:nixcloud/cargo#rust-1_87    # only libnix-1.87.0+v4
 ```
 
-This adds `cargo` (libnix), a matching `rustc` and `nix-prefetch-git` to your environment and sets `CARGO_BACKEND=nix`.
+## Developing this branch
 
-## 2. flake
+The [flake.nix](flake.nix) of this branch is for development:
 
-Add the cargo (libnix) binary and the matching `rustc` to your project's devshell:
-
-```nix
-{
-  description = "myproject";
-
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    libnix-flake.url = "github:nixcloud/cargo";
-    flake-utils.url = "github:numtide/flake-utils";
-  };
-
-  outputs = { self, nixpkgs, flake-utils, libnix-flake }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-      in {
-        devShells.default = pkgs.mkShell {
-          buildInputs = [
-            libnix-flake.packages.${system}.rustc_1_99_nix_ld
-            libnix-flake.packages.${system}.cargo-libnix-1_99_0_plus_v1
-            pkgs.nix-prefetch-scripts
-          ];
-          shellHook = ''
-            export CARGO_BACKEND=nix
-          '';
-        };
-      });
-}
-```
-
-Afterwards check that `cargo` is the one from the store:
-
-    $ which cargo
-    /nix/store/…-cargo-0_100_0-bin-463824861cef8abc/bin/cargo
-
-## 3. traditional nix code
-
-A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.99.0+v1` with a pinned rustc/cargo 1.99.0 from [fenix](https://github.com/nix-community/fenix):
-
-```nix
-{ pkgs ? import <nixpkgs> { } }:
-let
-  fenix = import (builtins.fetchTarball {
-    url = "https://github.com/nix-community/fenix/archive/6ed03ef4c8ec36d193c18e06b9ecddde78fb7e42.tar.gz";
-    sha256 = "1mjmp9c5x3j6jqy50ymr07nxl4nrlp3iininxhnzc1ragdrg8pxn";
-  }) { inherit pkgs; };
-  toolchain = fenix.toolchainOf {
-    channel = "1.99.0";
-    sha256 = "sha256-zm3dyIY2T414ZRR3EhLOvptzG6gta4WZUcawzMUWtqI=";
-  };
-  # since 1.90 rustc links with its own lld, which bypasses nix's ld wrapper (no rpath: the binaries miss their
-  # libraries, e.g. libssl.so.3); -C linker-features=-lld links with the cc's ld again
-  rustc = pkgs.symlinkJoin {
-    name = "rustc-1.99.0-nix-ld";
-    paths = [ toolchain.rustc ];
-    nativeBuildInputs = [ pkgs.makeWrapper ];
-    postBuild = ''
-      for b in rustc rustdoc; do wrapProgram $out/bin/$b --add-flags "-C linker-features=-lld"; done
-    '';
-  };
-  # the generated build system of cargo (libnix) and the cargo sources it builds
-  buildsystem = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.99.0%2Bv1/libnix-1.99.0+v1.tar.bz2";
-    sha256 = "sha256:1mwxjyr9ccbq71p1mq296xvs2b10kxb159a90dh3w6wbgs5qizg4";
-  };
-  cargo-src = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.99.0%2Bv1.tar.gz";
-    sha256 = "sha256:03fywzj68mj56m1lis3ghjn4i35kjd8frfkydlwldn8y6a87qviv";
-  };
-  cargo-libnix = (import (buildsystem + "/derivations/default.nix") {
-    inherit pkgs rustc;
-    project_root = cargo-src;
-    external_crate_dependencies = import (buildsystem + "/Cargo.dependencies.nix") { inherit pkgs; };
-    cargo = toolchain.cargo;
-  }).cargo-0_100_0-bin-463824861cef8abc;
-in
-pkgs.mkShell {
-  packages = [ cargo-libnix rustc pkgs.nix-prefetch-scripts ];
-  shellHook = "export CARGO_BACKEND=nix";
-}
-```
-
-For a NixOS configuration, put `cargo-libnix` and `rustc` into `environment.systemPackages` instead and set `CARGO_BACKEND=nix` in `environment.variables`.
+* `nix develop` in a checkout: cargo `libnix-1.99.0+v1`, rustc 1.99.0, rustfmt, clippy, and `CARGO_BACKEND=nix`; nix mode pins its own rustc, so building this repository with its own cargo needs `CARGO_BACKEND=legacy`
+* `cargo-libnix-git-head-via-ifd`: the working tree, built through its generated nix build system (IFD), with `libnix-1.99.0+v1` as generator
+* `cargo-libnix-git-revision-via-ifd`: a pinned commit of `rust-1.87.0-libnix`, with `libnix-1.87.0+v4` as generator
+* [test.nix](test.nix) and `tests-libnix/run.sh` build the regression tests with `cargo-libnix-git-head-via-ifd`, see [Regression tests](#regression-tests)
 
 # Injecting dependencies
 
@@ -266,34 +178,40 @@ The project's own crates either come from a directory (the default, the `project
 The build system has two entry points:
 
 1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and rustc/cargo 1.99.0 (from fenix, without `rust-src`, which would end up in the runtime closure of every binary), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
-2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](#3-traditional-nix-code) and this repository's [flake.nix](flake.nix)
+2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](https://github.com/nixcloud/cargo/tree/master-libnix#3-traditional-nix-code) and the [flake.nix](https://github.com/nixcloud/cargo/blob/master-libnix/flake.nix) of master-libnix
 
 Both return an attribute set with a derivation per unit (e.g. `cargo-0_100_0-bin-463824861cef8abc`) and `target`, which links all root units like _target/&lt;profile&gt;_.
 
 # Branches and releases 🌿
 
-cargo (libnix) does not follow every upstream cargo release, only selected Rust toolchains. Each supported toolchain is a patch stack on top of upstream's release of that toolchain.
+cargo (libnix) does not follow every upstream cargo release, only selected Rust toolchains. Each supported toolchain is a patch stack on top of upstream's release of that toolchain, in a branch of its own.
 
 | branch | what it is |
 |---|---|
-| `master-libnix` | the main line, on the newest supported toolchain (currently Rust 1.99.0) |
-| `rust-<version>-libnix` | one maintenance branch per supported toolchain, e.g. `rust-1.87.0-libnix`; mirrors upstream's `rust-<version>` branch |
+| [`master-libnix`](https://github.com/nixcloud/cargo/tree/master-libnix) | the user README and the [flake.nix](https://github.com/nixcloud/cargo/blob/master-libnix/flake.nix) serving the releases; no code |
+| [`rust-1.99.0-libnix`](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix) (this branch) | the main line, on the newest supported toolchain: new features, `README-DEV.md`, `test.nix`; pull requests go here |
+| [`rust-1.87.0-libnix`](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix) | maintenance branch of the 1.87 line |
 | `master` | upstream cargo, untouched |
 
 The naming follows upstream: cargo has a release branch per toolchain (`rust-1.87.0`, `rust-1.99.0`) and tags the cargo crate version (`0.88.0` is the cargo of Rust 1.87.0, `0.100.0` the one of Rust 1.99.0).
 
-Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87.0+v1`, `libnix-1.87.0+v2`, … The tags stay valid no matter what happens to the branches; flakes and nix code should pin a tag or a release tarball, not a branch.
+Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87.0+v1`, `libnix-1.87.0+v2`, … Each release has a tarball of its generated nix build system on the [releases](https://github.com/nixcloud/cargo/releases) page. The tags stay valid no matter what happens to the branches; flakes and nix code should pin a tag, a release tarball or a commit of `master-libnix`, not a version branch.
+
+## releasing
+
+1. tag the release on its branch, e.g. `libnix-1.99.0+v2`, and attach the tarball of `cargo build --release write-nix-buildsystem`
+2. on `master-libnix`, add a `release { … }` for it to [flake.nix](https://github.com/nixcloud/cargo/blob/master-libnix/flake.nix) and point its line in `lines` to it (and `defaultLine`, for a new toolchain); `nix flake check` runs every line's cargo with its rustc
 
 ## supporting a new toolchain
 
 1. base on upstream's release of that toolchain (the cargo crate tag, e.g. `0.100.0`, or the `rust-<version>` branch), not on an upstream `master` commit, so the upstream backports are included
-2. rebase the libnix patch stack onto it on a work branch; squashing the stack into a few logical patches first (nix backend, daemon/runner, templates, write-nix-buildsystem, crate store/GC roots, flake) keeps the conflicts manageable and `git diff <upstream tag>..` readable
-3. once cargo builds itself with `CARGO_BACKEND=nix` and the example projects work, the previous toolchain's state is kept in its `rust-<version>-libnix` branch and the work branch becomes the main line
-4. tag the first release of the new line, e.g. `libnix-1.99.0+v1`
+2. rebase the libnix patch stack of the current main line onto it, in a new `rust-<version>-libnix` branch; squashing the stack into a few logical patches first (nix backend, daemon/runner, templates, write-nix-buildsystem, crate store/GC roots, flake) keeps the conflicts manageable and `git diff <upstream tag>..` readable
+3. once cargo builds itself with `CARGO_BACKEND=nix` and the example projects work, the new branch is the main line and the previous one a maintenance branch
+4. tag the first release of the new line, e.g. `libnix-1.99.0+v1`, and add it to `master-libnix` as the default
 
 ## maintenance branches
 
-`rust-<version>-libnix` branches only get fixes (cherry-picked), no new features; a fix released there gets the next tag of that line, e.g. `libnix-1.87.0+v5`.
+`rust-<version>-libnix` branches of older toolchains only get fixes (cherry-picked), no new features; a fix released there gets the next tag of that line, e.g. `libnix-1.87.0+v5`.
 
 # Similar projects 📚
 
@@ -341,7 +259,7 @@ Outside Nix, I build web apps in Rust/Leptos and Go backends. I've also done C++
 
 # Project resources
 
-* https://github.com/nixcloud/cargo - branch **master-libnix**, intended as a PR to incorporate nix into cargo (see [Branches and releases](#branches-and-releases-))
+* https://github.com/nixcloud/cargo - intended as a PR to incorporate nix into cargo; the code is in the `rust-<version>-libnix` branches, this one is the main line (see [Branches and releases](#branches-and-releases-))
 * https://github.com/nixcloud/cargo/issues - for issues; do not report them on the upstream cargo tracker or forums!
 * https://link.excalidraw.com/l/3QhpSMKuoZA/6eoC5kkanvL - diagrams
 * https://link.excalidraw.com/p/readonly/HTEjH2WpzNJExWK81BaN - slides
