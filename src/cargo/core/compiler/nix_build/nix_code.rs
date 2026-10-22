@@ -8,6 +8,7 @@ use crate::core::compiler::nix_build::crate_build_type;
 use crate::core::compiler::nix_build::asserts::{assert_valid_nix_file_name, assert_valid_nix_attr_name};
 use crate::core::compiler::nix_build::download::download_git_for_metadata;
 use crate::core::compiler::nix_build::{NixNameMode, CrateBuildType, mode_string, kind_string};
+use crate::core::compiler::nix_build::git_store::{checkout_root, git_source_in_store};
 use crate::util::command_prelude::NixBuildOptions;
 use crate::core::compiler::BuildRunner;
 use crate::core::compiler::Unit;
@@ -473,6 +474,33 @@ pub fn generate_src<'gctx>(
         SourceKind::Git(_git_ref) => {
             if let Some(precise_rev) = source_id.precise_git_fragment() {
                 let url: String = source_id.url().to_string();
+                // cargo's own checkout, added to the store as the fetchgit output: no second download
+                if let Some(root) = checkout_root(gctx, unit.pkg.root()) {
+                    let source = git_source_in_store(&root, &url, &precise_rev.to_string())?;
+                    let mut handlebars = Handlebars::new();
+                    let template_str = indoc! {
+                    r#"
+                      src = pkgs.fetchgit {
+                        name = "{{{name}}}";
+                        url = "{{{url}}}";
+                        rev = "{{{rev}}}";
+                        hash = "{{{hash}}}";
+                        fetchSubmodules = true;
+                      };
+                    "#};
+                    handlebars.register_template_string("fetch", template_str)?;
+                    let rendered: String = handlebars.render(
+                        "fetch",
+                        &serde_json::json!({
+                            "name": source.name,
+                            "url": url,
+                            "rev": precise_rev,
+                            "hash": source.hash,
+                        }),
+                    )?;
+                    return Ok(rendered.indentation(4));
+                }
+                // a vendored git source (no checkout of cargo's): nix-prefetch-git downloads it
                 let meta_data = download_git_for_metadata(
                     &url,
                     &precise_rev.to_string(),

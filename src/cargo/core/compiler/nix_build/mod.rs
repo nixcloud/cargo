@@ -1,5 +1,6 @@
 mod asserts;
 mod download;
+mod git_store;
 mod deps;
 mod tests;
 pub mod nix_files;

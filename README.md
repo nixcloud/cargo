@@ -41,7 +41,7 @@ cargo (legacy) runs a `build.rs`, reads the `cargo:` directives it prints (`rust
 * nix with the `nix-command` and `flakes` features, a running nix-daemon and the sandbox enabled (the defaults on NixOS)
 * Linux; developed and tested on x86_64-linux
 * `rustc` of the same version as the cargo (currently 1.87.0), the devshell and flake provide both
-* `nix-prefetch-git` in `PATH` for git dependencies (part of the devshell)
+* `nix-prefetch-git` in `PATH` only for vendored git dependencies (`cargo vendor`, part of the devshell); other git dependencies come from cargo's own checkout (nixcloud/cargo#10)
 
 # Supported subcommands and features 🧰
 
@@ -66,7 +66,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | build scripts (`build.rs`), proc macros | ✅ | build scripts run in the nix sandbox |
 | `cargo:` directives of build scripts | ⚠️ | parsed by build-rs-libnix; `cargo::` syntax, generic metadata, `rustc-flags` and the target-specific `rustc-link-arg-*` are not supported yet, see [build scripts and build-rs-libnix](#build-scripts-and-build-rs-libnix) |
 | system libraries, environment variables | ✅ | per crate in `Cargo.dependencies.nix`, see [Injecting dependencies](#injecting-dependencies) |
-| git dependencies | ✅ | needs `nix-prefetch-git` in `PATH` |
+| git dependencies | ✅ | downloaded once, by cargo, and added to the nix store as the `pkgs.fetchgit` output (submodules included); vendored ones need `nix-prefetch-git` |
 | vendored sources, source replacement | ✅ | |
 | `--offline` | ✅ | crates.io is served from the store tarballs of `Cargo.lock`, so the build system can be generated inside a nix build (IFD) |
 | `--release` | ✅ | profile options (`lto`, `codegen-units`, `panic`, …) are passed on, but untested |
