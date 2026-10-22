@@ -87,7 +87,7 @@ pub fn fixed_output_path(name: &str, sha256_hex: &str) -> String {
 }
 
 /// Nix's base-32 encoding (no e, o, u, t), most significant digit first.
-fn nix32(bytes: &[u8]) -> String {
+pub(crate) fn nix32(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 32] = b"0123456789abcdfghijklmnpqrsvwxyz";
     let len = (bytes.len() * 8 - 1) / 5 + 1;
     (0..len)
