@@ -486,6 +486,10 @@ pub fn generate_src<'gctx>(
                         rev = "{{{rev}}}";
                         hash = "{{{hash}}}";
                         fetchSubmodules = true;
+                        # nixpkgs 26.05: detached git maintenance/gc in submodules races the .git removal and
+                        # makes the output non-deterministic (NixOS/nixpkgs#524215, fixed upstream by 88cfc54552d5
+                        # and 5b5c421f525b). Drop this once the pinned nixpkgs has both.
+                        preFetch = "export GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false GIT_CONFIG_KEY_1=gc.auto GIT_CONFIG_VALUE_1=0 GIT_CONFIG_KEY_2=gc.autoDetach GIT_CONFIG_VALUE_2=false";
                       };
                     "#};
                     handlebars.register_template_string("fetch", template_str)?;
