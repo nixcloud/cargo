@@ -1,117 +1,115 @@
-# WARNING ⚠️
+# cargo (libnix)
 
-This is an unofficial fork of Cargo — not endorsed by the Rust Project.
+> ⚠️ This is an unofficial fork of Cargo, not endorsed by the Rust Project. It is intended as a PR to contribute a nix backend to the official cargo, and to get feedback on the work from the nix community.
 
-This fork is intended as a PR to contribute this to the official cargo project and to engineer the solution and to get feedback on the work from the nix community.
+cargo (libnix) is cargo with [nix](https://nixos.org) as its build backend. You keep using `cargo build`, `cargo run` and `cargo test` as usual, but every crate is built by nix:
 
-# What is this?
-
-This project integrates nix as a build backend into cargo (libnix), so you get the advantages of nix during development and deployment.
-
-Ideally you type these commands: 🚀
-
-```
-nix develop github:nixcloud/cargo
-cargo build
-```
+* **reproducible**: each crate is built in the nix sandbox, with exactly the system libraries you declare
+* **shared**: a crate built once (same version, features and dependencies) is reused by every project and, with a binary cache, every machine
+* **deployable**: the same build can be exported as nix code, so your project builds with nix alone, from a flake or nixpkgs
 
 [![asciicast](asciinema.png)](https://asciinema.org/a/1268068)
 
-The nix backend is switched on with the environment variable `CARGO_BACKEND=nix`, which the devshell above sets. Without it, or with any other value, this cargo behaves like the upstream cargo (legacy).
+# Quick start 🚀
 
-This branch (`master-libnix`) only holds this README and a [flake.nix](flake.nix) that serves the releases of every supported Rust toolchain. The code is in one branch per toolchain, see [Branches and releases](#branches-and-releases-).
+1. **Install nix** with the nix-daemon (the "multi-user" installation) from [nixos.org/download](https://nixos.org/download/); on NixOS you already have it. Then enable flakes:
 
-## How it works
+    ```bash
+    mkdir -p ~/.config/nix
+    echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+    ```
 
-cargo resolves the dependencies and plans the build as usual. In nix mode it then writes one nix derivation per unit (a crate with its features and profile, a build script, a build script run, a test harness) to _target/&lt;profile&gt;/nix_, builds them with `nix build` and links the results into _target/&lt;profile&gt;_, so `target/debug/<bin>` is a symlink into `/nix/store`.
+2. **Go to a Rust project** (a directory with a `Cargo.toml`):
 
-* every crate is built in the nix sandbox, with its system libraries from `Cargo.dependencies.nix`
-* crates.io downloads and crate builds are store paths, shared between projects and machines (and between `cargo build`, `cargo run` and `cargo test`)
-* the same nix code can be exported with `cargo build write-nix-buildsystem` and built by nix alone, from a flake or nixpkgs, without calling cargo again
-* build scripts run in the nix sandbox too; their `cargo:` directives are parsed by [build-rs-libnix](https://github.com/nixcloud/build-rs-libnix), see [build scripts and build-rs-libnix](https://github.com/nixcloud/cargo/blob/rust-1.99.0-libnix/README.md#build-scripts-and-build-rs-libnix)
+    ```bash
+    cd my-rust-project
+    ```
 
-## Requirements
+3. **Enter the cargo (libnix) shell:**
 
-* nix with the `nix-command` and `flakes` features, a running nix-daemon and the sandbox enabled (the defaults on NixOS)
-* Linux; developed and tested on x86_64-linux
-* `rustc` of the same version as the cargo (1.87.0 or 1.99.0); every package of the flake brings the matching one
-* `nix-prefetch-git` in `PATH` for git dependencies (part of the devshell)
+    ```bash
+    nix develop github:nixcloud/cargo
+    ```
 
-# Supported subcommands and features 🧰
+    The first time this compiles cargo (libnix) itself, which takes a while; afterwards it starts in seconds. The shell has `cargo`, the matching `rustc` and `nix-prefetch-git`, and sets `CARGO_BACKEND=nix`. Check that you got it:
 
-With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all others are plain cargo. Details and the state of development are in [README-DEV.md](https://github.com/nixcloud/cargo/blob/rust-1.99.0-libnix/README-DEV.md).
+    ```
+    $ cargo --version
+    cargo 1.99.0 +libnix
+    ```
 
-| subcommand | nix mode | notes |
-|---|---|---|
-| `build` | ✅ | every unit is built in nix; `build write-nix-buildsystem` exports the build system for flakes and nixpkgs |
-| `run` | ✅ | binaries and examples; `std::env::current_exe()` is the binary in the store |
-| `test` | ✅ | unit, integration and doc tests; the tests run outside of nix, the sources at `env!("CARGO_MANIFEST_DIR")` are read-only |
-| `clean` | ✅ partial | the target directory or a profile, together with the store paths it rooted; `clean -p` and `clean gc` are refused |
-| `check` | ❌ planned | refused with "not supported yet" |
-| `install`, `uninstall` | ✅ | binaries stay in the store, rooted in `<root>/nix/install`, `<root>/bin` links to them; uninstall deletes the store paths nothing else uses |
-| `doc`, `rustdoc`, `rustc`, `bench`, `package`, `vendor` | ❌ | refused with "not supported yet" |
-| `new`, `init`, `add`, `remove`, `update`, `fetch`, `generate-lockfile`, `tree`, `metadata`, `fmt`, `publish`, … | unchanged | vanilla cargo, the backend is not involved |
-| `fix` | ❓ | untested, it builds in check mode internally |
+4. **Build:**
 
-| feature | state | notes |
-|---|---|---|
-| crates.io dependencies | ✅ | downloaded and built in `/nix/store`, shared between projects and machines |
-| path dependencies, workspaces, `-p`, `--features` | ✅ | |
-| build scripts (`build.rs`), proc macros | ✅ | build scripts run in the nix sandbox |
-| `cargo:` directives of build scripts | ⚠️ | parsed by build-rs-libnix; `cargo::` syntax, generic metadata, `rustc-flags` and the target-specific `rustc-link-arg-*` are not supported yet, see [build scripts and build-rs-libnix](https://github.com/nixcloud/cargo/blob/rust-1.99.0-libnix/README.md#build-scripts-and-build-rs-libnix) |
-| system libraries, environment variables | ✅ | per crate in `Cargo.dependencies.nix`, see [Injecting dependencies](#injecting-dependencies) |
-| git dependencies | ✅ | needs `nix-prefetch-git` in `PATH` |
-| vendored sources, source replacement | ✅ | |
-| `--offline` | ✅ | crates.io is served from the store tarballs of `Cargo.lock`, so the build system can be generated inside a nix build (IFD) |
-| `--release` | ✅ | profile options (`lto`, `codegen-units`, `panic`, …) are passed on, but untested |
-| GC roots | ✅ | per selection of units in `target/<profile>/nix/gc`, the 8 most recent are kept; `cargo clean` removes them |
-| cargo-like output | ✅ | nix logs are shown in cargo's format |
-| other registries | ❌ | only crates.io; others fail when the build system is generated |
-| incremental builds / fingerprints | ❌ | changed crates are always compiled from scratch, so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |
-| cross-compilation, `--target` (e.g. wasm) | ❓ | untested, known failures (wasm) |
-| platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
-| toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.99.0); rustc ≥ 1.90 links with its bundled lld, which bypasses nix's linker wrapper, so the units are built with a wrapped rustc passing `-C linker-features=-lld` |
+    ```
+    $ cargo build
+    …
+    Using 'nix' backend to build crates
+             Nix Creating nix build system for 2 cargo units.
+      Evaluating /…/my-rust-project/target/debug/nix/cargo_build_caller.nix
+       Evaluated target in 2.5s
+        Planning 3 derivation(s) to build, 0 path(s) to fetch (0.0 MiB)
+       Compiling my-rust-project (bin)
+        Finished 3 built, 0 fetched, 0 fresh, 0 failed, 0 skipped in 3.6s
+    $ readlink target/debug/my-rust-project
+    /nix/store/…-my-rust-project-0_1_0-bin-…/bin/my-rust-project
+    ```
 
-The tables describe the 1.99 line (`libnix-1.99.0+v1`). The 1.87 line (`libnix-1.87.0+v4`) has the same subcommands and features and needs no wrapped rustc; see the README of [rust-1.87.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix) for its state.
+    The binary is a link into `/nix/store`. `cargo run` and `cargo test` work the same way.
 
-## Regression tests
+Without `CARGO_BACKEND=nix` this cargo behaves exactly like the upstream cargo. To go back, leave the shell with `exit`, or run a single command with `CARGO_BACKEND=legacy cargo build`. Without entering a shell: `CARGO_BACKEND=nix nix run github:nixcloud/cargo -- build`.
 
-Each branch's `test.nix` builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions and runs their binaries: the 1.99 line passes all 31, among them [grok-build](https://github.com/xai-org/grok-build); the 1.87 line passes 30 of 31 (union needs a nightly rustc). Details are in the README of [rust-1.99.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix#regression-tests).
+**Which version?** The shell above is cargo (libnix) 1.99 with Rust 1.99.0, the right choice for most projects. If your project has to stay on Rust 1.87, use `nix develop github:nixcloud/cargo#rust-1_87`, or run `cargo +1.87 build` in the default shell.
 
-# Using cargo (libnix)
+# Troubleshooting 🩺
 
-The [flake.nix](flake.nix) of this branch serves the newest release of each supported toolchain; 1.99 is the default:
+**`error: experimental Nix feature 'nix-command' is disabled`**: flakes aren't enabled yet, see step 1 of the [Quick start](#quick-start-).
 
-| output | contents |
-|---|---|
-| `packages.default`, `devShells.default` | cargo `libnix-1.99.0+v1` and rustc 1.99.0; `cargo +1.87 …` runs the 1.87 release instead (like rustup's `+toolchain`) |
-| `packages.rust-1_99`, `devShells.rust-1_99` | cargo `libnix-1.99.0+v1` and rustc 1.99.0 |
-| `packages.rust-1_87`, `devShells.rust-1_87` | cargo `libnix-1.87.0+v4` and rustc 1.87.0 |
-| `packages.cargo-libnix-1_99`, `packages.cargo-libnix-1_87` | only cargo, the newest release of that line; its rustc is `.rustc` |
-| `packages.cargo-libnix-1_99_0_plus_v1`, `packages.cargo-libnix-1_87_0_plus_v4` | only cargo, exactly that release |
-| `overlays.default` | `cargo-libnix` (= `default`), `cargo-libnix_1_99`, `cargo-libnix_1_87` (= `rust-1_99`, `rust-1_87`) |
+**A `*-sys` crate fails to build, e.g. `openssl-sys`: "Could not find directory of OpenSSL installation"**: in the nix sandbox a crate only sees the system libraries you give it. Create a `Cargo.dependencies.nix` next to your `Cargo.toml`:
 
-cargo (libnix) only works with a rustc of its own version, so use `rust-1_99` / `rust-1_87` (cargo and rustc in one package), or `cargo-libnix-*` together with its `.rustc`, never a rustc from elsewhere. The rustc 1.99.0 is wrapped with `-C linker-features=-lld`: since 1.90 rustc links with its own lld, which bypasses nix's linker wrapper (no rpath, the binaries miss their libraries).
-
-There are three ways to use cargo (libnix):
-
-1. **devshell**: try it without changing anything
-2. **flake**: add it to your project's devshell
-3. **traditional nix code**: `shell.nix`, NixOS configuration, …
-
-## 1. devshell
-
-```bash
-nix develop github:nixcloud/cargo              # 1.99; `cargo +1.87 build` for the 1.87 release
-nix develop github:nixcloud/cargo#rust-1_87    # only 1.87
-cargo build
+```nix
+{ pkgs }:
+with pkgs;
+{
+  deps = {
+    "openssl-sys" = [ pkg-config openssl ];
+  };
+  envs = { };
+}
 ```
 
-This adds `cargo` (libnix), the matching `rustc` and `nix-prefetch-git` to your environment and sets `CARGO_BACKEND=nix`. Without a devshell: `nix run github:nixcloud/cargo -- build` (with `CARGO_BACKEND=nix` set).
+and run `cargo build` again. Other common ones are `libsqlite3-sys` (`[ pkg-config sqlite ]`) and `libz-sys` (`[ pkg-config zlib ]`); see [Injecting dependencies](#injecting-dependencies).
 
-## 2. flake
+**`error: cargo 'check' is not supported yet`, or your editor shows errors everywhere**: rust-analyzer runs `cargo check`, which the nix backend doesn't support yet. Let the editor use the normal cargo backend and its own target directory, e.g. in VS Code's `settings.json`:
 
-Add cargo (libnix) with its `rustc` to your project's devshell, `rust-1_99` or `rust-1_87`:
+```json
+{
+  "rust-analyzer.cargo.extraEnv": { "CARGO_BACKEND": "legacy" },
+  "rust-analyzer.check.extraEnv": { "CARGO_BACKEND": "legacy" },
+  "rust-analyzer.cargo.targetDir": true
+}
+```
+
+The separate target directory matters: a legacy build in `target/` replaces the links into `/nix/store` with ordinary files.
+
+**A git dependency fails with `nix-prefetch-git: command not found`**: the devshell has it; in your own flake or `shell.nix`, add `pkgs.nix-prefetch-scripts`.
+
+**Rebuilding after a change is slower than with normal cargo**: the nix backend has no incremental compilation yet, so a crate you change is compiled from scratch ([#3](https://github.com/nixcloud/cargo/issues/3)). Your dependencies are not rebuilt, they come from `/nix/store`.
+
+Anything else: [open an issue](https://github.com/nixcloud/cargo/issues), not on the upstream cargo tracker.
+
+# Limitations
+
+* Linux only, developed and tested on x86_64-linux; Darwin is untested
+* not supported yet in nix mode: `cargo check`, `doc`, `bench`, `package`, incremental builds, registries other than crates.io; cross-compilation is untested
+* cargo (libnix) needs a `rustc` of its own version; everything this flake provides brings the matching one
+
+The full list is in [Supported subcommands and features](#supported-subcommands-and-features-).
+
+# Using cargo (libnix) in your project
+
+## In a flake
+
+Add cargo (libnix) with its `rustc` to your project's devshell:
 
 ```nix
 {
@@ -141,16 +139,11 @@ Add cargo (libnix) with its `rustc` to your project's devshell, `rust-1_99` or `
 }
 ```
 
+Then `nix develop` in your project gives you the same shell as the [Quick start](#quick-start-). Use `rust-1_87` instead of `rust-1_99` to stay on Rust 1.87.
+
 `rust-1_99` follows the 1.99 line (`libnix-1.99.0+v2` once it is released); to stay on one release, use `cargo-libnix-1_99_0_plus_v1` and its `.rustc`, or pin the flake input to a commit of this branch.
 
-Afterwards check that `cargo` is the one from the store:
-
-    $ which cargo
-    /nix/store/…-cargo-libnix-1.99-with-rustc/bin/cargo
-    $ cargo --version
-    cargo 1.99.0 +libnix
-
-## 3. Traditional default.nix includes
+## Traditional nix code
 
 A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.99.0+v1` with a pinned rustc/cargo 1.99.0 from [fenix](https://github.com/nix-community/fenix):
 
@@ -199,6 +192,21 @@ pkgs.mkShell {
 
 For a NixOS configuration, put `cargo-libnix` and `rustc` into `environment.systemPackages` instead and set `CARGO_BACKEND=nix` in `environment.variables`.
 
+## Flake outputs
+
+The [flake.nix](flake.nix) of this branch serves the newest release of each supported toolchain; 1.99 is the default:
+
+| output | contents |
+|---|---|
+| `packages.default`, `devShells.default` | cargo `libnix-1.99.0+v1` and rustc 1.99.0; `cargo +1.87 …` runs the 1.87 release instead (like rustup's `+toolchain`) |
+| `packages.rust-1_99`, `devShells.rust-1_99` | cargo `libnix-1.99.0+v1` and rustc 1.99.0 |
+| `packages.rust-1_87`, `devShells.rust-1_87` | cargo `libnix-1.87.0+v4` and rustc 1.87.0 |
+| `packages.cargo-libnix-1_99`, `packages.cargo-libnix-1_87` | only cargo, the newest release of that line; its rustc is `.rustc` |
+| `packages.cargo-libnix-1_99_0_plus_v1`, `packages.cargo-libnix-1_87_0_plus_v4` | only cargo, exactly that release |
+| `overlays.default` | `cargo-libnix` (= `default`), `cargo-libnix_1_99`, `cargo-libnix_1_87` (= `rust-1_99`, `rust-1_87`) |
+
+cargo (libnix) only works with a rustc of its own version, so use `rust-1_99` / `rust-1_87` (cargo and rustc in one package), or `cargo-libnix-*` together with its `.rustc`, never a rustc from elsewhere. The rustc 1.99.0 is wrapped with `-C linker-features=-lld`: since 1.90 rustc links with its own lld, which bypasses nix's linker wrapper (no rpath, the binaries miss their libraries).
+
 # Injecting dependencies
 
 Crates that link against system libraries (`openssl-sys`, `libsqlite3-sys`, …) or need environment variables at build time get them from a `Cargo.dependencies.nix` next to `Cargo.toml` / `Cargo.lock`. Without the file, crates are built with the toolchain only; a `*-sys` crate whose build script can't find its library is the typical sign that an entry is missing.
@@ -227,6 +235,65 @@ Crates that link against system libraries (`openssl-sys`, `libsqlite3-sys`, …)
 3. run `cargo build`; the inputs and variables are added to every derivation of that crate (build script, build script run, compilation)
 
 More examples are in [Cargo.dependencies.nix](https://github.com/nixcloud/cargo/blob/rust-1.99.0-libnix/Cargo.dependencies.nix) (the one of cargo itself) and in [tests-libnix](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix/tests-libnix).
+
+# Reference
+
+## Supported subcommands and features 🧰
+
+With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all others are plain cargo. Details and the state of development are in [README-DEV.md](https://github.com/nixcloud/cargo/blob/rust-1.99.0-libnix/README-DEV.md).
+
+| subcommand | nix mode | notes |
+|---|---|---|
+| `build` | ✅ | every unit is built in nix; `build write-nix-buildsystem` exports the build system for flakes and nixpkgs |
+| `run` | ✅ | binaries and examples; `std::env::current_exe()` is the binary in the store |
+| `test` | ✅ | unit, integration and doc tests; the tests run outside of nix, the sources at `env!("CARGO_MANIFEST_DIR")` are read-only |
+| `clean` | ✅ partial | the target directory or a profile, together with the store paths it rooted; `clean -p` and `clean gc` are refused |
+| `check` | ❌ planned | refused with "not supported yet" |
+| `install`, `uninstall` | ✅ | binaries stay in the store, rooted in `<root>/nix/install`, `<root>/bin` links to them; uninstall deletes the store paths nothing else uses |
+| `doc`, `rustdoc`, `rustc`, `bench`, `package`, `vendor` | ❌ | refused with "not supported yet" |
+| `new`, `init`, `add`, `remove`, `update`, `fetch`, `generate-lockfile`, `tree`, `metadata`, `fmt`, `publish`, … | unchanged | vanilla cargo, the backend is not involved |
+| `fix` | ❓ | untested, it builds in check mode internally |
+
+| feature | state | notes |
+|---|---|---|
+| crates.io dependencies | ✅ | downloaded and built in `/nix/store`, shared between projects and machines |
+| path dependencies, workspaces, `-p`, `--features` | ✅ | |
+| build scripts (`build.rs`), proc macros | ✅ | build scripts run in the nix sandbox |
+| `cargo:` directives of build scripts | ⚠️ | parsed by build-rs-libnix; `cargo::` syntax, generic metadata, `rustc-flags` and the target-specific `rustc-link-arg-*` are not supported yet, see [build scripts and build-rs-libnix](https://github.com/nixcloud/cargo/blob/rust-1.99.0-libnix/README.md#build-scripts-and-build-rs-libnix) |
+| system libraries, environment variables | ✅ | per crate in `Cargo.dependencies.nix`, see [Injecting dependencies](#injecting-dependencies) |
+| git dependencies | ✅ | needs `nix-prefetch-git` in `PATH` |
+| vendored sources, source replacement | ✅ | |
+| `--offline` | ✅ | crates.io is served from the store tarballs of `Cargo.lock`, so the build system can be generated inside a nix build (IFD) |
+| `--release` | ✅ | profile options (`lto`, `codegen-units`, `panic`, …) are passed on, but untested |
+| GC roots | ✅ | per selection of units in `target/<profile>/nix/gc`, the 8 most recent are kept; `cargo clean` removes them |
+| cargo-like output | ✅ | nix logs are shown in cargo's format |
+| other registries | ❌ | only crates.io; others fail when the build system is generated |
+| incremental builds / fingerprints | ❌ | changed crates are always compiled from scratch, so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |
+| cross-compilation, `--target` (e.g. wasm) | ❓ | untested, known failures (wasm) |
+| platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
+| toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.99.0); rustc ≥ 1.90 links with its bundled lld, which bypasses nix's linker wrapper, so the units are built with a wrapped rustc passing `-C linker-features=-lld` |
+
+The tables describe the 1.99 line (`libnix-1.99.0+v1`). The 1.87 line (`libnix-1.87.0+v4`) has the same subcommands and features and needs no wrapped rustc; see the README of [rust-1.87.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix) for its state.
+
+## How it works
+
+cargo resolves the dependencies and plans the build as usual. In nix mode it then writes one nix derivation per unit (a crate with its features and profile, a build script, a build script run, a test harness) to _target/&lt;profile&gt;/nix_, builds them with `nix build` and links the results into _target/&lt;profile&gt;_, so `target/debug/<bin>` is a symlink into `/nix/store`.
+
+* every crate is built in the nix sandbox, with its system libraries from `Cargo.dependencies.nix`
+* crates.io downloads and crate builds are store paths, shared between projects and machines (and between `cargo build`, `cargo run` and `cargo test`)
+* the same nix code can be exported with `cargo build write-nix-buildsystem` and built by nix alone, from a flake or nixpkgs, without calling cargo again
+* build scripts run in the nix sandbox too; their `cargo:` directives are parsed by [build-rs-libnix](https://github.com/nixcloud/build-rs-libnix), see [build scripts and build-rs-libnix](https://github.com/nixcloud/cargo/blob/rust-1.99.0-libnix/README.md#build-scripts-and-build-rs-libnix)
+
+## Requirements
+
+* nix with the `nix-command` and `flakes` features, a running nix-daemon and the sandbox enabled (the defaults on NixOS)
+* Linux; developed and tested on x86_64-linux
+* `rustc` of the same version as the cargo (1.87.0 or 1.99.0); every package of the flake brings the matching one
+* `nix-prefetch-git` in `PATH` for git dependencies (part of the devshell)
+
+## Regression tests
+
+Each branch's `test.nix` builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions and runs their binaries: the 1.99 line passes all 31, among them [grok-build](https://github.com/xai-org/grok-build); the 1.87 line passes 30 of 31 (union needs a nightly rustc). Details are in the README of [rust-1.99.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix#regression-tests).
 
 # Exporting the build system
 
@@ -277,7 +344,7 @@ The project's own crates either come from a directory (the default, the `project
 The build system has two entry points:
 
 1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and the rustc/cargo of its release, 1.99.0 or 1.87.0 (from fenix, without `rust-src`, which would end up in the runtime closure of every binary), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
-2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](#3-traditional-nix-code) and the [flake.nix](flake.nix) of this branch
+2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](#traditional-nix-code) and the [flake.nix](flake.nix) of this branch
 
 Both return an attribute set with a derivation per unit (e.g. `cargo-0_100_0-bin-463824861cef8abc`) and `target`, which links all root units like _target/&lt;profile&gt;_.
 
