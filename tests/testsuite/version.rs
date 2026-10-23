@@ -57,6 +57,7 @@ fn verbose() {
             "\
 cargo {}
 release: [..]
+libnix: [..]
 commit-hash: [..]
 commit-date: [..]
 host: [HOST_TARGET]

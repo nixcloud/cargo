@@ -6,6 +6,7 @@ use std::process::Command;
 
 fn main() {
     commit_info();
+    libnix_release();
     compress_man();
     windows_manifest();
     #[expect(
@@ -133,6 +134,15 @@ fn commit_info() {
     println!("cargo:rustc-env=CARGO_COMMIT_HASH={}", git.hash);
     println!("cargo:rustc-env=CARGO_COMMIT_SHORT_HASH={}", git.short_hash);
     println!("cargo:rustc-env=CARGO_COMMIT_DATE={}", git.date);
+}
+
+/// The cargo (libnix) release of this toolchain, such as `v1`, from `LIBNIX_RELEASE`; the tag is
+/// `libnix-<toolchain>+<release>`. A file in the tree and not the git tag, because nix builds have no `.git`.
+fn libnix_release() {
+    const LIBNIX_RELEASE_FILE: &str = "LIBNIX_RELEASE";
+    println!("cargo:rerun-if-changed={LIBNIX_RELEASE_FILE}");
+    let release = fs::read_to_string(LIBNIX_RELEASE_FILE).expect("reading LIBNIX_RELEASE");
+    println!("cargo:rustc-env=LIBNIX_RELEASE={}", release.trim());
 }
 
 #[expect(

@@ -33,11 +33,15 @@ pub struct VersionInfo {
     /// cargo 1.85.0 (d73d2caf9 2024-12-31) (MyCustomBuild 1.85.0-3)
     /// ```
     pub description: Option<String>,
+
+    /// The cargo (libnix) release of this toolchain, such as "v1" (tag `libnix-1.99.0+v1`), from the
+    /// `LIBNIX_RELEASE` file.
+    pub libnix_release: String,
 }
 
 impl fmt::Display for VersionInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} +libnix", self.version)?;
+        write!(f, "{} +libnix {}", self.version, self.libnix_release)?;
 
         if let Some(ref ci) = self.commit_info {
             write!(f, " ({} {})", ci.short_commit_hash, ci.commit_date)?;
@@ -94,5 +98,6 @@ pub fn version() -> VersionInfo {
         release_channel,
         commit_info,
         description,
+        libnix_release: env!("LIBNIX_RELEASE").to_string(),
     }
 }

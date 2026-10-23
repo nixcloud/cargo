@@ -222,6 +222,10 @@ pub fn get_version_string(is_verbose: bool) -> String {
     let mut version_string = format!("cargo {}\n", version);
     if is_verbose {
         version_string.push_str(&format!("release: {}\n", version.version));
+        version_string.push_str(&format!(
+            "libnix: {}+{}\n",
+            version.version, version.libnix_release
+        ));
         if let Some(ref ci) = version.commit_info {
             version_string.push_str(&format!("commit-hash: {}\n", ci.commit_hash));
             version_string.push_str(&format!("commit-date: {}\n", ci.commit_date));

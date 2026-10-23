@@ -199,15 +199,16 @@ Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87
 
 ## releasing
 
-1. tag the release on its branch, e.g. `libnix-1.99.0+v2`, and attach the tarball of `cargo build --release write-nix-buildsystem`
-2. on `master-libnix`, add a `release { … }` for it to [flake.nix](https://github.com/nixcloud/cargo/blob/master-libnix/flake.nix) and point its line in `lines` to it (and `defaultLine`, for a new toolchain); `nix flake check` runs every line's cargo with its rustc
+1. bump [LIBNIX_RELEASE](LIBNIX_RELEASE) on the branch, e.g. to `v2`, and commit; `cargo --version` shows it (`cargo 1.99.0 +libnix v2`, `libnix: 1.99.0+v2` in `cargo -vV`)
+2. tag that commit `libnix-<toolchain>+` plus the file's content, e.g. `libnix-1.99.0+v2`, and attach the tarball of `cargo build --release write-nix-buildsystem`
+3. on `master-libnix`, add a `release { … }` for it to [flake.nix](https://github.com/nixcloud/cargo/blob/master-libnix/flake.nix) and point its line in `lines` to it (and `defaultLine`, for a new toolchain); `nix flake check` runs every line's cargo with its rustc
 
 ## supporting a new toolchain
 
 1. base on upstream's release of that toolchain (the cargo crate tag, e.g. `0.100.0`, or the `rust-<version>` branch), not on an upstream `master` commit, so the upstream backports are included
 2. rebase the libnix patch stack of the current main line onto it, in a new `rust-<version>-libnix` branch; squashing the stack into a few logical patches first (nix backend, daemon/runner, templates, write-nix-buildsystem, crate store/GC roots, flake) keeps the conflicts manageable and `git diff <upstream tag>..` readable
 3. once cargo builds itself with `CARGO_BACKEND=nix` and the example projects work, the new branch is the main line and the previous one a maintenance branch
-4. tag the first release of the new line, e.g. `libnix-1.99.0+v1`, and add it to `master-libnix` as the default
+4. reset [LIBNIX_RELEASE](LIBNIX_RELEASE) to `v1`, tag the first release of the new line, e.g. `libnix-1.99.0+v1`, and add it to `master-libnix` as the default
 
 ## maintenance branches
 
