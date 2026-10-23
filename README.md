@@ -273,12 +273,17 @@ The naming follows upstream: cargo has a release branch per toolchain (`rust-1.8
 
 Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87.0+v1`, `libnix-1.87.0+v2`, … The tags stay valid no matter what happens to the branches; flakes and nix code should pin a tag or a release tarball, not a branch.
 
+## releasing
+
+1. bump [LIBNIX_RELEASE](LIBNIX_RELEASE) on the branch, e.g. to `v5`, and commit; `cargo --version` shows it (`cargo 1.87.0 +libnix v5`, `libnix: 1.87.0+v5` in `cargo -vV`)
+2. tag that commit `libnix-<toolchain>+` plus the file's content, e.g. `libnix-1.87.0+v5`
+
 ## supporting a new toolchain
 
 1. base on upstream's release of that toolchain (the cargo crate tag, e.g. `0.100.0`, or the `rust-<version>` branch), not on an upstream `master` commit, so the upstream backports are included
 2. rebase the libnix patch stack onto it on a work branch; squashing the stack into a few logical patches first (nix backend, daemon/runner, templates, write-nix-buildsystem, crate store/GC roots, flake) keeps the conflicts manageable and `git diff <upstream tag>..` readable
 3. once cargo builds itself with `CARGO_BACKEND=nix` and the example projects work, the previous toolchain's state is kept in its `rust-<version>-libnix` branch and the work branch becomes the main line
-4. tag the first release of the new line, e.g. `libnix-1.99.0+v1`
+4. reset [LIBNIX_RELEASE](LIBNIX_RELEASE) to `v1`, tag the first release of the new line, e.g. `libnix-1.99.0+v1`
 
 ## maintenance branches
 
