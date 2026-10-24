@@ -221,6 +221,37 @@ let
         else
           {};
     relativeFileset = project_root: relPaths: lib.fileset.unions (map (p: project_root + "/${p}") relPaths);
+    # the src of the workspace's path crates, bound once: a filterSource per unit walks, hashes and copies the whole
+    # tree again for each of them (~1.6s each for cargo's own tree)
+    #
+    # `project_root` (cargo_build_caller.nix) is the workspace root: `../../..` from target/<profile>/nix, or for
+    # write-nix-buildsystem the path from --out-dir, overridable when importing (IFD). Only top-level entries of
+    # the workspace are left out: deeper `target` or `result` directories are sources (e.g. a `mod target;`)
+    #
+    # - always: the workspace's own target dir and `nix build` result links
+    # - by default: .git, which changes with every commit (and its index with a plain `git status`) and would
+    #   rebuild all path crates
+    #
+    # Cargo.dependencies.nix adjusts the defaults with top-level names:
+    #   project_src.include = [ ".git" ];          # e.g. a build.rs that runs `git log` for the commit hash
+    #   project_src.exclude = [ "docs" "scratch" ]; # what no crate builds from, so changes there don't rebuild
+    project_src =
+      let
+        cfg = external_crate_dependencies.project_src or {};
+        include = cfg.include or [];
+        exclude = cfg.exclude or [];
+        conflicts = lib.intersectLists include exclude;
+        excluded = lib.subtractLists include ([ ".git" ] ++ exclude);
+      in
+        if conflicts != [] then
+          throw "Cargo.dependencies.nix: project_src.include and project_src.exclude both list ${builtins.concatStringsSep ", " conflicts}"
+        else builtins.filterSource
+          (path: type:
+            let base = baseNameOf path;
+            in !(dirOf path == toString project_root
+              && (base == "target" || base == "result" || builtins.match "result-.*" base != null
+                  || builtins.elem base excluded))
+          ) project_root;
   };
   self = {
     target = callPackage' ./target.nix {};

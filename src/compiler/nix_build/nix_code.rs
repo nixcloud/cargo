@@ -453,19 +453,12 @@ pub fn generate_src<'gctx>(
                     return Ok(rendered.indentation(4));
                 },
                 None => {
-                    // `project_root` (cargo_build_caller.nix) is the workspace root: `../../..` from target/<profile>/nix,
-                    // or for write-nix-buildsystem the path from --out-dir, overridable when importing (IFD).
-                    // Only the workspace's own target dir and `nix build` result links are left out: deeper
-                    // `target` or `result` directories are sources (e.g. a `mod target;`)
+                    // the filtered workspace, `fn.project_src` (default.nix): bound once, so all path crates share one
+                    // evaluation and copy of it instead of each walking and hashing the whole tree
                     let template_str =
                         indoc! {
                             r#"
-                                src = builtins.filterSource
-                                (path: type:
-                                    let base = baseNameOf path;
-                                    in !(dirOf path == toString project_root
-                                      && (base == "target" || base == "result" || builtins.match "result-.*" base != null))
-                                ) project_root;
+                                src = fn.project_src;
                             "#};
                     return Ok(template_str.to_string().indentation(4));
                 }
