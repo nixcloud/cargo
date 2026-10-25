@@ -133,6 +133,7 @@ impl<'a, 'gctx> NixBuildRunner {
     /// Generates the build system and builds it; returns its outputs, or `None` if it was only written
     /// (write-nix-buildsystem).
     pub fn build(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<Option<BuildOutputs>> {
+        let generation_start = std::time::Instant::now();
         let bcx: &BuildContext<'a, 'gctx> = &build_runner.bcx;
         let keep_going: bool = bcx.build_config.keep_going;
         let workspace: &Workspace<'gctx> = build_runner.bcx.ws;
@@ -405,6 +406,9 @@ impl<'a, 'gctx> NixBuildRunner {
             .into_path_unlocked();
         let mut file = File::create(target_path)?;
         write!(file, "{}", rendered)?;
+        let generated = generation_start.elapsed();
+        gctx.shell()
+            .status("Nix", format!("Created nix build system in {:.1}s", generated.as_secs_f64()))?;
 
         if write_nix_buildsystem_options.is_none() {
             let jobs = bcx.build_config.jobs;
@@ -432,7 +436,7 @@ impl<'a, 'gctx> NixBuildRunner {
             selection.sort();
             selection.dedup();
             let selection = selection.join("\n") + "\n";
-            return NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names, &target_dir, &selection)
+            return NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names, &target_dir, &selection, generated)
                 .map(Some);
         } else if write_nix_buildsystem_options.as_ref().is_some_and(|o| o.remote_src.is_none()) {
             // project_root is the workspace itself, so its Cargo.dependencies.nix is used in place
