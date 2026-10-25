@@ -13,7 +13,7 @@ use std::io::IsTerminal;
 use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc::{self, Sender};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct NixBuild {}
 
@@ -55,6 +55,7 @@ impl NixBuild {
         units: HashSet<String>,
         target_dir: &Path,
         selection: &str,
+        generated: Duration,
     ) -> CargoResult<gc_roots::BuildOutputs> {
         let base = nix_base_dir.into_path_unlocked();
         let caller = base.join("cargo_build_caller.nix");
@@ -67,12 +68,22 @@ impl NixBuild {
         let opts = BuildOptions { keep_going, max_jobs: u64::from(jobs) };
         let gc_dir = base.join("gc");
         let slot = gc_dir.join(crate::util::hex::short_hash(&selection));
-        let result = run(&caller, &gc_dir, &slot, selection, &opts, &tx);
+        let run_start = Instant::now();
+        let mut eval = None;
+        let result = run(&caller, &gc_dir, &slot, selection, &opts, &tx, &mut eval);
+        let ran = run_start.elapsed();
         // `tx` is gone after this, so logone drains the channel, prints the summary and returns.
         drop(tx);
         renderer
             .join()
             .map_err(|e| anyhow::format_err!("logone thread panicked: {:?}", e))?;
+        // a failed evaluation took the whole run; otherwise the build is the rest of it (store queries, GC roots,
+        // the build itself)
+        let (eval, build) = match eval {
+            Some(eval) => (eval, Some(ran.saturating_sub(eval))),
+            None => (ran, None),
+        };
+        let stats = || print_stats(gctx, generated, eval, build);
 
         let out = match result {
             Ok((out, (count, bytes))) => {
@@ -82,9 +93,9 @@ impl NixBuild {
                 }
                 out
             }
-            Err(Failure::Eval) => anyhow::bail!("could not evaluate {}", caller.display()),
-            Err(Failure::Daemon) => anyhow::bail!("could not build target (nix-daemon)"),
-            Err(Failure::Build) => anyhow::bail!("could not compile target"),
+            Err(Failure::Eval) => { stats(); anyhow::bail!("could not evaluate {}", caller.display()) }
+            Err(Failure::Daemon) => { stats(); anyhow::bail!("could not build target (nix-daemon)") }
+            Err(Failure::Build) => { stats(); anyhow::bail!("could not compile target") }
         };
         let activation_script = format!("{out}/bin/create-symlinks");
         gctx.shell().verbose(|s| {
@@ -97,15 +108,43 @@ impl NixBuild {
         if !status.success() {
             anyhow::bail!("{activation_script} failed: {status}");
         }
+        stats();
         Ok(gc_roots::build_outputs(&slot))
     }
+}
+
+/// The closing line of every build: how long each step took and cargo as a whole, from its start. "other" is the
+/// rest: resolving and planning before the generation, symlinking the results after the build.
+fn print_stats(gctx: &GlobalContext, generated: Duration, eval: Duration, build: Option<Duration>) {
+    let total = gctx.invocation_instant().elapsed();
+    let other = total.saturating_sub(generated + eval + build.unwrap_or_default());
+    let s = |d: Duration| format!("{:.1}s", d.as_secs_f64());
+    let build = build.map_or("-".to_string(), s);
+    let mut shell = gctx.shell();
+    if shell.verbosity() == Verbosity::Quiet {
+        return;
+    }
+    let color = shell.err_supports_color();
+    // (name, 256-color code, time)
+    let steps = [("generation", 81, s(generated)), ("evaluation", 213, s(eval)), ("build", 156, build), ("other", 221, s(other))];
+    let line = if color {
+        let steps: Vec<String> = steps
+            .iter()
+            .map(|(name, c, t)| format!("\x1b[38;5;{c}m●\x1b[0m \x1b[2m{name}\x1b[0m \x1b[1;38;5;{c}m{t}\x1b[0m"))
+            .collect();
+        format!("{} \x1b[2m│\x1b[0m \x1b[1mΣ\x1b[0m \x1b[2mtotal\x1b[0m \x1b[1m{}\x1b[0m", steps.join(" \x1b[2m│\x1b[0m "), s(total))
+    } else {
+        let steps: Vec<String> = steps.iter().map(|(name, _, t)| format!("● {name} {t}")).collect();
+        format!("{} │ Σ total {}", steps.join(" │ "), s(total))
+    };
+    let _ = shell.status("Status", line);
 }
 
 /// Evaluates and builds `target` and the retained paths; returns the `out` path of `target`, rooted at
 /// `slot/create-symlinks`, and the store paths of the previous build this one doesn't use anymore, which are deleted
 /// (count, bytes; see `gc_roots`).
-fn run(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, opts: &BuildOptions, tx: &Sender<Event>) -> Result<(String, (usize, u64)), Failure> {
-    let (target, roots) = instantiate(caller, gc_dir, slot, selection, tx)?;
+fn run(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, opts: &BuildOptions, tx: &Sender<Event>, eval: &mut Option<Duration>) -> Result<(String, (usize, u64)), Failure> {
+    let (target, roots) = instantiate(caller, gc_dir, slot, selection, tx, eval)?;
     let daemon_err = |e: daemon::Error| {
         let _ = tx.send(Event::Error { msg: e.to_string() });
         Failure::Daemon
@@ -183,7 +222,7 @@ fn run(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, opts: &BuildO
 /// `--add-root` makes them GC roots (`slot/.eval`, `slot/.eval-2`, renamed by `run`), so they can't be
 /// collected between evaluation and build. With `--add-root` Nix prints the roots instead of the drvs, so they
 /// are resolved.
-fn instantiate(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, tx: &Sender<Event>) -> Result<(String, String), Failure> {
+fn instantiate(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, tx: &Sender<Event>, eval: &mut Option<Duration>) -> Result<(String, String), Failure> {
     let root = slot.join(gc_roots::EVAL_ROOT);
     let file = caller.display().to_string();
     let eval_err = |msg: String| {
@@ -225,6 +264,7 @@ fn instantiate(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, tx: &
     }
     let [target, roots] = <[String; 2]>::try_from(drvs)
         .map_err(|d| eval_err(format!("nix-instantiate printed {} derivations, expected 2", d.len())))?;
+    *eval = Some(t0.elapsed());
     let _ = tx.send(Event::Evaluated { elapsed: t0.elapsed() });
     Ok((target, roots))
 }
