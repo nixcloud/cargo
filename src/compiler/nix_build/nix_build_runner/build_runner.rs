@@ -218,6 +218,9 @@ fn run(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, opts: &BuildO
     Ok((out, removed))
 }
 
+/// The argument of `instantiate`'s expression that holds the path of `cargo_build_caller.nix`.
+const CALLER_ARG: &str = "cargo_libnix_caller";
+
 /// `nix-instantiate` prints the drvs of `target` and of the retained paths (`gc_roots::RETAINED_PATHS_ATTR`).
 /// `--add-root` makes them GC roots (`slot/.eval`, `slot/.eval-2`, renamed by `run`), so they can't be
 /// collected between evaluation and build. With `--add-root` Nix prints the roots instead of the drvs, so they
@@ -230,8 +233,16 @@ fn instantiate(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, tx: &
         Failure::Eval
     };
     gc_roots::prepare_dir(gc_dir, slot, selection).map_err(|e| eval_err(format!("{}: {e}", gc_dir.display())))?;
+    // one call of the caller for both: nix-instantiate calls the caller (a function) once per `-A`, so `-A target
+    // -A <retained paths>` evaluated everything twice (and printed its `trace:`s twice). The other arguments
+    // (`--arg`) are passed on to the caller
+    let expr = format!(
+        r#"{{ {CALLER_ARG}, ... }}@args: let c = import (/. + {CALLER_ARG}) (removeAttrs args [ "{CALLER_ARG}" ]); in [ c.target c."{}" ]"#,
+        gc_roots::RETAINED_PATHS_ATTR
+    );
     let mut cmd = Command::new("nix-instantiate");
-    cmd.arg(caller).args(["-A", "target", "-A", gc_roots::RETAINED_PATHS_ATTR]).arg("--add-root").arg(&root).env_clear();
+    cmd.arg("--expr").arg(expr).arg("--argstr").arg(CALLER_ARG).arg(caller);
+    cmd.arg("--add-root").arg(&root).env_clear();
     // Evaluation fetches (builtins.fetchTarball) run in this process, not in the daemon, so it needs the CA
     // certificates, proxies and its cache dir; PATH so `nix-instantiate` is found where it is installed.
     for var in ENV_PASSTHROUGH {
