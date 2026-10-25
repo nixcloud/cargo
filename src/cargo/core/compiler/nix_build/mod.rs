@@ -523,13 +523,16 @@ impl<'a, 'gctx> NixBuildRunner {
             .indentation(2),
         );
 
+        // relative to the build system's directory (target/<profile>/nix or --out-dir): an absolute path would be
+        // part of the derivation, so the same crate's run (and everything depending on it) would be another
+        // derivation in each project and target directory
         let filename_notice_build_script_build = format!(
             "There was an error executing build_script_build in file: '{}':",
-            file_path.display()
+            Path::new("derivations").join(&rel_file_path).display()
         );
         let filename_notice_build_parser = format!(
             "There was an error executing build_parser in file: '{}':",
-            file_path.display()
+            Path::new("derivations").join(&rel_file_path).display()
         );
 
         let template_str: String = 
