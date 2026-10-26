@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use regex::Regex;
 use indoc::indoc;
 
@@ -103,7 +104,7 @@ pub fn create_unit_dependencies<'a, 'gctx>(
     crate_version: &String,
     unit_graph: &UnitGraph,
     build_runner: &BuildRunner<'a, 'gctx>,
-    all_units_with_process_builder: &Vec<(ProcessBuilder, Unit)>,
+    lib_build_targets: &HashMap<Unit, Unit>,
     workspace: &Workspace<'gctx>,
 ) -> Dependencies {
     fn is_root<'a, 'gctx>(unit: &Unit, workspace: &Workspace<'gctx>) -> bool {
@@ -154,8 +155,7 @@ pub fn create_unit_dependencies<'a, 'gctx>(
                         let c: &Unit = &find_lib_build_target(
                             &unit,
                             &dep.unit,
-                            &unit_graph,
-                            &all_units_with_process_builder,
+                            lib_build_targets,
                         );
                         let c_name =
                             create_nix_name(c, &build_runner, NixNameMode::AttributeName, false);
@@ -238,31 +238,33 @@ pub fn create_unit_dependencies<'a, 'gctx>(
 // base: cargo-0_88_0-d76731b471aa2da9
 //   rust_script_build_run: cargo-0_88_0-script_build_run-dc81d07243ae70b8
 // -> no rewrite
-fn find_lib_build_target<'a, 'gctx>(
-    unit: &Unit,
-    passthru_rust_script_build_run: &Unit,
-    unit_graph: &UnitGraph,
-    all_units_with_process_builder: &Vec<(ProcessBuilder, Unit)>,
-) -> Unit {
-    for (_, loop_unit) in all_units_with_process_builder.clone() {
-        if let Some(deps) = unit_graph.get(&loop_unit) {
-            for dep in deps {
-                if dep.unit == *passthru_rust_script_build_run {
-                    if matches!(loop_unit.target.kind(), TargetKind::Lib(_))
-                        || matches!(loop_unit.target.kind(), TargetKind::ExampleLib(_))
-                    {
-                        if matches!(&loop_unit.mode, CompileMode::Build) {
-                            let u = loop_unit.clone();
-                            if u == *unit {
-                                return passthru_rust_script_build_run.clone();
-                            } else {
-                                return u.clone();
-                            }
-                        }
-                    }
-                }
+/// The lib (`Lib`/`ExampleLib` in `Build` mode) each build script run is used by, for `find_lib_build_target`:
+/// the first of `units` that depends on the run. Built once per generation; a scan of all units for each run
+/// dependency of each unit (and a clone of all of them with their process builders) was quadratic.
+pub fn lib_build_targets(units: &[(ProcessBuilder, Unit)], unit_graph: &UnitGraph) -> HashMap<Unit, Unit> {
+    let mut libs: HashMap<Unit, Unit> = HashMap::new();
+    for (_, unit) in units {
+        if !matches!(unit.target.kind(), TargetKind::Lib(_) | TargetKind::ExampleLib(_))
+            || unit.mode != CompileMode::Build
+        {
+            continue;
+        }
+        for dep in unit_graph.get(unit).into_iter().flatten() {
+            if dep.unit.mode == CompileMode::RunCustomBuild {
+                libs.entry(dep.unit.clone()).or_insert_with(|| unit.clone());
             }
         }
     }
-    return passthru_rust_script_build_run.clone();
+    libs
+}
+
+fn find_lib_build_target(
+    unit: &Unit,
+    passthru_rust_script_build_run: &Unit,
+    lib_build_targets: &HashMap<Unit, Unit>,
+) -> Unit {
+    match lib_build_targets.get(passthru_rust_script_build_run) {
+        Some(lib) if lib != unit => lib.clone(),
+        _ => passthru_rust_script_build_run.clone(),
+    }
 }
