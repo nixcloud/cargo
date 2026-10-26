@@ -6,9 +6,9 @@ mod tests;
 pub mod nix_files;
 pub mod nix_code;
 pub mod nix_build_runner;
+mod templates;
 
 use cargo_util::ProcessBuilder;
-use handlebars::Handlebars;
 use indoc::indoc;
 use std::collections::{BTreeSet, HashSet};
 use std::fs::File;
@@ -271,9 +271,6 @@ impl<'a, 'gctx> NixBuildRunner {
         // cargo_build_caller.nix //////////////////////////////////////////////////////////////////////////////////
         gctx.shell()
             .verbose(|s| s.status("Generating", "cargo_build_caller.nix"))?;
-        let mut handlebars = Handlebars::new();
-        let template_str = include_str!("templates/cargo_build_caller.nix.handlebars");
-        handlebars.register_template_string("caller", template_str)?;
         // default of cargo_build_caller.nix's `project_root` argument, the directory path crates are built from
         let project_root: String = match &write_nix_buildsystem_options {
             // exported with --url/--hash: sources are fetched; it only holds the Cargo.dependencies.nix copy
@@ -286,8 +283,8 @@ impl<'a, 'gctx> NixBuildRunner {
             None => "../../..".to_string(),
         };
 
-        let rendered = handlebars.render(
-            "caller",
+        let rendered = templates::render(
+            templates::CARGO_BUILD_CALLER,
             &serde_json::json!({
                 "project_root": project_root,
             }),
@@ -303,12 +300,9 @@ impl<'a, 'gctx> NixBuildRunner {
         // build_rs_libnix.nix //////////////////////////////////////////////////////////////////////////////////
            
         gctx.shell().verbose(|s| s.status("Generating", "build_rs_libnix.nix"))?;
-        let mut handlebars = Handlebars::new();
-        let template_str = include_str!("templates/build_rs_libnix.nix.handlebars");
-        handlebars.register_template_string("build_rs_libnix", template_str)?;
 
-        let rendered = handlebars.render(
-            "build_rs_libnix",
+        let rendered = templates::render(
+            templates::BUILD_RS_LIBNIX,
             &serde_json::json!({}),
         )?;
 
@@ -322,9 +316,6 @@ impl<'a, 'gctx> NixBuildRunner {
         // default.nix //////////////////////////////////////////////////////////////////////////////////
         gctx.shell()
             .verbose(|s| s.status("Generating", "default.nix"))?;
-        let mut handlebars = Handlebars::new();
-        let template_str = include_str!("templates/default.nix.handlebars");
-        handlebars.register_template_string("default", template_str)?;
 
         all_nodes.sort_by(|a, b| a.name.cmp(&b.name));
         let nix_packages_deps = all_nodes
@@ -353,8 +344,8 @@ impl<'a, 'gctx> NixBuildRunner {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let rendered = handlebars.render(
-            "default",
+        let rendered = templates::render(
+            templates::DEFAULT,
             &serde_json::json!({
                 "nix_packages_root": nix_packages_root,
                 "nix_packages_deps": nix_packages_deps,
@@ -390,11 +381,8 @@ impl<'a, 'gctx> NixBuildRunner {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let mut handlebars = Handlebars::new();
-        let template_str = include_str!("templates/target.nix.handlebars");
-        handlebars.register_template_string("target", template_str)?;
-        let rendered = handlebars.render(
-            "target",
+        let rendered = templates::render(
+            templates::TARGET,
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
                 "targets": targets,
@@ -508,10 +496,6 @@ impl<'a, 'gctx> NixBuildRunner {
         let (rel_file_path, file_path) =
             create_nix_filepath(&nix_derivations_dir, &file_name, is_root)?;
 
-        let mut handlebars = Handlebars::new();
-        let template_str = include_str!("templates/rustc-call.nix.handlebars");
-        handlebars.register_template_string("rustc-call", template_str)?;
-
         let environment_variables: String =
             generate_environment_variables(workspace, unit, process_builder, build_runner)?;
 
@@ -539,39 +523,8 @@ impl<'a, 'gctx> NixBuildRunner {
             Path::new("derivations").join(&rel_file_path).display()
         );
 
-        let template_str: String = 
-                indoc! {
-                r#"
-                build_script_build_output_lines=$(${pkgs.mktemp}/bin/mktemp)
-                set -x +e
-                ${ {{parent_full_name}} }/build_script_build > $OUT_DIR/nix/build_script_build.out 2> $build_script_build_output_lines
-                build_script_build_exit_value=$?
-                set +x -e
-
-                if [ "$build_script_build_exit_value" -ne 0 ]; then
-                    print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "{{{filename_notice_build_script_build}}}" $build_script_build_exit_value $build_script_build_output_lines
-                    cat "$build_script_build_output_lines"
-                    exit $build_script_build_exit_value
-                fi
-                
-                build_parser_output_lines=$(${pkgs.mktemp}/bin/mktemp)
-                set -x +e
-                ${fn.build_rs_libnix} --script-output $OUT_DIR/nix/build_script_build.out --out-dir $out/nix 2> $build_parser_output_lines
-                build_parser_exit_value=$?
-                set +x -e
-
-                if [ "$build_parser_exit_value" -ne 0 ]; then
-                    print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "{{{filename_notice_build_parser}}}" $build_script_build_exit_value $build_script_build_output_lines
-                    cat $build_parser_output_lines
-                    exit $build_parser_exit_value
-                fi
-                echo "@cargo {\"type\": 3, \"crate_name\": \"${meta.cargo_crate_info.name}\", \"crate_type\": \"${meta.cargo_crate_info.type}\", \"exit_code\": 0, \"messages\": []}"
-            "#}
-            .to_string().indentation(6);
-
-        handlebars.register_template_string("command_line", template_str)?;
-        let command_line: String = handlebars.render(
-            "command_line",
+        let command_line: String = templates::render(
+            templates::BUILD_SCRIPT_RUN_COMMAND_LINE,
             &serde_json::json!({
                 "parent_full_name": parent_full_name,
                 "nix_attribute_name": nix_attribute_name,
@@ -595,8 +548,8 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let additional_build_phase_arguments = handle_dynamic_crate_aspects(unit, &deps);
 
-        let rendered = handlebars.render(
-            "rustc-call",
+        let rendered = templates::render(
+            templates::RUSTC_CALL,
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
                 "nix_attribute_name": nix_attribute_name,
@@ -655,30 +608,8 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
 
-        let mut handlebars = Handlebars::new();
-        let template_str = include_str!("templates/rustc-call.nix.handlebars");
-        handlebars.register_template_string("rustc-call", template_str)?;
-
         let environment_variables: String =
             generate_environment_variables(workspace, unit, process_builder, build_runner)?;
-
-        let template_str = indoc! {
-        r#"
-        rustc_json_output_lines=$(${pkgs.mktemp}/bin/mktemp)
-        set -x +e
-        ${RUSTC}{{{process_builder}}} 2> $rustc_json_output_lines
-        rustc_exit_value=$?
-        set +x -e
-             
-        print_rustc_rendered_messages $rustc_json_output_lines
-        {{{create_symlink}}}
-        print_cargo_message_type_2 "${name}" "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" $rustc_exit_value $rustc_json_output_lines
-
-        if [ "$rustc_exit_value" -ne 0 ]; then
-            exit $rustc_exit_value
-        fi
-        "#}
-        .to_string();
 
         let process_builder = process_builder
             .get_args()
@@ -708,9 +639,8 @@ impl<'a, 'gctx> NixBuildRunner {
             "".to_string()
         };
 
-        handlebars.register_template_string("command_line", template_str)?;
-        let command_line: String = handlebars.render(
-            "command_line",
+        let command_line: String = templates::render(
+            templates::RUSTC_COMMAND_LINE,
             &serde_json::json!({
                 "process_builder": assert_escapes(&process_builder),
                 "nix_attribute_name": nix_attribute_name,
@@ -848,8 +778,8 @@ impl<'a, 'gctx> NixBuildRunner {
             symlinked_targets.push(SymlinkedTargets { attribute_name, script });
         }
 
-        let rendered = handlebars.render(
-            "rustc-call",
+        let rendered = templates::render(
+            templates::RUSTC_CALL,
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
                 "nix_attribute_name": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),

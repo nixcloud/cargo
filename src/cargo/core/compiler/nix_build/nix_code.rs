@@ -2,7 +2,7 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::anyhow;
 use indoc::indoc;
 use cargo_util::ProcessBuilder;
-use handlebars::Handlebars;
+use crate::core::compiler::nix_build::templates;
 
 use crate::core::compiler::nix_build::crate_build_type;
 use crate::core::compiler::nix_build::asserts::{assert_valid_nix_file_name, assert_valid_nix_attr_name};
@@ -305,19 +305,8 @@ pub fn generate_unpack_phase<'gctx>(
         .to_string(),
         SourceKind::Registry => {
             if source_id.is_crates_io() {
-                let mut handlebars = Handlebars::new();
-                let template_str = indoc! {
-                r#"
-                    unpackPhase = ''
-                      tar xf $src
-                      cd {{{crate_name}}}-{{{crate_version}}}
-                    '';
-                "#}
-                .to_string();
-
-                handlebars.register_template_string("unpack_phase", template_str)?;
-                let rendered: String = handlebars.render(
-                    "unpack_phase",
+                let rendered: String = templates::render(
+                    templates::UNPACK_CRATES_IO,
                     &serde_json::json!({
                         "crate_name": crate_name,
                         "crate_version": crate_version,
@@ -434,17 +423,8 @@ pub fn generate_src<'gctx>(
             let remote_src = write_nix_buildsystem_options.as_ref().and_then(|o| o.remote_src.as_ref());
             match remote_src {
                 Some(remote_src) => {
-                    let mut handlebars = Handlebars::new();
-                    let template_str = indoc! {
-                    r#"
-                    src = pkgs.fetchurl {
-                        url = "{{{url}}}";
-                        sha256 = "{{{hash}}}";
-                    };
-                    "#};
-                    handlebars.register_template_string("fetch", template_str)?;
-                    let rendered: String = handlebars.render(
-                        "fetch",
+                    let rendered: String = templates::render(
+                        templates::FETCH_REMOTE_SRC,
                         &serde_json::json!({
                             "url": &remote_src.url,
                             "hash": &remote_src.hash
@@ -470,24 +450,8 @@ pub fn generate_src<'gctx>(
                 // cargo's own checkout, added to the store as the fetchgit output: no second download
                 if let Some(root) = checkout_root(gctx, unit.pkg.root()) {
                     let source = git_source_in_store(&root, &url, &precise_rev.to_string())?;
-                    let mut handlebars = Handlebars::new();
-                    let template_str = indoc! {
-                    r#"
-                      src = pkgs.fetchgit {
-                        name = "{{{name}}}";
-                        url = "{{{url}}}";
-                        rev = "{{{rev}}}";
-                        hash = "{{{hash}}}";
-                        fetchSubmodules = true;
-                        # nixpkgs 26.05: detached git maintenance/gc in submodules races the .git removal and
-                        # makes the output non-deterministic (NixOS/nixpkgs#524215, fixed upstream by 88cfc54552d5
-                        # and 5b5c421f525b). Drop this once the pinned nixpkgs has both.
-                        preFetch = "export GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false GIT_CONFIG_KEY_1=gc.auto GIT_CONFIG_VALUE_1=0 GIT_CONFIG_KEY_2=gc.autoDetach GIT_CONFIG_VALUE_2=false";
-                      };
-                    "#};
-                    handlebars.register_template_string("fetch", template_str)?;
-                    let rendered: String = handlebars.render(
-                        "fetch",
+                    let rendered: String = templates::render(
+                        templates::FETCH_GIT_CHECKOUT,
                         &serde_json::json!({
                             "name": source.name,
                             "url": url,
@@ -505,18 +469,8 @@ pub fn generate_src<'gctx>(
                     &gctx,
                 )?;
 
-                let mut handlebars = Handlebars::new();
-                let template_str = indoc! {
-                r#"
-                  src = pkgs.fetchgit {
-                    url = "{{{url}}}";
-                    rev = "{{{rev}}}";
-                    sha256 = "{{{sha256}}}";
-                  };
-                "#};
-                handlebars.register_template_string("fetch", template_str)?;
-                let rendered: String = handlebars.render(
-                    "fetch",
+                let rendered: String = templates::render(
+                    templates::FETCH_GIT,
                     &serde_json::json!({
                         "url": url,
                         "rev": precise_rev,
@@ -530,19 +484,6 @@ pub fn generate_src<'gctx>(
         }
         SourceKind::Registry => {
             if source_id.is_crates_io() {
-                let mut handlebars = Handlebars::new();
-                let template_str = indoc! {
-                r#"
-                  src = pkgs.fetchurl {
-                    # named like nixpkgs' importCargoLock, so the store path matches (and cache.nixos.org may have it);
-                    # without a name it would be `download`, after the last URL segment
-                    name = "crate-{{{crate_name}}}-{{{crate_version}}}.tar.gz";
-                    url = "https://crates.io/api/v1/crates/{{{crate_name}}}/{{{crate_version}}}/download";
-                    sha256 = "{{{hash}}}";
-                  };
-                "#};
-                handlebars.register_template_string("fetch", template_str)?;
-
                 let hash: &str = match unit.pkg.manifest().summary().checksum() {
                     Some(h) => h,
                     None => {
@@ -552,8 +493,8 @@ pub fn generate_src<'gctx>(
                         .into());
                     }
                 };
-                let rendered: String = handlebars.render(
-                    "fetch",
+                let rendered: String = templates::render(
+                    templates::FETCH_CRATES_IO,
                     &serde_json::json!({
                         "crate_name": crate_name,
                         "crate_version": crate_version,
