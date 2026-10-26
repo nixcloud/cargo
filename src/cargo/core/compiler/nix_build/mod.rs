@@ -201,7 +201,11 @@ impl<'a, 'gctx> NixBuildRunner {
             )
         .unwrap();
 
-        for (process_builder, unit) in all_units_with_process_builder.clone() {
+        let lib_build_targets = deps::lib_build_targets(&all_units_with_process_builder, unit_graph);
+
+        // by reference: a clone of the list copies each unit's process builder (args, env)
+        for (process_builder, unit) in &all_units_with_process_builder {
+            let unit = unit.clone();
             if visited_units.contains(&unit) {
                 continue;
             }
@@ -229,7 +233,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 &crate_version,
                 unit_graph,
                 build_runner,
-                &all_units_with_process_builder,
+                &lib_build_targets,
                 &workspace,
             );
 
