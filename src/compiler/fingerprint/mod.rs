@@ -406,6 +406,7 @@ use crate::compiler::unit_graph::UnitDep;
 use crate::util;
 use crate::util::errors::CargoResult;
 use crate::util::interning::InternedString;
+use crate::util::BuildBackend;
 use crate::util::log_message::LogMessage;
 use crate::util::{StableHasher, internal, path_args};
 use crate::workspace::Package;
@@ -462,6 +463,15 @@ pub fn prepare_target(
     force: bool,
 ) -> CargoResult<Job> {
     let bcx = build_runner.bcx;
+
+    // nix mode: nix decides what to build, the job queue doesn't run. Every unit is dirty, so that its rustc or
+    // build script command is recorded for the generated build system; fingerprints of an earlier legacy build in
+    // the same target dir would otherwise leave fresh units out of it. Calculating them is also the most expensive
+    // part of the generation (the mtime scan of path packages with a build script)
+    if bcx.gctx.backend()? == BuildBackend::Nix {
+        return Ok(Job::new_dirty(Work::noop(), DirtyReason::Forced));
+    }
+
     let loc = build_runner.files().fingerprint_file_path(unit, "");
 
     debug!("fingerprint at: {}", loc.display());
@@ -1970,6 +1980,11 @@ fn write_fingerprint(loc: &Path, fingerprint: &Fingerprint) -> CargoResult<()> {
 
 /// Prepare for work when a package starts to build
 pub fn prepare_init(build_runner: &mut BuildRunner<'_, '_>, unit: &Unit) -> CargoResult<()> {
+    // nix mode keeps no fingerprints (see `prepare_target`)
+    if build_runner.bcx.gctx.backend()? == BuildBackend::Nix {
+        return Ok(());
+    }
+
     let new1 = build_runner.files().fingerprint_dir(unit);
 
     // Doc tests have no output, thus no fingerprint.
