@@ -234,6 +234,7 @@ impl LogOne {
                 }
             }
             Event::Interrupted => self.interrupted = true,
+            Event::Restart => self.summary = false,
         }
     }
 
@@ -261,6 +262,18 @@ impl LogOne {
     }
 
     fn result(&mut self, drv: &str, status: Status, error_msg: &str) {
+        // a derivation after a content-addressed one is built as its resolved copy (another .drv, the same name),
+        // whose failure comes as this one's dependency failing: the copy's build is this one's
+        if status == Status::DependencyFailed {
+            let name = store_name(drv);
+            let resolved = self.build_by_drv.keys().find(|d| d.as_str() != drv && store_name(d) == name).cloned();
+            if let Some(resolved) = resolved {
+                *self.counts.entry("failed").or_default() += 1;
+                self.failed += 1;
+                self.failure(&resolved, "", error_msg);
+                return;
+            }
+        }
         let key = match status {
             Status::Built => "built",
             Status::Substituted => "fetched",

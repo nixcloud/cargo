@@ -74,7 +74,7 @@ pub fn ensure_managed_directory(dir: &Path) -> CargoResult<PathBuf> {
 pub fn ensure_garbage_collected_directory(dir: &Path) -> CargoResult<PathBuf> {
     let dir = ensure_managed_directory(dir)?;
 
-    let keep_paths = [".cargo-libnix-managed", "gc"];
+    let keep_paths = [".cargo-libnix-managed", "gc", "src-lists"];
     for entry in fs::read_dir(&dir)? {
         let entry = entry?;
         let path = entry.path();

@@ -30,14 +30,35 @@ pub struct Dependencies {
     pub rust_script_build_run: Vec<Dependency>,
 }
 
+/// The `OUT_DIR` (a symlink to `$out` in the build directory) of a workspace crate after a build script run, see
+/// `handle_dynamic_crate_aspects`; its files in the dep-info file are no sources (src_list.rs).
+pub const FIXED_OUT_DIR: &str = "cargo-libnix-out-dir";
+
 /// environment-variables / rustc-arguments / rustc-propagated-arguments
 /// require special care between different crate build steps: ScriptBuild / ScriptBuildRun / LibBuild
-pub fn handle_dynamic_crate_aspects(unit: &Unit, deps: &Dependencies) -> Vec<String> {
+/// `fixed_out_dir`: `OUT_DIR` is `FIXED_OUT_DIR` instead of `$out` (a workspace crate after a build script run).
+pub fn handle_dynamic_crate_aspects(unit: &Unit, deps: &Dependencies, fixed_out_dir: bool) -> Vec<String> {
     let mut additional_build_phase_arguments: Vec<String> = vec![];
     let source_environment_variables: String = indoc! {r#"
       load_environment_variables_from_files "${fn.environment_variables passthru.rust_script_build_run}"
     "#}
     .to_string();
+    if fixed_out_dir && deps.rust_crate_parent.is_some() {
+        additional_build_phase_arguments.push(
+            format!(
+                indoc! {r#"
+                    # rustc hashes the paths of the files a crate includes (include!(concat!(env!("OUT_DIR"), …))): with
+                    # $out as OUT_DIR the output would depend on its own path, so two builds of the same files differ
+                    # (src_list.rs compares them). A fixed path, a symlink to $out: the files are still written there
+                    ln -s $out $NIX_BUILD_TOP/{}
+                    export OUT_DIR=$NIX_BUILD_TOP/{}
+                "#},
+                FIXED_OUT_DIR,
+                FIXED_OUT_DIR
+            )
+            .indentation(6),
+        );
+    }
 
     match crate_build_type(unit) {
         CrateBuildType::BinBuild | CrateBuildType::TestBuild | CrateBuildType::ExampleBuild => {

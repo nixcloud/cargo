@@ -2,6 +2,10 @@
 { {{{function_arguments}}} }: with deps;
   pkgs.stdenv.mkDerivation rec {
     name = "{{{nix_attribute_name}}}";
+{{#if content_addressed}}
+    # a build script run of the workspace: the same output as before rebuilds nothing after it (#20)
+    __contentAddressed = fn.content_addressed;
+{{/if}}
 {{{cargo_crate_info}}}
     buildInputs = [] ++ fn.inject_deps meta.cargo_crate_info;
     # rustc on PATH like with cargo (legacy): proc macros and build scripts run `rustc` (e.g. `rustc -V`)
