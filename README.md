@@ -121,7 +121,7 @@ Add the cargo (libnix) binary and the matching `rustc` to your project's devshel
         devShells.default = pkgs.mkShell {
           buildInputs = [
             libnix-flake.packages.${system}.rustc_1_87_vanilla_pin
-            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v4
+            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v5
             pkgs.nix-prefetch-scripts
           ];
           shellHook = ''
@@ -135,11 +135,11 @@ Add the cargo (libnix) binary and the matching `rustc` to your project's devshel
 Afterwards check that `cargo` is the one from the store:
 
     $ which cargo
-    /nix/store/…-cargo-0_88_0-bin-8cad88ffd54a16db/bin/cargo
+    /nix/store/…-cargo-0_88_0-bin-d7e8a77a599efbea/bin/cargo
 
 ## 3. traditional nix code
 
-A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.87.0+v4` with a pinned rustc/cargo 1.87.0 from [fenix](https://github.com/nix-community/fenix):
+A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.87.0+v5` with a pinned rustc/cargo 1.87.0 from [fenix](https://github.com/nix-community/fenix):
 
 ```nix
 { pkgs ? import <nixpkgs> { } }:
@@ -154,12 +154,12 @@ let
   };
   # the generated build system of cargo (libnix) and the cargo sources it builds
   buildsystem = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv4/libnix-1.87.0+v4.tar.bz2";
-    sha256 = "sha256:0zhj8sl05g861c7pkwgd1ij26mf68qj1flbad2ivwj113vac9chq";
+    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv5/libnix-1.87.0+v5.tar.bz2";
+    sha256 = "sha256:0k5265x6x5618yvx44qlg6z1rmc0k76g9fj82pmyiacazr8nh7zd";
   };
   cargo-src = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.87.0%2Bv4.tar.gz";
-    sha256 = "sha256:0lm951801chcdnjni4068jjwlzyf94byjgjk5qzlr9vihsp5i3ym";
+    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.87.0%2Bv5.tar.gz";
+    sha256 = "sha256:16qcm28k3q3cwwv5g49fiic2bicws5s060yaz8x34g9jn0imsbzs";
   };
   cargo-libnix = (import (buildsystem + "/derivations/default.nix") {
     inherit pkgs;
@@ -167,7 +167,7 @@ let
     external_crate_dependencies = import (buildsystem + "/Cargo.dependencies.nix") { inherit pkgs; };
     rustc = toolchain.rustc;
     cargo = toolchain.cargo;
-  }).cargo-0_88_0-bin-8cad88ffd54a16db;
+  }).cargo-0_88_0-bin-d7e8a77a599efbea;
 in
 pkgs.mkShell {
   packages = [ cargo-libnix toolchain.rustc pkgs.nix-prefetch-scripts ];
@@ -257,7 +257,7 @@ The build system has two entry points:
 1. `cargo_build_caller.nix` is self-contained: it pins its own nixpkgs and rustc/cargo 1.87.0 (from fenix, without `rust-src`, which would end up in the runtime closure of every binary), so build artifacts can be shared between machines, and reads `Cargo.dependencies.nix` from `project_root`. It takes `system` and `project_root` (default: its own directory)
 2. `derivations/default.nix` is for flakes and other nix code: you pass `pkgs`, `rustc`, `cargo`, `external_crate_dependencies` and `project_root` yourself, see [traditional nix code](#3-traditional-nix-code) and this repository's [flake.nix](flake.nix)
 
-Both return an attribute set with a derivation per unit (e.g. `cargo-0_88_0-bin-8cad88ffd54a16db`) and `target`, which links all root units like _target/&lt;profile&gt;_.
+Both return an attribute set with a derivation per unit (e.g. `cargo-0_88_0-bin-d7e8a77a599efbea`) and `target`, which links all root units like _target/&lt;profile&gt;_.
 
 # Branches and releases 🌿
 
