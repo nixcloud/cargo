@@ -175,6 +175,17 @@ fn run(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, opts: &BuildO
         let _ = tx.send(Event::Outputs { drv: drv.clone(), outputs: map.clone() });
         outputs.insert(drv.clone(), map);
     }
+    // what this attempt builds, recorded before it does: what no list keeps afterwards (a failed build's
+    // outputs, helpers) is deleted after the next successful build
+    let to_build: Vec<String> = missing
+        .will_build
+        .iter()
+        .filter_map(|drv| outputs.get(drv))
+        .flat_map(|m| m.iter().filter_map(|(_, p)| p.clone()))
+        .collect();
+    if let Err(e) = gc_roots::record_built(slot, to_build) {
+        let _ = tx.send(Event::Message { text: format!("warning: could not record the built store paths: {e}") });
+    }
     let _ = tx.send(Event::Plan {
         will_build: missing.will_build,
         will_substitute: missing.will_substitute,
@@ -205,16 +216,24 @@ fn run(caller: &Path, gc_dir: &Path, slot: &Path, selection: &str, opts: &BuildO
     // do the least recently built selections beyond `MAX_SLOTS` (paths other selections use stay, see
     // `delete_unused`)
     let mut old = gc_roots::rooted_paths(slot);
+    old.extend(gc_roots::built_paths(slot));
     gc_roots::set_root(&mut d, slot, gc_roots::RETAINED_PATHS, &roots_out, tx).map_err(daemon_err)?;
     old.extend(gc_roots::evict(gc_dir, slot));
     let new: HashSet<String> = gc_roots::rooted_paths(slot).into_iter().chain([out.clone()]).collect();
     let stale: Vec<String> = old.into_iter().filter(|p| !new.contains(p)).collect();
     // the daemon's GC chatter (`deleting unused links...`) isn't shown
     let (quiet, _rx) = mpsc::channel();
-    let removed = gc_roots::delete_unused(&mut d, stale, &quiet).unwrap_or_else(|e| {
+    let removed = gc_roots::delete_unused(&mut d, stale.clone(), &quiet).unwrap_or_else(|e| {
         let _ = tx.send(Event::Message { text: format!("warning: could not delete unused store paths: {e}") });
         (0, 0)
     });
+    // what is still in use (e.g. the cargo binary that ran this build) is tried again after the next build;
+    // what another selection lists goes with that one's list
+    let others = gc_roots::other_slots_paths(gc_dir, slot);
+    let retry: Vec<String> = stale.into_iter().filter(|p| !others.contains(p)).collect();
+    if let Err(e) = gc_roots::keep_built(slot, &retry) {
+        let _ = tx.send(Event::Message { text: format!("warning: could not record the built store paths: {e}") });
+    }
     Ok((out, removed))
 }
 

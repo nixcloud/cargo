@@ -8,12 +8,15 @@
 //!   keep them alive. It also names the rustdoc and linker of the units, for the doc tests cargo runs
 //! - `<name>.drv`: the evaluated derivation of each
 //! - `selection`: the root units, for humans
+//! - `built`: a file (not a root) with the outputs nix built for this selection that no list keeps: those of
+//!   failed or interrupted builds, and those that were still in use when they were to be deleted
 //!
 //! When the retained paths of a slot move on, whatever its old file listed and the new one doesn't is deleted
-//! from the store, unless something else (another slot, another project, a running process) still uses it. So
-//! building a subset doesn't delete what the full build uses. The `MAX_SLOTS` most recently built selections are
-//! kept; the least recently built one beyond that is removed with its paths. `cargo clean` does the same for
-//! everything.
+//! from the store, and so is what `built` names, unless something else (another slot, another project, a
+//! running process) still uses it; so building a subset doesn't delete what the full build uses. What is still
+//! alive stays in `built` and is tried again after the next successful build: the cargo binary that builds its
+//! successor is deleted by the build after. The `MAX_SLOTS` most recently built selections are kept; the least
+//! recently built one beyond that is removed with its paths. `cargo clean` does the same for everything.
 use super::daemon::{self, Daemon};
 use super::event::Event;
 use std::collections::{HashMap, HashSet};
@@ -31,6 +34,8 @@ pub const RETAINED_PATHS_ATTR: &str = "cargo-libnix-retained-paths-units-crates-
 pub const EVAL_ROOT: &str = ".eval";
 /// The root units of a slot, one per line.
 pub const SELECTION: &str = "selection";
+/// The outputs nix built for a slot that its list doesn't keep, one per line (`record_built`).
+pub const BUILT: &str = "built";
 /// How many selections keep their store paths.
 pub const MAX_SLOTS: usize = 8;
 
@@ -53,9 +58,13 @@ has a directory of its own, named after a hash of the selection:
     Cargo.dependencies.nix, then (`# rustdoc`, `# linker`) the tools cargo runs on the unit outputs for doc tests
 <key>/retained-paths-units-crates-toolchain-deps.drv
     its derivation
+<key>/built
+    not a root: the store paths nix built for the selection that no list keeps, e.g. those of a failed build,
+    or an old binary that was still running when it was to be deleted
 
 After a successful build, the paths the selection's previous list had but the new one doesn't are deleted from
-the nix store, unless something else (another selection) still uses them. The 8 most recently built selections
+the nix store, and so are those in `built`, unless something else (another selection, a running program) still
+uses them; what is still in use stays in `built` for the next build. The 8 most recently built selections
 are kept; the directory of the least recently built one beyond that is removed and its paths are deleted the
 same way. `cargo clean` removes this directory and deletes the paths of all lists. Other entries in this
 directory are removed by cargo.
@@ -94,7 +103,7 @@ pub fn prepare_dir(gc_dir: &Path, slot: &Path, selection: &str) -> std::io::Resu
         }
     }
     for entry in std::fs::read_dir(slot)?.flatten() {
-        if !slot_entries().iter().any(|k| entry.file_name() == k.as_str()) {
+        if !slot_entries().iter().any(|k| entry.file_name() == k.as_str()) && entry.file_name() != BUILT {
             remove_entry(&entry)?;
         }
     }
@@ -114,13 +123,64 @@ pub fn rooted_paths(dir: &Path) -> Vec<String> {
     paths
 }
 
-/// `rooted_paths` and the output of `create-symlinks` of `dir`.
+/// `rooted_paths`, the output of `create-symlinks` and the `built` paths of `dir`.
 fn slot_paths(dir: &Path) -> Vec<String> {
     let mut paths = rooted_paths(dir);
     if let Ok(result) = std::fs::read_link(dir.join(CREATE_SYMLINKS)) {
         paths.push(result.to_string_lossy().into_owned());
     }
+    paths.extend(built_paths(dir));
     paths
+}
+
+/// What the slots of `gc_dir` other than `current` list or point to (not their `built`).
+pub fn other_slots_paths(gc_dir: &Path, current: &Path) -> HashSet<String> {
+    let Ok(entries) = std::fs::read_dir(gc_dir) else { return HashSet::new() };
+    let mut paths = HashSet::new();
+    for dir in entries.flatten().map(|e| e.path()).filter(|p| p != current && p.is_dir()) {
+        paths.extend(rooted_paths(&dir));
+        if let Ok(result) = std::fs::read_link(dir.join(CREATE_SYMLINKS)) {
+            paths.insert(result.to_string_lossy().into_owned());
+        }
+    }
+    paths
+}
+
+/// The paths of `built` in `dir` (a slot).
+pub fn built_paths(dir: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(dir.join(BUILT)).unwrap_or_default();
+    text.lines().filter(|l| l.starts_with("/nix/store/")).map(String::from).collect()
+}
+
+/// Adds `paths` (outputs nix is about to build for `dir`) to its `built`, before the build: what a failed or
+/// interrupted build leaves behind is deleted after the next successful one.
+pub fn record_built(dir: &Path, paths: impl IntoIterator<Item = String>) -> std::io::Result<()> {
+    let mut all = built_paths(dir);
+    let known: HashSet<String> = all.iter().cloned().collect();
+    let new: Vec<String> = paths.into_iter().filter(|p| !known.contains(p)).collect();
+    if new.is_empty() {
+        return Ok(());
+    }
+    all.extend(new);
+    write_built(dir, &all)
+}
+
+/// After the deletion: `built` of `dir` becomes those of `paths` that are still there (alive), to be tried again.
+pub fn keep_built(dir: &Path, paths: &[String]) -> std::io::Result<()> {
+    let mut seen = HashSet::new();
+    let alive: Vec<String> =
+        paths.iter().filter(|p| Path::new(p).exists() && seen.insert(p.as_str())).cloned().collect();
+    write_built(dir, &alive)
+}
+
+fn write_built(dir: &Path, paths: &[String]) -> std::io::Result<()> {
+    if paths.is_empty() {
+        return match std::fs::remove_file(dir.join(BUILT)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    std::fs::write(dir.join(BUILT), paths.iter().map(|p| format!("{p}\n")).collect::<String>())
 }
 
 /// The slot of the roots of the layout before slots.
@@ -289,6 +349,8 @@ pub fn delete_unused(d: &mut Daemon, paths: Vec<String>, tx: &Sender<Event>) -> 
     // Deleting specific paths only deletes referrers that are deleted too, so some referrers join:
     // - a source (no deriver, e.g. the project's filterSource copy) is referenced by the `.drv`s of its units,
     //   and those by further `.drv`s
+    // - an output is referenced by `.drv`s too when they were resolved (inputs of content-addressed derivations
+    //   are their outputs then); a `.drv` something still roots stays, like any other path
     // - a list of retained paths or a create-symlinks script nothing roots anymore (its target dir was removed by
     //   hand, or was temporary like `cargo install`'s) is dead, but would keep everything it references
     let roots: HashSet<String> = d.find_roots(tx)?.into_iter().collect();
@@ -301,11 +363,10 @@ pub fn delete_unused(d: &mut Daemon, paths: Vec<String>, tx: &Sender<Event>) -> 
     while i < candidates.len() {
         let p = candidates[i].clone();
         i += 1;
-        let Some((deriver, size)) = d.query_path_info(&p, tx)? else { continue };
+        let Some((_, size)) = d.query_path_info(&p, tx)? else { continue };
         sizes.insert(p.clone(), size);
-        let source = p.ends_with(".drv") || deriver.is_empty();
         for r in d.query_referrers(&p, tx)? {
-            if ((source && r.ends_with(".drv")) || dead_list(&r)) && !candidates.contains(&r) {
+            if (r.ends_with(".drv") || dead_list(&r)) && !candidates.contains(&r) {
                 candidates.push(r);
             }
         }
@@ -404,6 +465,37 @@ mod tests {
         assert!(gc.join("README").exists());
         // left for adopt_unslotted
         assert!(gc.join(RETAINED_PATHS).symlink_metadata().is_ok());
+    }
+
+    #[test]
+    fn built_keeps_what_is_still_there() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gc = tmp.path();
+        let current = slot(gc, "current", 1);
+        let other = slot(gc, "other", 2);
+        // a path that exists, outside of the gc dir (prepare_dir removes what it doesn't know there)
+        let elsewhere = tempfile::tempdir().unwrap();
+        let there = elsewhere.path().join("there");
+        std::fs::write(&there, "").unwrap();
+        let there = there.to_string_lossy().into_owned();
+
+        record_built(&current, ["/nix/store/a-x".to_string(), "/nix/store/b-y".to_string()]).unwrap();
+        record_built(&current, ["/nix/store/b-y".to_string(), "/nix/store/c-z".to_string()]).unwrap();
+        assert_eq!(built_paths(&current), ["/nix/store/a-x", "/nix/store/b-y", "/nix/store/c-z"]);
+        // prepare_dir keeps it
+        prepare_dir(gc, &current, "a\n").unwrap();
+        assert_eq!(built_paths(&current).len(), 3);
+        // evict and cargo clean see it
+        record_built(&other, ["/nix/store/d-w".to_string()]).unwrap();
+        assert!(slot_paths(&other).contains(&"/nix/store/d-w".to_string()));
+        assert!(!other_slots_paths(gc, &current).contains("/nix/store/d-w"));
+        assert!(other_slots_paths(gc, &current).contains("/nix/store/other-list"));
+
+        // what is gone is dropped; nothing left removes the file
+        keep_built(&current, &["/nix/store/a-x".to_string(), there.clone(), there.clone()]).unwrap();
+        assert_eq!(std::fs::read_to_string(current.join(BUILT)).unwrap(), format!("{there}\n"));
+        keep_built(&current, &[]).unwrap();
+        assert!(!current.join(BUILT).exists());
     }
 
     #[test]

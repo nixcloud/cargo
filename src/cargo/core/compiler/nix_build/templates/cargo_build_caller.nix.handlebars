@@ -46,9 +46,9 @@ let
   };
 
   # everything a build uses that is worth keeping: the units, their sources (crate tarballs), the toolchain (with
-  # the C compiler that links) and the external dependencies from Cargo.dependencies.nix. cargo roots it in
-  # target/<profile>/nix/gc, so nix-collect-garbage doesn't remove the dependency builds, and deletes what the
-  # previous build listed but this one doesn't (nixcloud/cargo#4)
+  # the C compiler that links), build-rs-libnix and the external dependencies from Cargo.dependencies.nix. cargo
+  # roots it in target/<profile>/nix/gc, so nix-collect-garbage doesn't remove the dependency builds, and deletes
+  # what the previous build listed but this one doesn't (nixcloud/cargo#4)
   lib = pkgs.lib;
   derivationsIn = x:
     if lib.isDerivation x then [ x ]
@@ -61,6 +61,9 @@ let
     # they reference the unit outputs, so the old ones would keep old units alive
     ++ map (u: cargoPackages.fn.rustc_linker_arguments_dir u.rust_crate_libraries)
       (lib.filter (u: u ? rust_crate_libraries) units)
+    # what the build script runs parse their output with; only when there are any, it is a build of its own
+    ++ lib.optional (lib.any (u: (u.meta.cargo_crate_info.type or "") == "(build.rs run)") units)
+      cargoPackages.fn.build_rs_libnix_package
     # only the `out` of the C compiler, not its man and info pages
     ++ [ toolchain "${pkgs.stdenv.cc}" ]
     ++ derivationsIn external_crate_dependencies.deps;
