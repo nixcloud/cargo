@@ -141,11 +141,11 @@ Add cargo (libnix) with its `rustc` to your project's devshell:
 
 Then `nix develop` in your project gives you the same shell as the [Quick start](#quick-start-). Use `rust-1_87` instead of `rust-1_99` to stay on Rust 1.87.
 
-`rust-1_99` follows the 1.99 line (`libnix-1.99.0+v2` once it is released); to stay on one release, use `cargo-libnix-1_99_0_plus_v1` and its `.rustc`, or pin the flake input to a commit of this branch.
+`rust-1_99` follows the 1.99 line (currently `libnix-1.99.0+v2`); to stay on one release, use `cargo-libnix-1_99_0_plus_v2` and its `.rustc`, or pin the flake input to a commit of this branch.
 
 ## Traditional nix code
 
-A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.99.0+v1` with a pinned rustc/cargo 1.99.0 from [fenix](https://github.com/nix-community/fenix):
+A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.99.0+v2` with a pinned rustc/cargo 1.99.0 from [fenix](https://github.com/nix-community/fenix):
 
 ```nix
 { pkgs ? import <nixpkgs> { } }:
@@ -170,12 +170,12 @@ let
   };
   # the generated build system of cargo (libnix) and the cargo sources it builds
   buildsystem = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.99.0%2Bv1/libnix-1.99.0+v1.tar.bz2";
-    sha256 = "sha256:1mwxjyr9ccbq71p1mq296xvs2b10kxb159a90dh3w6wbgs5qizg4";
+    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.99.0%2Bv2/libnix-1.99.0+v2.tar.bz2";
+    sha256 = "sha256:0v10kxslf5140wd5b14anc79n9c0lkz5yv2y0ni1vxxbzzmadh35";
   };
   cargo-src = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.99.0%2Bv1.tar.gz";
-    sha256 = "sha256:03fywzj68mj56m1lis3ghjn4i35kjd8frfkydlwldn8y6a87qviv";
+    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.99.0%2Bv2.tar.gz";
+    sha256 = "sha256:1p7llhf5kl2yqr5zcdya81nfr63lsn3iysyc8r827rabz4b8lfg4";
   };
   cargo-libnix = (import (buildsystem + "/derivations/default.nix") {
     inherit pkgs rustc;
@@ -198,11 +198,11 @@ The [flake.nix](flake.nix) of this branch serves the newest release of each supp
 
 | output | contents |
 |---|---|
-| `packages.default`, `devShells.default` | cargo `libnix-1.99.0+v1` and rustc 1.99.0; `cargo +1.87 …` runs the 1.87 release instead (like rustup's `+toolchain`) |
-| `packages.rust-1_99`, `devShells.rust-1_99` | cargo `libnix-1.99.0+v1` and rustc 1.99.0 |
-| `packages.rust-1_87`, `devShells.rust-1_87` | cargo `libnix-1.87.0+v4` and rustc 1.87.0 |
+| `packages.default`, `devShells.default` | cargo `libnix-1.99.0+v2` and rustc 1.99.0; `cargo +1.87 …` runs the 1.87 release instead (like rustup's `+toolchain`) |
+| `packages.rust-1_99`, `devShells.rust-1_99` | cargo `libnix-1.99.0+v2` and rustc 1.99.0 |
+| `packages.rust-1_87`, `devShells.rust-1_87` | cargo `libnix-1.87.0+v5` and rustc 1.87.0 |
 | `packages.cargo-libnix-1_99`, `packages.cargo-libnix-1_87` | only cargo, the newest release of that line; its rustc is `.rustc` |
-| `packages.cargo-libnix-1_99_0_plus_v1`, `packages.cargo-libnix-1_87_0_plus_v4` | only cargo, exactly that release |
+| `packages.cargo-libnix-1_99_0_plus_v2`, `packages.cargo-libnix-1_87_0_plus_v5` (and the earlier `…_plus_v1`, `…_plus_v4`) | only cargo, exactly that release |
 | `overlays.default` | `cargo-libnix` (= `default`), `cargo-libnix_1_99`, `cargo-libnix_1_87` (= `rust-1_99`, `rust-1_87`) |
 
 cargo (libnix) only works with a rustc of its own version, so use `rust-1_99` / `rust-1_87` (cargo and rustc in one package), or `cargo-libnix-*` together with its `.rustc`, never a rustc from elsewhere. The rustc 1.99.0 is wrapped with `-C linker-features=-lld`: since 1.90 rustc links with its own lld, which bypasses nix's linker wrapper (no rpath, the binaries miss their libraries).
@@ -273,7 +273,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
 | toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.99.0); rustc ≥ 1.90 links with its bundled lld, which bypasses nix's linker wrapper, so the units are built with a wrapped rustc passing `-C linker-features=-lld` |
 
-The tables describe the 1.99 line (`libnix-1.99.0+v1`). The 1.87 line (`libnix-1.87.0+v4`) has the same subcommands and features and needs no wrapped rustc; see the README of [rust-1.87.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix) for its state.
+The tables describe the 1.99 line (`libnix-1.99.0+v2`). The 1.87 line (`libnix-1.87.0+v5`) has the same subcommands and features and needs no wrapped rustc; see the README of [rust-1.87.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix) for its state.
 
 ## How it works
 
