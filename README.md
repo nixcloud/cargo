@@ -70,7 +70,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | vendored sources, source replacement | ✅ | |
 | `--offline` | ✅ | crates.io is served from the store tarballs of `Cargo.lock`, so the build system can be generated inside a nix build (IFD) |
 | `--release` | ✅ | profile options (`lto`, `codegen-units`, `panic`, …) are passed on, but untested |
-| GC roots | ✅ | per selection of units in `target/<profile>/nix/gc`, the 8 most recent are kept; `cargo clean` removes them |
+| GC roots | ✅ | per selection of units in `target/<profile>/nix/gc`, the 8 most recent are kept; what a build no longer uses is deleted, also what failed builds left and what was still running (the next build); `cargo clean` removes them |
 | cargo-like output | ✅ | nix logs are shown in cargo's format |
 | other registries | ❌ | only crates.io; others fail when the build system is generated |
 | incremental builds / fingerprints | ❌ | changed crates are always compiled from scratch, so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |

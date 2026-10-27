@@ -7,6 +7,8 @@ let
   callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo project_root; });
   fn = rec {
     build_rs_libnix = "${build_rs_libnix'}/bin/build-rs-libnix";
+    # the package, for the retained paths (cargo_build_caller.nix)
+    build_rs_libnix_package = build_rs_libnix';
     # the libraries and all they depend on, each once. genericClosure visits every unit once (key: its name, which
     # carries cargo's unit hash); a plain recursion visits every path through the dependency graph, which grows
     # exponentially with its depth (minutes to hours of evaluation for ~1500 units)
