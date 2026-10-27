@@ -87,17 +87,17 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 The releases of every supported toolchain are served by the flake of [master-libnix](https://github.com/nixcloud/cargo/tree/master-libnix), with 1.99 as the default; its README shows how to use them from a devshell, a flake or traditional nix code:
 
 ```bash
-nix develop github:nixcloud/cargo              # libnix-1.99.0+v1; `cargo +1.87 build` for libnix-1.87.0+v4
-nix develop github:nixcloud/cargo#rust-1_87    # only libnix-1.87.0+v4
+nix develop github:nixcloud/cargo              # libnix-1.99.0+v2; `cargo +1.87 build` for libnix-1.87.0+v5
+nix develop github:nixcloud/cargo#rust-1_87    # only libnix-1.87.0+v5
 ```
 
 ## Developing this branch
 
 The [flake.nix](flake.nix) of this branch is for development:
 
-* `nix develop` in a checkout: cargo `libnix-1.99.0+v1`, rustc 1.99.0, rustfmt, clippy, and `CARGO_BACKEND=nix`; nix mode pins its own rustc, so building this repository with its own cargo needs `CARGO_BACKEND=legacy`
-* `cargo-libnix-git-head-via-ifd`: the working tree, built through its generated nix build system (IFD), with `libnix-1.99.0+v1` as generator
-* `cargo-libnix-git-revision-via-ifd`: a pinned commit of `rust-1.87.0-libnix`, with `libnix-1.87.0+v4` as generator
+* `nix develop` in a checkout: cargo `libnix-1.99.0+v2`, rustc 1.99.0, rustfmt, clippy, and `CARGO_BACKEND=nix`; nix mode pins its own rustc, so building this repository with its own cargo needs `CARGO_BACKEND=legacy`
+* `cargo-libnix-git-head-via-ifd`: the working tree, built through its generated nix build system (IFD), with `libnix-1.99.0+v2` as generator
+* `cargo-libnix-git-revision-via-ifd`: a pinned commit of `rust-1.87.0-libnix`, with `libnix-1.87.0+v5` as generator
 * [test.nix](test.nix) and `tests-libnix/run.sh` build the regression tests with `cargo-libnix-git-head-via-ifd`, see [Regression tests](#regression-tests)
 
 # Injecting dependencies
