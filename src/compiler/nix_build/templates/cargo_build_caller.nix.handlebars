@@ -1,7 +1,10 @@
 # generated from cargo_build_caller.nix.handlebars using cargo (manual edits won't be persistent)
 # project_root: the directory the workspace's path crates are built from; pass your own to build another
 # checkout, e.g. `import "${generated}/cargo_build_caller.nix" { project_root = ./.; }` (IFD)
-{ system ? builtins.currentSystem, project_root ? {{{project_root}}}/. }:
+# content_addressed: the build script runs of the workspace's packages become content-addressed derivations, so
+# a run giving the same output as before rebuilds nothing after it (nixcloud/cargo#20); needs the experimental
+# feature ca-derivations. cargo passes `--arg content_addressed true` when nix has it enabled
+{ system ? builtins.currentSystem, project_root ? {{{project_root}}}/., content_addressed ? false }:
 let
   nixpkgsSrc = builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/26.05.tar.gz";
@@ -51,7 +54,7 @@ let
     else builtins.trace "No Cargo.dependencies.nix found" {});
 
   cargoPackages = import ./derivations/default.nix {
-    inherit pkgs external_crate_dependencies project_root;
+    inherit pkgs external_crate_dependencies project_root content_addressed;
     rustc = rustc_1_99_vanilla_pin;
     cargo = cargo_1_99_vanilla_pin;
   };

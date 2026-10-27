@@ -33,6 +33,8 @@ pub enum Event {
     /// TODO: not sent yet; cargo has no Ctrl-C handler, so the process just dies (and the daemon cancels).
     #[allow(dead_code)]
     Interrupted,
+    /// The build was cancelled before it started (`Outcome::Restart`): no summary, another build follows.
+    Restart,
 }
 
 /// Activity types (Nix logging.hh) with their positional fields decoded.

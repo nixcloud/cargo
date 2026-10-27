@@ -1,5 +1,5 @@
 # generated from default.nix.handlebars using cargo (manual edits won't be persistent)
-{ pkgs, lib ? pkgs.lib, rustc, cargo, external_crate_dependencies, project_root }:
+{ pkgs, lib ? pkgs.lib, rustc, cargo, external_crate_dependencies, project_root, content_addressed ? false }:
 let
   build_rs_libnix' = pkgs.callPackage ./build_rs_libnix.nix {
     inherit pkgs;
@@ -9,6 +9,8 @@ let
     build_rs_libnix = "${build_rs_libnix'}/bin/build-rs-libnix";
     # the package, for the retained paths (cargo_build_caller.nix)
     build_rs_libnix_package = build_rs_libnix';
+    # the build script runs of the workspace's packages are content-addressed (cargo_build_caller.nix)
+    inherit content_addressed;
     # the libraries and all they depend on, each once. genericClosure visits every unit once (key: its name, which
     # carries cargo's unit hash); a plain recursion visits every path through the dependency graph, which grows
     # exponentially with its depth (minutes to hours of evaluation for ~1500 units)
@@ -222,7 +224,6 @@ let
               entry
         else
           {};
-    relativeFileset = project_root: relPaths: lib.fileset.unions (map (p: project_root + "/${p}") relPaths);
     # the src of the workspace's path crates, bound once: a filterSource per unit walks, hashes and copies the whole
     # tree again for each of them (~1.6s each for cargo's own tree)
     #
@@ -254,6 +255,14 @@ let
               && (base == "target" || base == "result" || builtins.match "result-.*" base != null
                   || builtins.elem base excluded))
           ) project_root;
+    # the files of a unit's file list (src_list.rs) and their directories, relative to project_root. The name is
+    # that of `project_src` (the copy of all files), so the builder unpacks both to the same directory
+    src_minimal = project_root: allowed:
+      let
+        root = toString project_root;
+        set = builtins.listToAttrs (map (p: { name = "${root}/${p}"; value = null; }) allowed);
+      in
+        builtins.path { path = project_root; filter = path: type: set ? ${path}; };
   };
   self = {
     target = callPackage' ./target.nix {};

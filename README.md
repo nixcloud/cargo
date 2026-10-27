@@ -28,13 +28,26 @@ cargo resolves the dependencies and plans the build as usual. In nix mode it the
 * crates.io downloads and crate builds are store paths, shared between projects and machines (and between `cargo build`, `cargo run` and `cargo test`)
 * the same nix code can be exported with `cargo build write-nix-buildsystem` and built by nix alone, from a flake or nixpkgs, without calling cargo again
 
-### build scripts and build-rs-libnix
+### build scripts and build-rs-libnix 
 
 cargo (legacy) runs a `build.rs`, reads the `cargo:` directives it prints (`rustc-cfg`, `rustc-link-lib`, `rustc-env`, …) and applies them to the rustc calls that follow. In nix mode the build script run is a derivation of its own, and the units built after it can't ask cargo anything, so the parsing happens inside that derivation: its output goes through [build-rs-libnix](https://github.com/nixcloud/build-rs-libnix), a small CLI that writes the result to `$out/nix` (`rustc-arguments` for the crate itself, `rustc-propagated-arguments` for the crates linking it, `environment-variables`, e.g. `DEP_<LINKS>_<KEY>`), which the dependent derivations read.
 
 * the generated `build_rs_libnix.nix` builds it from a pinned commit of nixcloud/build-rs-libnix; the 1.87 and the 1.99 line pin the same version, as the `cargo:` protocol didn't change between them
 * every build script run depends on it, so changing the pin rebuilds all build script runs and everything after them; fixes go to nixcloud/build-rs-libnix first and each branch bumps its pin in one step
 * not supported yet (planned for 0.1.13): the `cargo::` syntax (Rust ≥ 1.77) and old-style `cargo:KEY=VALUE` metadata other than `include`, `root`, `conf`, `version_number` and `static` are skipped with a warning; `metadata`, `rustc-flags` and `rustc-link-arg-{bin,bins,tests,examples,cdylib}` fail the build script run
+
+### file lists of the workspace's crates
+
+A crate of the workspace gets only the files rustc reads as its `src`, not the whole workspace, so editing a README or another crate's files doesn't rebuild it ([#3](https://github.com/nixcloud/cargo/issues/3), part 1). rustc writes the files it read to the dep-info file (`.d`) in the unit's output; cargo keeps that list with a hash of each file in _target/&lt;profile&gt;/nix/src-lists_.
+
+* a unit without a list, with a listed file changed or gone, or depending on such a unit is built once, with all files, and its `.d` gives the new list. It stays on all files while that build is the current one: a no-op rebuilds nothing, editing the crate again builds it with all files again
+* the first time something else changes (a README, another crate, `Cargo.dependencies.nix`), it would be rebuilt with all files anyway: it is built with its list instead (`Nix app-… would be rebuilt: building with the files rustc listed from now on`), and from then on such changes don't rebuild it. That build is compared with the one with all files (store hashes and the random names of incremental object files aside), when only the src differs between both derivations; if it differs or fails, the unit keeps all files from then on (`warning: app-… keeps all files: …`)
+* that happens when a file is read without rustc knowing, e.g. by a proc macro using `std::fs` instead of `include_bytes!` (or `proc_macro::tracked_path` on nightly); fix the crate, or give the package all files right away with `[package.metadata.libnix] src = "full"` in its `Cargo.toml` (the comparison can't catch a file that changes nothing in the output then)
+* a build script's compile (`build.rs build`) gets a list like any crate
+* a build script run (`build.rs run`) keeps all files and runs on every edit. With the experimental nix feature `ca-derivations` enabled (`experimental-features = … ca-derivations` in nix.conf, for the daemon too) the runs of the workspace are content-addressed derivations ([#20](https://github.com/nixcloud/cargo/issues/20)): cargo builds them first, and only a new output makes the crates after them dirty, which are then built with all files for new lists, as above; the same output rebuilds nothing. When such a crate would be rebuilt because its own files or a dependency changed, cargo sees that before building and it gets its list right away; only when nothing but the run changed (e.g. the build script itself) does nix tell during the build, so the one time such a crate gets its list it compiles twice (with all files, then with the list). cargo enables it when `nix config show` lists the feature, `CARGO_LIBNIX_CA=1`/`0` overrides that. A build script that writes something else on every run (e.g. a timestamp) makes the crates after it rebuild on every edit: fix the build script
+* without `ca-derivations`, the crates of a package with a build script and the crates depending on them keep the whole workspace (they rebuild on every edit anyway)
+* not covered yet, they keep the whole workspace: path packages outside the workspace, the crates depending on them, and the exported build system (`write-nix-buildsystem`, which can pass `content_addressed = true` to `cargo_build_caller.nix` itself)
+* `tests-libnix/src-lists/run.sh` tests it with a minimal workspace per case (run by hand)
 
 ## Requirements
 
@@ -73,7 +86,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | GC roots | ✅ | per selection of units in `target/<profile>/nix/gc`, the 8 most recent are kept; what a build no longer uses is deleted, also what failed builds left and what was still running (the next build); `cargo clean` removes them |
 | cargo-like output | ✅ | nix logs are shown in cargo's format |
 | other registries | ❌ | only crates.io; others fail when the build system is generated |
-| incremental builds / fingerprints | ❌ | changed crates are always compiled from scratch, so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |
+| incremental builds / fingerprints | ⚠️ | the workspace's crates are rebuilt only when a file rustc read changed, see [file lists](#file-lists-of-the-workspaces-crates); changed crates are compiled from scratch (once, with all files; the first unrelated change after that compiles them with their file list), so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |
 | cross-compilation, `--target` (e.g. wasm) | ❓ | untested, known failures (wasm) |
 | platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
 | toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.99.0); rustc ≥ 1.90 links with its bundled lld, which bypasses nix's linker wrapper, so the units are built with a wrapped rustc passing `-C linker-features=-lld` |

@@ -2,6 +2,7 @@ mod asserts;
 mod download;
 mod git_store;
 mod deps;
+mod src_list;
 mod tests;
 pub mod nix_files;
 pub mod nix_code;
@@ -10,7 +11,7 @@ mod templates;
 
 use cargo_util::ProcessBuilder;
 use indoc::indoc;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -20,7 +21,11 @@ use asserts::assert_escapes;
 use deps::{Dependencies, handle_dynamic_crate_aspects};
 use nix_files::{create_nix_filepath, write_nix_file};
 use nix_code::{IndentationExt, bins_in_store, cargo_crate_info, create_nix_name, generate_environment_variables, generate_unpack_phase, generate_src};
-use crate::compiler::nix_build::nix_build_runner::NixBuild;
+use crate::compiler::nix_build::nix_build_runner::{
+    content_addressed, references, BuildFailed, Built, Gate, NixBuild, Outcome,
+};
+use crate::compiler::nix_build::nix_build_runner::event::store_name as event_store_name;
+use src_list::{SrcList, SrcLists};
 pub use crate::compiler::nix_build::nix_build_runner::gc_roots::BuildOutputs;
 use crate::compiler::nix_build::nix_files::ensure_garbage_collected_directory;
 use crate::compiler::unit_graph::UnitGraph;
@@ -128,24 +133,477 @@ struct SymlinkedTargets {
 
 pub struct NixBuildRunner {}
 
+/// The build system as generated, for building it.
+struct Generated {
+    nix_base_dir: Filesystem,
+    /// derivation names of the generated units and their helpers, for logone
+    unit_drv_names: HashSet<String>,
+    /// how long writing it took
+    duration: std::time::Duration,
+}
+
+/// A root unit with minimal sources (src_list.rs).
+struct ListedUnit {
+    /// the package's directory, relative to the workspace root
+    crate_dir: PathBuf,
+    /// the units with minimal sources it depends on, also indirectly
+    deps: BTreeSet<String>,
+}
+
 impl<'a, 'gctx> NixBuildRunner {
     /// Generates the build system and builds it; returns its outputs, or `None` if it was only written
     /// (write-nix-buildsystem).
     pub fn build(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<Option<BuildOutputs>> {
+        let gctx = build_runner.bcx.gctx;
+        if gctx.write_nix_buildsystem_options.get().unwrap_or(&None).is_some() {
+            Self::generate(build_runner, &HashMap::new())?;
+            return Ok(None);
+        }
+        Self::build_with_src_lists(build_runner).map(Some)
+    }
+
+    /// The root units that get minimal sources: workspace members compiled (also their build scripts, not their
+    /// runs), with a list that isn't `Full`, not opted out, and depending on no path unit that keeps all files.
+    /// Those rebuild on every edit (build script runs, path packages outside the workspace), so would their
+    /// dependents. With content-addressed runs (`content_addressed`) a run of the workspace keeps all files but
+    /// doesn't count as such: its output decides (`SrcList::Output`), and it is in the `deps` of the units after
+    /// it. Returns those runs too.
+    fn listed_units(
+        build_runner: &BuildRunner<'a, 'gctx>,
+        lists: &SrcLists,
+    ) -> (BTreeMap<String, ListedUnit>, BTreeSet<String>) {
+        fn visit<'a, 'gctx>(
+            unit: &Unit,
+            build_runner: &BuildRunner<'a, 'gctx>,
+            lists: &SrcLists,
+            memo: &mut HashMap<Unit, (bool, BTreeSet<String>)>,
+            listed: &mut BTreeMap<String, ListedUnit>,
+            runs: &mut BTreeSet<String>,
+        ) -> (bool, BTreeSet<String>) {
+            if let Some(r) = memo.get(unit) {
+                return r.clone();
+            }
+            let bcx = &build_runner.bcx;
+            let mut tainted = false;
+            let mut deps = BTreeSet::new();
+            for dep in bcx.unit_graph.get(unit).map(|d| d.as_slice()).unwrap_or_default() {
+                let (t, d) = visit(&dep.unit, build_runner, lists, memo, listed, runs);
+                tainted |= t;
+                deps.extend(d);
+            }
+            let pkg = unit.pkg.package_id();
+            let is_root = bcx.ws.members().any(|m| m.package_id() == pkg);
+            let attr = create_nix_name(unit, build_runner, NixNameMode::AttributeName, false);
+            if is_root && unit.mode == CompileMode::RunCustomBuild && content_addressed() {
+                // what the units after it get is its output, not its inputs: a changed build script that writes
+                // the same output changes nothing after it
+                runs.insert(attr.clone());
+                let r = (false, BTreeSet::from([attr]));
+                memo.insert(unit.clone(), r.clone());
+                return r;
+            }
+            let crate_dir = unit.pkg.root().strip_prefix(bcx.ws.root()).ok().map(Path::to_path_buf);
+            let listed_self = !tainted
+                && crate_dir.is_some()
+                && src_list::in_scope(unit, is_root)
+                && !src_list::opted_out(unit)
+                && !matches!(lists.get(&attr), Some(SrcList::Full(_)));
+            if listed_self {
+                listed.insert(attr.clone(), ListedUnit { crate_dir: crate_dir.unwrap(), deps: deps.clone() });
+                deps.insert(attr);
+            }
+            let r = (tainted || (pkg.source_id().is_path() && !listed_self), deps);
+            memo.insert(unit.clone(), r.clone());
+            r
+        }
+        let mut memo = HashMap::new();
+        let mut listed = BTreeMap::new();
+        let mut runs = BTreeSet::new();
+        for (_, unit) in build_runner.raw_process_builder.lock().unwrap().iter() {
+            visit(unit, build_runner, lists, &mut memo, &mut listed, &mut runs);
+        }
+        (listed, runs)
+    }
+
+    /// The gate check (`Gate`): the units with a list after a run (`runs`) whose output isn't the recorded one;
+    /// the dirty ones already get new lists. `outs` are the runs' outputs now, kept in `seen` for recording them
+    /// after the build (`SrcList::Output`), `changed_runs` the runs that changed.
+    fn changed_after_runs(
+        listed: &BTreeMap<String, ListedUnit>,
+        lists: &SrcLists,
+        dirty: &BTreeSet<String>,
+        outs: &HashMap<String, String>,
+        seen: &mut HashMap<String, String>,
+        changed_runs: &mut Vec<String>,
+    ) -> Vec<String> {
+        seen.extend(outs.iter().map(|(a, o)| (a.clone(), o.clone())));
+        let changed: BTreeSet<&String> = outs
+            .iter()
+            .filter(|(a, o)| !matches!(lists.get(a), Some(SrcList::Output(r)) if r == *o))
+            .map(|(a, _)| a)
+            .collect();
+        let units: Vec<String> = listed
+            .iter()
+            .filter(|(a, u)| !dirty.contains(*a) && u.deps.iter().any(|d| changed.contains(d)))
+            .map(|(a, _)| a.clone())
+            .collect();
+        if !units.is_empty() {
+            *changed_runs = changed.into_iter().cloned().collect();
+        }
+        units
+    }
+
+    /// Adds the units that depend on a dirty one.
+    fn propagate_dirty(listed: &BTreeMap<String, ListedUnit>, dirty: &mut BTreeSet<String>) {
+        let more: Vec<String> = listed
+            .iter()
+            .filter(|(a, u)| !dirty.contains(*a) && u.deps.iter().any(|d| dirty.contains(d)))
+            .map(|(a, _)| a.clone())
+            .collect();
+        dirty.extend(more);
+    }
+
+    /// The minimal `src` of the units `on_list`, from their lists.
+    fn minimal_srcs(
+        listed: &BTreeMap<String, ListedUnit>,
+        lists: &SrcLists,
+        on_list: &BTreeSet<String>,
+    ) -> HashMap<String, String> {
+        on_list
+            .iter()
+            .filter_map(|a| match lists.get(a) {
+                Some(SrcList::Files(files) | SrcList::Pending(src_list::Pending { files, .. })) => {
+                    Some((a.clone(), src_list::minimal_src(files, &listed[a].crate_dir)))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `cargo build` with minimal sources for the root units (src_list.rs). A dirty unit is built with all files,
+    /// and its dep-info file gives its list (`SrcList::Pending`). It stays on all files while that build is the
+    /// current one; once it would be rebuilt with all files (another file of the workspace changed), it gets
+    /// its list instead, and that output is compared with the one built with all files.
+    fn build_with_src_lists(build_runner: &BuildRunner<'a, 'gctx>) -> CargoResult<BuildOutputs> {
+        let bcx = &build_runner.bcx;
+        let gctx = bcx.gctx;
+        let (keep_going, jobs) = (bcx.build_config.keep_going, bcx.build_config.jobs);
+        let target_dir = bcx.ws.target_dir().into_path_unlocked();
+        let selection = Self::selection(build_runner);
+
+        let base = Self::nix_base_dir(build_runner, &None).into_path_unlocked();
+        let mut lists = SrcLists::load(&base, bcx.ws.root());
+        let (listed, runs) = Self::listed_units(build_runner, &lists);
+        let mut dirty: BTreeSet<String> = listed.keys().filter(|a| !lists.is_clean(a)).cloned().collect();
+        Self::propagate_dirty(&listed, &mut dirty);
+        // the units with a pending list that get it in this build
+        let mut switch: BTreeSet<String> = BTreeSet::new();
+        let mut generation = std::time::Duration::ZERO;
+        // the outputs of the content-addressed runs (`runs`) in this build, recorded once it succeeded
+        let mut run_outs: HashMap<String, String> = HashMap::new();
+        let run_attrs: Vec<String> = runs.iter().cloned().collect();
+        // a unit after such a run: its drv is a new one with every new run (`Gate::after`)
+        let after_run = |name: &str| listed.get(name).is_some_and(|u| u.deps.iter().any(|d| runs.contains(d)));
+
+        if !dirty.is_empty() {
+            gctx.shell().status(
+                "Nix",
+                format!("{} unit(s) changed: building them with all files, for their file lists", dirty.len()),
+            )?;
+            gctx.shell().verbose(|s| s.status("Changed", dirty.iter().cloned().collect::<Vec<_>>().join(", ")))?;
+        }
+        for _ in 0..5 {
+            // a pending list that isn't switched to: the unit is built with all files as before
+            let waiting = |name: &str| {
+                listed.contains_key(name)
+                    && !dirty.contains(name)
+                    && !switch.contains(name)
+                    && matches!(lists.get(name), Some(SrcList::Pending(_)))
+            };
+            let on_list: BTreeSet<String> = listed
+                .keys()
+                .filter(|a| !dirty.contains(*a))
+                .filter(|a| switch.contains(*a) || matches!(lists.get(a), Some(SrcList::Files(_))))
+                .cloned()
+                .collect();
+            let generated = Self::generate(build_runner, &Self::minimal_srcs(&listed, &lists, &on_list))?;
+            generation += generated.duration;
+            // a waiting unit that would be rebuilt gets its list instead
+            let restart = |name: &str| waiting(name) && !after_run(name);
+            let after: HashSet<String> = listed.keys().filter(|a| waiting(a) && after_run(a)).cloned().collect();
+            let mut changed_runs = Vec::new();
+            let mut check = |outs: &HashMap<String, String>| {
+                Self::changed_after_runs(&listed, &lists, &dirty, outs, &mut run_outs, &mut changed_runs)
+            };
+            // one of `after` whose src or input-addressed dependency changed: rebuilt whatever the runs' outputs
+            let read = |p: &str| std::fs::read_to_string(p).ok();
+            let rebuilt = |name: &str, drv: &str| {
+                matches!(lists.get(name), Some(SrcList::Pending(p)) if src_list::rebuilt_anyway(&p.drv, drv, &read))
+            };
+            let mut gate = Gate { attrs: run_attrs.clone(), check: &mut check, after, rebuilt: &rebuilt };
+            // the dirty units for their lists, the switched ones for the comparison
+            let want: Vec<String> = dirty.iter().chain(&switch).cloned().collect();
+            let mut built_units: HashMap<String, Built> = HashMap::new();
+            let mut mismatches: Vec<String> = Vec::new();
+            let mut verify = |built: &HashMap<String, Built>| -> CargoResult<()> {
+                mismatches = Self::compare_with_all_files(&lists, &switch, built)?;
+                built_units = want
+                    .iter()
+                    .filter_map(|a| built.get(a).map(|b| (a.clone(), Built { drv: b.drv.clone(), out: b.out.clone() })))
+                    .collect();
+                if mismatches.is_empty() { Ok(()) } else { anyhow::bail!("the outputs differ") }
+            };
+            let outcome = NixBuild::build(
+                generated.nix_base_dir,
+                gctx,
+                keep_going,
+                jobs,
+                generated.unit_drv_names,
+                &target_dir,
+                &selection,
+                &restart,
+                &mut verify,
+                generation,
+                &mut gate,
+                &want,
+            );
+            if !mismatches.is_empty() {
+                for m in &mismatches {
+                    let (attr, diff) = m.split_once(": ").unwrap_or((m, ""));
+                    let reason = format!(
+                        "built with only the files rustc listed, it differs from the build with all files ({diff}): a \
+                         file was read without rustc knowing (e.g. by a proc macro using std::fs instead of \
+                         include_bytes!), or the build isn't reproducible"
+                    );
+                    gctx.shell().warn(format!("{attr} keeps all files: {reason}"))?;
+                    lists.set(attr, SrcList::Full(reason))?;
+                    switch.remove(attr);
+                }
+                continue;
+            }
+            // units that fail with their list only: built with all files instead
+            if let Err(e) = &outcome {
+                let failed = e.downcast_ref::<BuildFailed>().map(|f| f.failed.clone()).unwrap_or_default();
+                if !failed.is_empty() && failed.iter().all(|n| on_list.contains(n)) {
+                    for attr in &failed {
+                        if switch.remove(attr) {
+                            // built with all files before, with the same files: the list is incomplete
+                            let reason = "compiles with all files, but fails with only the files rustc listed: a \
+                                          file was read without rustc knowing (e.g. by a proc macro using std::fs \
+                                          instead of include_bytes!)"
+                                .to_string();
+                            gctx.shell().warn(format!("{attr} keeps all files: {reason}"))?;
+                            lists.set(attr, SrcList::Full(reason))?;
+                        } else {
+                            gctx.shell().status("Nix", format!("{attr} fails with its file list: building it with all files"))?;
+                            dirty.insert(attr.clone());
+                        }
+                    }
+                    Self::propagate_dirty(&listed, &mut dirty);
+                    continue;
+                }
+            }
+            match outcome? {
+                Outcome::Restart(names) => {
+                    if changed_runs.is_empty() {
+                        gctx.shell().status(
+                            "Nix",
+                            format!("{} would be rebuilt: building with the files rustc listed from now on", names.join(", ")),
+                        )?;
+                        let (waited, other): (Vec<String>, Vec<String>) = names.into_iter().partition(|n| waiting(n));
+                        switch.extend(waited);
+                        dirty.extend(other);
+                        Self::propagate_dirty(&listed, &mut dirty);
+                        // a waiting unit after a switched one is rebuilt anyway (another dependency); found out only
+                        // while building when it comes after a content-addressed run, so built twice then
+                        let after_switched: Vec<String> = listed
+                            .iter()
+                            .filter(|(a, u)| {
+                                !dirty.contains(*a)
+                                    && !switch.contains(*a)
+                                    && matches!(lists.get(a), Some(SrcList::Pending(_)))
+                                    && u.deps.iter().any(|d| switch.contains(d))
+                            })
+                            .map(|(a, _)| a.clone())
+                            .collect();
+                        switch.extend(after_switched);
+                    } else {
+                        Self::restart(gctx, &listed, &mut dirty, names, &changed_runs)?;
+                    }
+                }
+                Outcome::Done(outputs) => {
+                    for attr in &dirty {
+                        let Some(b) = built_units.get(attr) else { continue };
+                        let list = match lists.list_from_output(Path::new(&b.out))? {
+                            SrcList::Files(files) => {
+                                SrcList::Pending(src_list::Pending { files, drv: b.drv.clone(), out: b.out.clone() })
+                            }
+                            list => list,
+                        };
+                        if let SrcList::Full(reason) = &list {
+                            gctx.shell().status("Nix", format!("{attr} keeps all files: {reason}"))?;
+                        }
+                        lists.set(attr, list)?;
+                    }
+                    for attr in &switch {
+                        if let Some(SrcList::Pending(p)) = lists.get(attr) {
+                            let files = p.files.clone();
+                            lists.set(attr, SrcList::Files(files))?;
+                        }
+                    }
+                    // the lists of the units after the runs are for these outputs now
+                    for (attr, out) in &run_outs {
+                        lists.set(attr, SrcList::Output(out.clone()))?;
+                    }
+                    return Ok(outputs);
+                }
+            }
+        }
+        anyhow::bail!("the units with file lists kept changing between builds")
+    }
+
+    fn restart(
+        gctx: &GlobalContext,
+        listed: &BTreeMap<String, ListedUnit>,
+        dirty: &mut BTreeSet<String>,
+        names: Vec<String>,
+        changed_runs: &[String],
+    ) -> CargoResult<()> {
+        gctx.shell().status(
+            "Nix",
+            format!("the output of {} changed: building {} with all files, for new file lists", changed_runs.join(", "), names.join(", ")),
+        )?;
+        dirty.extend(names);
+        Self::propagate_dirty(listed, dirty);
+        Ok(())
+    }
+
+    /// Compares the output of each unit in `switch`, built with its list for the first time, with its output
+    /// built with all files (`SrcList::Pending`), when only the src differs between both derivations
+    /// (`src_list::same_but_src`) and the earlier output is still there. Returns `<attr>: <difference>` for those
+    /// that differ.
+    fn compare_with_all_files(
+        lists: &SrcLists,
+        switch: &BTreeSet<String>,
+        built: &HashMap<String, Built>,
+    ) -> CargoResult<Vec<String>> {
+        let mut pairs = Vec::new();
+        // a dependency that got its list in this build too: compared itself, so it counts as the same
+        let mut same: Vec<(String, String)> = Vec::new();
+        for attr in switch {
+            let (Some(SrcList::Pending(p)), Some(b)) = (lists.get(attr), built.get(attr)) else { continue };
+            same.extend([(p.drv.clone(), b.drv.clone()), (p.out.clone(), b.out.clone())]);
+            if p.out != b.out && Path::new(&p.out).exists() {
+                pairs.push((attr.clone(), p.clone(), b.out.clone(), b.drv.clone()));
+            }
+        }
+        if pairs.is_empty() {
+            return Ok(Vec::new());
+        }
+        // a dependency rebuilt in between, or another flag or env, changes the output for other reasons than the src
+        let read = |p: &str| std::fs::read_to_string(p).ok();
+        pairs.retain(|(_, p, _, drv)| {
+            // all but the unit itself
+            let mut same: Vec<(String, String)> = same.iter().filter(|(o, _)| *o != p.drv && *o != p.out).cloned().collect();
+            src_list::same_but_src(&p.drv, drv, true, &mut same, &read)
+        });
+        if pairs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let all: Vec<String> = pairs.iter().flat_map(|(_, p, b, _)| [p.out.clone(), b.clone()]).collect();
+        let refs = references(&all)?;
+        let hash = |p: &str| p.strip_prefix("/nix/store/").and_then(|p| p.get(..32)).map(String::from);
+        let mut mismatches = Vec::new();
+        for (attr, p, b, _) in &pairs {
+            let a = &p.out;
+            // the store paths of the earlier build in the output, by name, are those of this one
+            let mut rewrites = vec![(hash(a), hash(b))];
+            let by_name = |p: &String| -> HashMap<String, Vec<String>> {
+                let mut m: HashMap<String, Vec<String>> = HashMap::new();
+                for r in &refs[p] {
+                    m.entry(event_store_name(r).to_string()).or_default().push(r.clone());
+                }
+                m
+            };
+            let (ra, rb) = (by_name(a), by_name(b));
+            for (name, pa) in &ra {
+                if let (Some(pb), [pa]) = (rb.get(name), pa.as_slice()) {
+                    if let [pb] = pb.as_slice() {
+                        if pa != pb {
+                            rewrites.push((hash(pa), hash(pb)));
+                        }
+                    }
+                }
+            }
+            let rewrites: Vec<(String, String)> =
+                rewrites.into_iter().filter_map(|(x, y)| Some((x?, y?))).collect();
+            if let Err(diff) = src_list::compare_outputs(Path::new(a), Path::new(b), &rewrites) {
+                mismatches.push(format!("{attr}: {diff}"));
+            }
+        }
+        Ok(mismatches)
+    }
+
+    /// The root units without versions and hashes: rebuilding the same selection after an edit or a dependency
+    /// update replaces its GC roots, another selection (`cargo run --bin a`) gets its own.
+    fn selection(build_runner: &BuildRunner<'a, 'gctx>) -> String {
+        let mut selection: Vec<String> = build_runner
+            .bcx
+            .roots
+            .iter()
+            .map(|u| {
+                let features = u.features.iter().map(|f| f.as_str()).collect::<Vec<_>>().join(",");
+                let kind = match u.kind {
+                    crate::compiler::CompileKind::Host => "host".to_string(),
+                    crate::compiler::CompileKind::Target(t) => t.short_name().to_string(),
+                };
+                format!(
+                    "{} {} {} {:?} {kind} [{features}]",
+                    u.pkg.name(),
+                    u.target.kind().description(),
+                    u.target.name(),
+                    u.mode
+                )
+            })
+            .collect();
+        selection.sort();
+        selection.dedup();
+        selection.join("\n") + "\n"
+    }
+
+    /// `target/<profile>/nix` (`nix-test` for `cargo test`), or the --out-dir of write-nix-buildsystem.
+    fn nix_base_dir(build_runner: &BuildRunner<'a, 'gctx>, write_nix_buildsystem_options: &Option<NixBuildOptions>) -> Filesystem {
+        let bcx = &build_runner.bcx;
+        match write_nix_buildsystem_options {
+            Some(o) => Filesystem::new(o.out_dir.clone()),
+            None => {
+                // files in target/nix should created if new, update if existent and deleted if not used anymore
+                let target_dir: Filesystem = bcx.ws.target_dir();
+                // `cargo test` builds other units (test harnesses, dev-dependencies) than `cargo build`: with a
+                // build system and GC roots of its own, neither deletes the store paths of the other
+                let dir_name = if bcx.build_config.intent.is_any_test() { "nix-test" } else { "nix" };
+                target_dir.join(Self::requested_profile(build_runner)).join(dir_name)
+            }
+        }
+    }
+
+    // FIXME is this limitation required? can't we just support all profiles?
+    fn requested_profile(build_runner: &BuildRunner<'a, 'gctx>) -> &'static str {
+        if build_runner.bcx.build_config.requested_profile == "release" { "release" } else { "debug" }
+    }
+
+    /// Writes the build system. `minimal_srcs`: the `src` of the units that get only their listed files.
+    fn generate(
+        build_runner: &BuildRunner<'a, 'gctx>,
+        minimal_srcs: &HashMap<String, String>,
+    ) -> CargoResult<Generated> {
         let generation_start = std::time::Instant::now();
         let bcx: &BuildContext<'a, 'gctx> = &build_runner.bcx;
-        let keep_going: bool = bcx.build_config.keep_going;
         let workspace: &Workspace<'gctx> = build_runner.bcx.ws;
         let gctx: &'gctx GlobalContext = bcx.gctx;
 
         let unit_graph: &UnitGraph = &bcx.unit_graph;
-        
-        // FIXME is this limitation required? can't we just support all profiles?
-        let requested_profile = if build_runner.bcx.build_config.requested_profile == "release" {
-            "release"
-        } else {
-            "debug"
-        };
+        let requested_profile = Self::requested_profile(build_runner);
 
         let mut visited_units = BTreeSet::new();
         let mut all_nodes: Vec<DefaultNixEntry> = Vec::new();
@@ -162,27 +620,15 @@ impl<'a, 'gctx> NixBuildRunner {
             ].map(String::from));
 
         let write_nix_buildsystem_options: Option<NixBuildOptions> = gctx.write_nix_buildsystem_options.get().unwrap_or(&None).clone();
-        let nix_base_dir: Filesystem = match write_nix_buildsystem_options {
-            Some(ref write_nix_buildsystem_options) => {
-                if requested_profile != "release" {
-                    gctx.shell()
-                        .status(
-                            "write-nix-buildsystem",
-                            format!("\x1b[33mWarning\x1b[0m: requested_profile is '{}', not 'release'.", requested_profile).trim(),
-                        )
-                        .unwrap();
-                }
-                crate::util::Filesystem::new(write_nix_buildsystem_options.out_dir.clone())
-            },
-            None => {
-                // files in target/nix should created if new, update if existent and deleted if not used anymore
-                let target_dir: Filesystem = workspace.target_dir();
-                // `cargo test` builds other units (test harnesses, dev-dependencies) than `cargo build`: with a
-                // build system and GC roots of its own, neither deletes the store paths of the other
-                let dir_name = if bcx.build_config.intent.is_any_test() { "nix-test" } else { "nix" };
-                target_dir.join(requested_profile).join(dir_name)
-            }
-        };
+        if write_nix_buildsystem_options.is_some() && requested_profile != "release" {
+            gctx.shell()
+                .status(
+                    "write-nix-buildsystem",
+                    format!("\x1b[33mWarning\x1b[0m: requested_profile is '{}', not 'release'.", requested_profile).trim(),
+                )
+                .unwrap();
+        }
+        let nix_base_dir: Filesystem = Self::nix_base_dir(build_runner, &write_nix_buildsystem_options);
 
         let nix_base_dir_path = nix_base_dir.clone().into_path_unlocked();
         ensure_garbage_collected_directory(&nix_base_dir_path)?;
@@ -224,7 +670,10 @@ impl<'a, 'gctx> NixBuildRunner {
             // let s = format!("unit.profile.incremental: {} {:?}", &nix_attribute_name, unit.profile.incremental);
             // println!("{s}");
 
-            let src: String = generate_src(&unit, &crate_name, &crate_version, &gctx, &write_nix_buildsystem_options)?;
+            let src: String = match minimal_srcs.get(&nix_attribute_name) {
+                Some(src) => src.clone(),
+                None => generate_src(&unit, &crate_name, &crate_version, &gctx, &write_nix_buildsystem_options)?,
+            };
 
             let deps: Dependencies = deps::create_unit_dependencies(
                 &unit,
@@ -266,7 +715,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     &nix_derivations_dir,
                     &mut symlinked_targets,
                     &requested_profile,
-                    &src
+                    &src,
                 )?
             }
         }
@@ -301,7 +750,7 @@ impl<'a, 'gctx> NixBuildRunner {
         write!(file, "{}", rendered)?;
 
         // build_rs_libnix.nix //////////////////////////////////////////////////////////////////////////////////
-           
+
         gctx.shell().verbose(|s| s.status("Generating", "build_rs_libnix.nix"))?;
 
         let rendered = templates::render(
@@ -402,33 +851,7 @@ impl<'a, 'gctx> NixBuildRunner {
             .status("Nix", format!("Created nix build system in {:.1}s", generated.as_secs_f64()))?;
 
         if write_nix_buildsystem_options.is_none() {
-            let jobs = bcx.build_config.jobs;
-            let target_dir = workspace.target_dir().into_path_unlocked();
-            // the root units without versions and hashes: rebuilding the same selection after an edit or a
-            // dependency update replaces its GC roots, another selection (`cargo run --bin a`) gets its own
-            let mut selection: Vec<String> = bcx
-                .roots
-                .iter()
-                .map(|u| {
-                    let features = u.features.iter().map(|f| f.as_str()).collect::<Vec<_>>().join(",");
-                    let kind = match u.kind {
-                        crate::compiler::CompileKind::Host => "host".to_string(),
-                        crate::compiler::CompileKind::Target(t) => t.short_name().to_string(),
-                    };
-                    format!(
-                        "{} {} {} {:?} {kind} [{features}]",
-                        u.pkg.name(),
-                        u.target.kind().description(),
-                        u.target.name(),
-                        u.mode
-                    )
-                })
-                .collect();
-            selection.sort();
-            selection.dedup();
-            let selection = selection.join("\n") + "\n";
-            return NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names, &target_dir, &selection, generated)
-                .map(Some);
+            return Ok(Generated { nix_base_dir, unit_drv_names, duration: generated });
         } else if write_nix_buildsystem_options.as_ref().is_some_and(|o| o.remote_src.is_none()) {
             // project_root is the workspace itself, so its Cargo.dependencies.nix is used in place
             gctx.shell().status(
@@ -468,7 +891,7 @@ impl<'a, 'gctx> NixBuildRunner {
                 )
             .unwrap();
         }
-        Ok(None)
+        Ok(Generated { nix_base_dir, unit_drv_names, duration: generated })
     }
 
     fn process_script_build_run(
@@ -549,7 +972,7 @@ impl<'a, 'gctx> NixBuildRunner {
             .collect();
         let function_arguments: Vec<String> = [default_function_arguments, root_deps].concat();
 
-        let additional_build_phase_arguments = handle_dynamic_crate_aspects(unit, &deps);
+        let additional_build_phase_arguments = handle_dynamic_crate_aspects(unit, &deps, false);
 
         let rendered = templates::render(
             templates::RUSTC_CALL,
@@ -569,6 +992,9 @@ impl<'a, 'gctx> NixBuildRunner {
                 "environment_variables": environment_variables,
                 "additional_build_phase_arguments": additional_build_phase_arguments.join("\n"),
                 "command_line": command_line,
+                // only the workspace's runs: the others' inputs don't change, and every unit after a
+                // content-addressed one has its output path only after the build
+                "content_addressed": is_root,
             }),
         )?;
 
@@ -664,7 +1090,9 @@ impl<'a, 'gctx> NixBuildRunner {
             .collect();
         let function_arguments: Vec<String> = [default_function_arguments, root_deps].concat();
 
-        let mut additional_build_phase_arguments = handle_dynamic_crate_aspects(unit, &deps);
+        // a workspace crate after a build script run: the same files give the same output (deps::FIXED_OUT_DIR)
+        let fixed_out_dir = is_root && deps.rust_crate_parent.is_some();
+        let mut additional_build_phase_arguments = handle_dynamic_crate_aspects(unit, &deps, fixed_out_dir);
         // tests find the binaries of their package next to themselves (`snapbox::cmd::cargo_bin`,
         // `assert_cmd`'s `cargo_bin`, which look beside `current_exe()`); that is the store path of the test
         if crate_build_type(&unit) == CrateBuildType::TestBuild {
