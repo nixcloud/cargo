@@ -1,14 +1,15 @@
-# With content-addressed build script runs (nixcloud/cargo#20, needs ca-derivations in the daemon's nix.conf): the
-# run keeps all files and runs on every edit, but only a new output makes the crates after it rebuild (gen reads
-# input.txt with std::fs, app depends on gen). The README is in the src of gen too: gen and app would be rebuilt
-# whatever the output of the run, cargo sees that in their drvs before building, so they compile once, with their lists.
+# With content-addressed build script runs (nixcloud/cargo#20, needs ca-derivations in the daemon's nix.conf): only
+# a new output of the run makes the crates after it rebuild (gen reads input.txt with std::fs, app depends on gen).
+# The run prints no rerun-if-*, so it gets its package's directory (gen/) as its list: the README isn't in there.
+# The README is in the src of gen too until the lists: gen and app would be rebuilt whatever the output of the run,
+# cargo sees that in their drvs before building, so they compile once, with their lists.
 export CARGO_LIBNIX_CA=1
 BIN=app
 step "first build"                              0 "app (bin),gen,gen (build.rs build),gen (build.rs run)" "one"
 echo x >> README.md
 step "README edited: the lists"                 0 "app (bin),gen,gen (build.rs build),gen (build.rs run)" "one"
 echo x >> README.md
-step "README edited again: only the run"        0 "gen (build.rs run)" "one"
+step "README edited again: nothing"             0 "" "one"
 echo "// a comment" >> gen/build.rs
 step "build.rs comment: build and run"          0 "gen (build.rs build),gen (build.rs run)" "one"
 echo two > gen/input.txt
