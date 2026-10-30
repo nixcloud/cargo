@@ -1,5 +1,5 @@
-//! Minimal sources for the workspace's own crates (nixcloud/cargo#3: root units, the compile of their build
-//! scripts, and with content-addressed runs the crates after a build script run).
+//! Minimal sources for the workspace's own crates (nixcloud/cargo#3: root units, their build scripts' compiles and
+//! runs, and the crates after a build script run).
 //!
 //! A unit of a workspace member gets the whole workspace as its `src`, so editing a README rebuilds every one of
 //! them. rustc lists the files a compile reads in the dep-info file (`--emit=dep-info`), which lands in the
@@ -17,11 +17,21 @@
 //! (`SrcList::Full`).
 //!
 //! A build script's compile (`build.rs build`) is a rustc call like any other and gets a list the same way. Its
-//! run (`build.rs run`) keeps all files and runs on every edit. With the nix feature ca-derivations
-//! (`content_addressed`, nixcloud/cargo#20) the runs of the workspace are content-addressed: they are built first
-//! (`Gate`), and their output path is recorded (`SrcList::Output`) for the units after them, which get lists like
-//! any other. A new output makes them dirty (it can change which files they read); the same output resolves them
-//! to what they were. Without it, the crates after a run keep all files.
+//! run (`build.rs run`) gets a list from what the build script printed, like cargo decides when to run it again
+//! (`list_from_run_output`): its `rerun-if-changed` files and directories, or without any `rerun-if-*` its
+//! package's directory. It goes through the same states: built with all files first, its list from the next
+//! change on, and the first run with the list compared with the one with all files (a file read without
+//! `rerun-if-changed` differs or fails). `rerun-if-env-changed` needs nothing more: the environment of a run is
+//! part of its derivation. A package at the workspace root without `rerun-if-changed` keeps all files
+//! (`RUN_WHOLE_WORKSPACE`), checked again whenever the run is built.
+//!
+//! Without content-addressed runs, the crates after a run with a list get lists like any other: they are dirty
+//! when the run is. With the nix feature ca-derivations (`content_addressed`, nixcloud/cargo#20) the runs of the
+//! workspace are content-addressed: they are built first (`Gate`), and their output path is recorded
+//! (`SrcList::Output`, under `output_key`) for the units after them, which get lists like any other. A new output
+//! makes them dirty (it can change which files they read); the same output resolves them to what they were, also
+//! when the run itself was dirty. A run that keeps all files makes the crates after it keep all files too, unless
+//! it is content-addressed.
 //!
 //! Not covered: exports (`write-nix-buildsystem`), path packages outside the workspace. They keep the whole
 //! workspace as their `src`.
@@ -65,10 +75,20 @@ pub struct ListedFile {
     pub sha256: String,
 }
 
-/// Whether a unit gets minimal sources at all: the rustc calls of workspace members, including the compile of a
-/// build script (`CompileMode::Build` of its custom-build target), not its run (`RunCustomBuild`).
+/// Whether a unit gets minimal sources at all: the units of workspace members, the rustc calls (also the compile
+/// of a build script, `CompileMode::Build` of its custom-build target) and the build script runs.
 pub fn in_scope(unit: &Unit, is_root: bool) -> bool {
-    is_root && matches!(unit.mode, CompileMode::Build | CompileMode::Test | CompileMode::Check { .. })
+    is_root
+        && matches!(
+            unit.mode,
+            CompileMode::Build | CompileMode::Test | CompileMode::Check { .. } | CompileMode::RunCustomBuild
+        )
+}
+
+/// The name the output of a content-addressed build script run is recorded under (`SrcList::Output`), next to
+/// the run's own list under its attribute name.
+pub fn output_key(attr: &str) -> String {
+    format!("{attr}.output")
 }
 
 /// `[package.metadata.libnix] src = "full"`: the package's units always get all files (for proc macros that
@@ -127,7 +147,7 @@ impl SrcLists {
         match self.lists.get(attr) {
             // a symlink's target is listed too (`link_targets`), also after the link was changed
             Some(SrcList::Files(files) | SrcList::Pending(Pending { files, .. })) => files.iter().all(|f| {
-                hash_file(&self.root.join(&f.path)).is_some_and(|h| h == f.sha256)
+                hash_entry(&self.root.join(&f.path)) == f.sha256
                     && link_targets(&self.root, &f.path)
                         .is_ok_and(|t| t.iter().all(|t| files.iter().any(|f| f.path == *t)))
             }),
@@ -176,6 +196,166 @@ impl SrcLists {
         }
         Ok(SrcList::Files(files))
     }
+
+    /// The list of a build script run (`build.rs run`) from its output `out`, built with all files by `drv`, of the
+    /// package in `crate_dir`: what it printed as `cargo:rerun-if-changed` (files, directories with everything
+    /// below them, paths that don't exist), like cargo decides when to run it again. Without any `rerun-if-*`
+    /// directive cargo runs it again when a file of its package changes: the package's directory, or all files
+    /// for a package at the workspace root (`RUN_WHOLE_WORKSPACE`).
+    pub fn list_from_run_output(&self, out: &Path, crate_dir: &Path, drv: &str) -> CargoResult<SrcList> {
+        let Ok(stdout) = std::fs::read_to_string(out.join("nix/build_script_build.out")) else {
+            return Ok(SrcList::Full(format!("no build script output in {}", out.display())));
+        };
+        let (paths, any) = rerun_directives(&stdout);
+        let src_name = self.root.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+        let rels: Vec<String> = if any {
+            let mut rels = Vec::new();
+            for p in &paths {
+                match run_relative(p, crate_dir, &src_name, &self.root) {
+                    Ok(Some(rel)) => rels.push(rel),
+                    Ok(None) => {}
+                    Err(reason) => return Ok(SrcList::Full(reason)),
+                }
+            }
+            rels
+        } else {
+            vec![crate_dir.to_string_lossy().into_owned()]
+        };
+        if rels.iter().any(|r| r.is_empty()) {
+            return Ok(SrcList::Full(RUN_WHOLE_WORKSPACE.to_string()));
+        }
+        // the src it was built with: what isn't in there (project_src.exclude, .git) isn't an input of the run
+        let src = std::fs::read_to_string(drv).ok().and_then(|t| drv_env(&t, "src"));
+        let in_src = |rel: &str| src.as_ref().map_or(true, |s| Path::new(s).join(rel).symlink_metadata().is_ok());
+        let mut files: Vec<ListedFile> = Vec::new();
+        let add = |path: String, files: &mut Vec<ListedFile>| -> Result<(), String> {
+            let targets = if self.root.join(&path).symlink_metadata().is_ok() {
+                link_targets(&self.root, &path)?
+            } else {
+                Vec::new()
+            };
+            for path in std::iter::once(path).chain(targets) {
+                if !files.iter().any(|f| f.path == path) {
+                    let sha256 = hash_entry(&self.root.join(&path));
+                    files.push(ListedFile { path, sha256 });
+                }
+            }
+            Ok(())
+        };
+        for rel in rels {
+            let disk = self.root.join(&rel);
+            if disk.symlink_metadata().is_ok() && !in_src(&rel) {
+                continue;
+            }
+            let below: Vec<String> = if disk.is_dir() && !disk.is_symlink() {
+                files_below(&disk).iter().map(|p| Path::new(&rel).join(p).to_string_lossy().into_owned()).collect()
+            } else {
+                Vec::new()
+            };
+            for path in std::iter::once(rel).chain(below) {
+                if let Err(reason) = add(path, &mut files) {
+                    return Ok(SrcList::Full(reason));
+                }
+            }
+        }
+        Ok(SrcList::Files(files))
+    }
+}
+
+/// The reason a build script run of a package at the workspace root keeps all files: without `rerun-if-changed`
+/// it runs again on any change of its package, which is the workspace. Checked again whenever the run is built
+/// (the build script may print `rerun-if-changed` by then).
+pub const RUN_WHOLE_WORKSPACE: &str =
+    "its build script prints no rerun-if-changed, so it reruns on any change of its package, the whole workspace";
+
+/// The `sha256` of a listed directory: its entries below it, not their contents (the files below it are listed
+/// themselves), so a new or removed file makes it change.
+const DIR_PREFIX: &str = "dir:";
+/// The `sha256` of a listed path that doesn't exist (`rerun-if-changed` of a file that may be created).
+const ABSENT: &str = "absent";
+
+/// What a listed path is now, to compare with its `sha256`: the hash of a file, `dir:<hash of the paths below>`
+/// for a directory, `absent`.
+fn hash_entry(path: &Path) -> String {
+    if path.is_dir() {
+        let mut h = Sha256::new();
+        for p in files_below(path) {
+            h.update(p.to_string_lossy().as_bytes());
+            h.update(b"\n");
+        }
+        return format!("{DIR_PREFIX}{}", h.finish_hex());
+    }
+    hash_file(path).unwrap_or_else(|| ABSENT.to_string())
+}
+
+/// The `rerun-if-changed` paths a build script printed (`cargo:` and `cargo::`), and whether it printed any
+/// `rerun-if-changed` or `rerun-if-env-changed` at all: then cargo watches only those. The env vars need no
+/// list: what a build script can read in the sandbox is part of its derivation.
+pub fn rerun_directives(stdout: &str) -> (Vec<String>, bool) {
+    let mut paths = Vec::new();
+    let mut any = false;
+    for line in stdout.lines() {
+        let Some(directive) = line.strip_prefix("cargo::").or_else(|| line.strip_prefix("cargo:")) else {
+            continue;
+        };
+        let Some((key, value)) = directive.split_once('=') else { continue };
+        match key {
+            "rerun-if-changed" => {
+                any = true;
+                paths.push(value.to_string());
+            }
+            "rerun-if-env-changed" => any = true,
+            _ => {}
+        }
+    }
+    (paths, any)
+}
+
+/// A `rerun-if-changed` path relative to the workspace root: relative ones are relative to the package
+/// (`crate_dir`), absolute ones in the builder's copy of the workspace (`<build dir>/<src_name>/…`, e.g. from
+/// `CARGO_MANIFEST_DIR`). `None` for paths the run can't read from the workspace (store paths like `OUT_DIR`, a
+/// path outside of the sandbox's copy); `Some("")` for the workspace root. `Err`: outside of the workspace.
+fn run_relative(path: &str, crate_dir: &Path, src_name: &str, root: &Path) -> Result<Option<String>, String> {
+    let p = Path::new(path);
+    let joined = if p.is_absolute() {
+        if p.starts_with("/nix/store") {
+            return Ok(None);
+        }
+        let comps: Vec<_> = p.components().collect();
+        let below = |i: usize| -> PathBuf { comps[i..].iter().collect() };
+        let candidates: Vec<usize> = (1..=comps.len()).filter(|&i| comps[i - 1].as_os_str() == src_name).collect();
+        let Some(&i) = candidates.iter().find(|&&i| root.join(below(i)).symlink_metadata().is_ok()).or(candidates.first())
+        else {
+            return Ok(None);
+        };
+        below(i)
+    } else {
+        crate_dir.join(p)
+    };
+    let mut normal = PathBuf::new();
+    for c in joined.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normal.pop() {
+                    return Err(format!("its build script lists {path}, which isn't in the workspace"));
+                }
+            }
+            Component::Normal(n) => normal.push(n),
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(format!("its build script lists {path}, which isn't in the workspace"));
+            }
+        }
+    }
+    let rel = normal.to_str().ok_or_else(|| format!("its build script lists {path}, a path that isn't UTF-8"))?;
+    Ok(Some(rel.to_string()))
+}
+
+/// The value of the environment variable `name` of a .drv file (`("name","value")` in its env).
+fn drv_env(text: &str, name: &str) -> Option<String> {
+    let start = text.find(&format!("(\"{name}\",\""))? + name.len() + 5;
+    let end = text[start..].find('"')?;
+    Some(text[start..start + end].to_string())
 }
 
 fn hash_file(path: &Path) -> Option<String> {
@@ -689,6 +869,79 @@ mod tests {
         assert!(r("lib/../../etc/passwd").is_err());
         // absolute, but the file isn't there
         assert!(r("/build/ws/src/lib.rs").is_err());
+    }
+
+    #[test]
+    fn rerun_if_changed() {
+        let out = "cargo:rustc-cfg=x\ncargo:rerun-if-changed=build.rs\ncargo::rerun-if-changed=proto\nnot a directive\n";
+        assert_eq!(rerun_directives(out), (vec!["build.rs".to_string(), "proto".to_string()], true));
+        // only env vars: cargo watches no files then
+        assert_eq!(rerun_directives("cargo:rerun-if-env-changed=CC\n"), (vec![], true));
+        assert_eq!(rerun_directives("cargo:rustc-env=A=b\n"), (vec![], false));
+    }
+
+    #[test]
+    fn run_paths() {
+        let root = Path::new("/nonexistent/ws");
+        let r = |p| run_relative(p, Path::new("crates/gen"), "ws", root);
+        assert_eq!(r("input.txt"), Ok(Some("crates/gen/input.txt".to_string())));
+        assert_eq!(r("../../proto/a.proto"), Ok(Some("proto/a.proto".to_string())));
+        assert_eq!(r("/build/ws/crates/gen/input.txt"), Ok(Some("crates/gen/input.txt".to_string())));
+        assert_eq!(r("../.."), Ok(Some(String::new())));
+        // OUT_DIR, and what the sandbox has no copy of
+        assert_eq!(r("/nix/store/abc-x/gen.rs"), Ok(None));
+        assert_eq!(r("/usr/include/zlib.h"), Ok(None));
+        assert!(r("../../../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn run_lists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("ws");
+        let write = |p: &str, s: &str| {
+            let p = root.join(p);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, s).unwrap();
+        };
+        write("README.md", "readme");
+        write("gen/build.rs", "fn main() {}");
+        write("gen/input.txt", "one");
+        write("gen/assets/a.txt", "a");
+        let lists = SrcLists { dir: tmp.path().join("lists"), root: root.clone(), lists: HashMap::new() };
+        let list = |stdout: &str, crate_dir: &str| {
+            let out = tmp.path().join("out");
+            std::fs::create_dir_all(out.join("nix")).unwrap();
+            std::fs::write(out.join("nix/build_script_build.out"), stdout).unwrap();
+            match lists.list_from_run_output(&out, Path::new(crate_dir), "/nonexistent.drv").unwrap() {
+                SrcList::Files(files) => Ok(files.into_iter().map(|f| f.path).collect::<Vec<_>>()),
+                SrcList::Full(reason) => Err(reason),
+                list => panic!("{list:?}"),
+            }
+        };
+        assert_eq!(list("cargo:rerun-if-changed=input.txt\ncargo:rerun-if-changed=missing.txt\n", "gen"), Ok(vec![
+            "gen/input.txt".to_string(),
+            "gen/missing.txt".to_string()
+        ]));
+        // a directory and everything below it
+        assert_eq!(list("cargo:rerun-if-changed=assets\n", "gen"), Ok(vec!["gen/assets".to_string(), "gen/assets/a.txt".to_string()]));
+        // without rerun-if-*: the package
+        // the directory and its 3 files
+        assert_eq!(list("cargo:rustc-cfg=x\n", "gen").map(|f| f.len()), Ok(4));
+        assert_eq!(list("cargo:rustc-cfg=x\n", ""), Err(RUN_WHOLE_WORKSPACE.to_string()));
+        assert_eq!(list("cargo:rerun-if-env-changed=CC\n", ""), Ok(vec![]));
+    }
+
+    #[test]
+    fn directory_entries_change_with_new_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("a"), "a").unwrap();
+        let before = hash_entry(tmp.path());
+        assert!(before.starts_with(DIR_PREFIX));
+        std::fs::write(tmp.path().join("a"), "changed").unwrap();
+        assert_eq!(hash_entry(tmp.path()), before);
+        std::fs::write(tmp.path().join("b"), "b").unwrap();
+        assert_ne!(hash_entry(tmp.path()), before);
+        assert_eq!(hash_entry(&tmp.path().join("c")), ABSENT);
     }
 
     #[test]

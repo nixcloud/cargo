@@ -148,6 +148,8 @@ struct ListedUnit {
     crate_dir: PathBuf,
     /// the units with minimal sources it depends on, also indirectly
     deps: BTreeSet<String>,
+    /// a build script run: its list comes from what the build script printed (`rerun-if-changed`)
+    run: bool,
 }
 
 impl<'a, 'gctx> NixBuildRunner {
@@ -162,23 +164,29 @@ impl<'a, 'gctx> NixBuildRunner {
         Self::build_with_src_lists(build_runner).map(Some)
     }
 
-    /// The root units that get minimal sources: workspace members compiled (also their build scripts, not their
-    /// runs), with a list that isn't `Full`, not opted out, and depending on no path unit that keeps all files.
-    /// Those rebuild on every edit (build script runs, path packages outside the workspace), so would their
-    /// dependents. With content-addressed runs (`content_addressed`) a run of the workspace keeps all files but
-    /// doesn't count as such: its output decides (`SrcList::Output`), and it is in the `deps` of the units after
-    /// it. Returns those runs too.
+    /// The root units that get minimal sources: workspace members compiled (also their build scripts) and their
+    /// build script runs, with a list that isn't `Full`, not opted out, and depending on no path unit that keeps
+    /// all files. Those rebuild on every edit (a run of a package at the workspace root without
+    /// `rerun-if-changed`, path packages outside the workspace), so would their dependents. With content-addressed
+    /// runs (`content_addressed`) a run of the workspace doesn't count as such: its output decides
+    /// (`SrcList::Output`), and it is in the `deps` of the units after it instead of its own dependencies.
+    /// Returns those runs too, and the runs that keep all files until they print `rerun-if-changed`
+    /// (`RUN_WHOLE_WORKSPACE`).
     fn listed_units(
         build_runner: &BuildRunner<'a, 'gctx>,
         lists: &SrcLists,
-    ) -> (BTreeMap<String, ListedUnit>, BTreeSet<String>) {
+    ) -> (BTreeMap<String, ListedUnit>, BTreeSet<String>, BTreeMap<String, PathBuf>) {
+        struct Found {
+            listed: BTreeMap<String, ListedUnit>,
+            runs: BTreeSet<String>,
+            recheck: BTreeMap<String, PathBuf>,
+        }
         fn visit<'a, 'gctx>(
             unit: &Unit,
             build_runner: &BuildRunner<'a, 'gctx>,
             lists: &SrcLists,
             memo: &mut HashMap<Unit, (bool, BTreeSet<String>)>,
-            listed: &mut BTreeMap<String, ListedUnit>,
-            runs: &mut BTreeSet<String>,
+            found: &mut Found,
         ) -> (bool, BTreeSet<String>) {
             if let Some(r) = memo.get(unit) {
                 return r.clone();
@@ -187,29 +195,35 @@ impl<'a, 'gctx> NixBuildRunner {
             let mut tainted = false;
             let mut deps = BTreeSet::new();
             for dep in bcx.unit_graph.get(unit).map(|d| d.as_slice()).unwrap_or_default() {
-                let (t, d) = visit(&dep.unit, build_runner, lists, memo, listed, runs);
+                let (t, d) = visit(&dep.unit, build_runner, lists, memo, found);
                 tainted |= t;
                 deps.extend(d);
             }
             let pkg = unit.pkg.package_id();
             let is_root = bcx.ws.members().any(|m| m.package_id() == pkg);
             let attr = create_nix_name(unit, build_runner, NixNameMode::AttributeName, false);
-            if is_root && unit.mode == CompileMode::RunCustomBuild && content_addressed() {
+            let is_run = unit.mode == CompileMode::RunCustomBuild;
+            let crate_dir = unit.pkg.root().strip_prefix(bcx.ws.root()).ok().map(Path::to_path_buf);
+            let candidate = crate_dir.is_some() && src_list::in_scope(unit, is_root) && !src_list::opted_out(unit);
+            let listed_self = !tainted && candidate && !matches!(lists.get(&attr), Some(SrcList::Full(_)));
+            if is_run
+                && candidate
+                && matches!(lists.get(&attr), Some(SrcList::Full(r)) if r == src_list::RUN_WHOLE_WORKSPACE)
+            {
+                found.recheck.insert(attr.clone(), crate_dir.clone().unwrap());
+            }
+            if listed_self {
+                found.listed.insert(attr.clone(), ListedUnit { crate_dir: crate_dir.unwrap(), deps: deps.clone(), run: is_run });
+            }
+            if is_root && is_run && content_addressed() {
                 // what the units after it get is its output, not its inputs: a changed build script that writes
                 // the same output changes nothing after it
-                runs.insert(attr.clone());
+                found.runs.insert(attr.clone());
                 let r = (false, BTreeSet::from([attr]));
                 memo.insert(unit.clone(), r.clone());
                 return r;
             }
-            let crate_dir = unit.pkg.root().strip_prefix(bcx.ws.root()).ok().map(Path::to_path_buf);
-            let listed_self = !tainted
-                && crate_dir.is_some()
-                && src_list::in_scope(unit, is_root)
-                && !src_list::opted_out(unit)
-                && !matches!(lists.get(&attr), Some(SrcList::Full(_)));
             if listed_self {
-                listed.insert(attr.clone(), ListedUnit { crate_dir: crate_dir.unwrap(), deps: deps.clone() });
                 deps.insert(attr);
             }
             let r = (tainted || (pkg.source_id().is_path() && !listed_self), deps);
@@ -217,12 +231,11 @@ impl<'a, 'gctx> NixBuildRunner {
             r
         }
         let mut memo = HashMap::new();
-        let mut listed = BTreeMap::new();
-        let mut runs = BTreeSet::new();
+        let mut found = Found { listed: BTreeMap::new(), runs: BTreeSet::new(), recheck: BTreeMap::new() };
         for (_, unit) in build_runner.raw_process_builder.lock().unwrap().iter() {
-            visit(unit, build_runner, lists, &mut memo, &mut listed, &mut runs);
+            visit(unit, build_runner, lists, &mut memo, &mut found);
         }
-        (listed, runs)
+        (found.listed, found.runs, found.recheck)
     }
 
     /// The gate check (`Gate`): the units with a list after a run (`runs`) whose output isn't the recorded one;
@@ -239,7 +252,11 @@ impl<'a, 'gctx> NixBuildRunner {
         seen.extend(outs.iter().map(|(a, o)| (a.clone(), o.clone())));
         let changed: BTreeSet<&String> = outs
             .iter()
-            .filter(|(a, o)| !matches!(lists.get(a), Some(SrcList::Output(r)) if r == *o))
+            // recorded under the run's own name before runs got lists of their own
+            .filter(|(a, o)| {
+                let recorded = lists.get(&src_list::output_key(a)).or_else(|| lists.get(a));
+                !matches!(recorded, Some(SrcList::Output(r)) if r == *o)
+            })
             .map(|(a, _)| a)
             .collect();
         let units: Vec<String> = listed
@@ -253,14 +270,19 @@ impl<'a, 'gctx> NixBuildRunner {
         units
     }
 
-    /// Adds the units that depend on a dirty one.
+    /// Adds the units that depend on a dirty one. A dirty content-addressed run doesn't make the units after it
+    /// dirty: its output decides (`Gate`).
     fn propagate_dirty(listed: &BTreeMap<String, ListedUnit>, dirty: &mut BTreeSet<String>) {
         let more: Vec<String> = listed
             .iter()
-            .filter(|(a, u)| !dirty.contains(*a) && u.deps.iter().any(|d| dirty.contains(d)))
+            .filter(|(a, u)| !dirty.contains(*a) && u.deps.iter().any(|d| dirty.contains(d) && !Self::is_ca_run(listed, d)))
             .map(|(a, _)| a.clone())
             .collect();
         dirty.extend(more);
+    }
+
+    fn is_ca_run(listed: &BTreeMap<String, ListedUnit>, attr: &str) -> bool {
+        content_addressed() && listed.get(attr).is_some_and(|u| u.run)
     }
 
     /// The minimal `src` of the units `on_list`, from their lists.
@@ -293,7 +315,7 @@ impl<'a, 'gctx> NixBuildRunner {
 
         let base = Self::nix_base_dir(build_runner, &None).into_path_unlocked();
         let mut lists = SrcLists::load(&base, bcx.ws.root());
-        let (listed, runs) = Self::listed_units(build_runner, &lists);
+        let (listed, runs, recheck) = Self::listed_units(build_runner, &lists);
         let mut dirty: BTreeSet<String> = listed.keys().filter(|a| !lists.is_clean(a)).cloned().collect();
         Self::propagate_dirty(&listed, &mut dirty);
         // the units with a pending list that get it in this build
@@ -304,6 +326,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let run_attrs: Vec<String> = runs.iter().cloned().collect();
         // a unit after such a run: its drv is a new one with every new run (`Gate::after`)
         let after_run = |name: &str| listed.get(name).is_some_and(|u| u.deps.iter().any(|d| runs.contains(d)));
+        let is_run = |name: &str| listed.get(name).is_some_and(|u| u.run);
 
         if !dirty.is_empty() {
             gctx.shell().status(
@@ -332,7 +355,14 @@ impl<'a, 'gctx> NixBuildRunner {
             let restart = |name: &str| waiting(name) && !after_run(name);
             let after: HashSet<String> = listed.keys().filter(|a| waiting(a) && after_run(a)).cloned().collect();
             let mut changed_runs = Vec::new();
+            // a run built with its list for the first time whose output isn't the one with all files: compared
+            // right away, so nothing after it is built with that output
+            let mut gate_mismatches: Vec<String> = Vec::new();
             let mut check = |outs: &HashMap<String, String>| {
+                gate_mismatches = Self::compare_switched_runs(&lists, &switch, outs);
+                if !gate_mismatches.is_empty() {
+                    return gate_mismatches.iter().filter_map(|m| m.split_once(": ").map(|(a, _)| a.to_string())).collect();
+                }
                 Self::changed_after_runs(&listed, &lists, &dirty, outs, &mut run_outs, &mut changed_runs)
             };
             // one of `after` whose src or input-addressed dependency changed: rebuilt whatever the runs' outputs
@@ -341,8 +371,9 @@ impl<'a, 'gctx> NixBuildRunner {
                 matches!(lists.get(name), Some(SrcList::Pending(p)) if src_list::rebuilt_anyway(&p.drv, drv, &read))
             };
             let mut gate = Gate { attrs: run_attrs.clone(), check: &mut check, after, rebuilt: &rebuilt };
-            // the dirty units for their lists, the switched ones for the comparison
-            let want: Vec<String> = dirty.iter().chain(&switch).cloned().collect();
+            // the dirty units for their lists, the switched ones for the comparison, the runs that keep all files
+            // for whether they print rerun-if-changed now
+            let want: Vec<String> = dirty.iter().chain(&switch).chain(recheck.keys()).cloned().collect();
             let mut built_units: HashMap<String, Built> = HashMap::new();
             let mut mismatches: Vec<String> = Vec::new();
             let mut verify = |built: &HashMap<String, Built>| -> CargoResult<()> {
@@ -367,14 +398,23 @@ impl<'a, 'gctx> NixBuildRunner {
                 &mut gate,
                 &want,
             );
+            mismatches.extend(gate_mismatches);
             if !mismatches.is_empty() {
                 for m in &mismatches {
                     let (attr, diff) = m.split_once(": ").unwrap_or((m, ""));
-                    let reason = format!(
-                        "built with only the files rustc listed, it differs from the build with all files ({diff}): a \
-                         file was read without rustc knowing (e.g. by a proc macro using std::fs instead of \
-                         include_bytes!), or the build isn't reproducible"
-                    );
+                    let reason = if is_run(attr) {
+                        format!(
+                            "run with only the files its build script lists (rerun-if-changed), its output differs \
+                             from the run with all files ({diff}): it reads a file it doesn't list, or the run isn't \
+                             reproducible"
+                        )
+                    } else {
+                        format!(
+                            "built with only the files rustc listed, it differs from the build with all files ({diff}): \
+                             a file was read without rustc knowing (e.g. by a proc macro using std::fs instead of \
+                             include_bytes!), or the build isn't reproducible"
+                        )
+                    };
                     gctx.shell().warn(format!("{attr} keeps all files: {reason}"))?;
                     lists.set(attr, SrcList::Full(reason))?;
                     switch.remove(attr);
@@ -388,10 +428,14 @@ impl<'a, 'gctx> NixBuildRunner {
                     for attr in &failed {
                         if switch.remove(attr) {
                             // built with all files before, with the same files: the list is incomplete
-                            let reason = "compiles with all files, but fails with only the files rustc listed: a \
-                                          file was read without rustc knowing (e.g. by a proc macro using std::fs \
-                                          instead of include_bytes!)"
-                                .to_string();
+                            let reason = if is_run(attr) {
+                                "runs with all files, but fails with only the files its build script lists \
+                                 (rerun-if-changed): it reads a file it doesn't list"
+                            } else {
+                                "compiles with all files, but fails with only the files rustc listed: a file was read \
+                                 without rustc knowing (e.g. by a proc macro using std::fs instead of include_bytes!)"
+                            }
+                            .to_string();
                             gctx.shell().warn(format!("{attr} keeps all files: {reason}"))?;
                             lists.set(attr, SrcList::Full(reason))?;
                         } else {
@@ -408,7 +452,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     if changed_runs.is_empty() {
                         gctx.shell().status(
                             "Nix",
-                            format!("{} would be rebuilt: building with the files rustc listed from now on", names.join(", ")),
+                            format!("{} would be rebuilt: building with their file lists from now on", names.join(", ")),
                         )?;
                         let (waited, other): (Vec<String>, Vec<String>) = names.into_iter().partition(|n| waiting(n));
                         switch.extend(waited);
@@ -422,7 +466,7 @@ impl<'a, 'gctx> NixBuildRunner {
                                 !dirty.contains(*a)
                                     && !switch.contains(*a)
                                     && matches!(lists.get(a), Some(SrcList::Pending(_)))
-                                    && u.deps.iter().any(|d| switch.contains(d))
+                                    && u.deps.iter().any(|d| switch.contains(d) && !Self::is_ca_run(&listed, d))
                             })
                             .map(|(a, _)| a.clone())
                             .collect();
@@ -432,9 +476,18 @@ impl<'a, 'gctx> NixBuildRunner {
                     }
                 }
                 Outcome::Done(outputs) => {
-                    for attr in &dirty {
+                    for attr in dirty.iter().chain(recheck.keys()) {
                         let Some(b) = built_units.get(attr) else { continue };
-                        let list = match lists.list_from_output(Path::new(&b.out))? {
+                        let list = match (listed.get(attr), recheck.get(attr)) {
+                            (Some(ListedUnit { run: true, crate_dir, .. }), _) | (None, Some(crate_dir)) => {
+                                lists.list_from_run_output(Path::new(&b.out), crate_dir, &b.drv)?
+                            }
+                            _ => lists.list_from_output(Path::new(&b.out))?,
+                        };
+                        if recheck.contains_key(attr) && matches!(&list, SrcList::Full(r) if r == src_list::RUN_WHOLE_WORKSPACE) {
+                            continue;
+                        }
+                        let list = match list {
                             SrcList::Files(files) => {
                                 SrcList::Pending(src_list::Pending { files, drv: b.drv.clone(), out: b.out.clone() })
                             }
@@ -453,7 +506,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     }
                     // the lists of the units after the runs are for these outputs now
                     for (attr, out) in &run_outs {
-                        lists.set(attr, SrcList::Output(out.clone()))?;
+                        lists.set(&src_list::output_key(attr), SrcList::Output(out.clone()))?;
                     }
                     return Ok(outputs);
                 }
@@ -476,6 +529,29 @@ impl<'a, 'gctx> NixBuildRunner {
         dirty.extend(names);
         Self::propagate_dirty(listed, dirty);
         Ok(())
+    }
+
+    /// The content-addressed runs of the gate in `switch` (`outs`: their outputs) whose output isn't the one with
+    /// all files: `<attr>: <difference>`. Content-addressed, so the same output is the same path; another path is
+    /// compared to tell what differs.
+    fn compare_switched_runs(
+        lists: &SrcLists,
+        switch: &BTreeSet<String>,
+        outs: &HashMap<String, String>,
+    ) -> Vec<String> {
+        let hash = |p: &str| p.strip_prefix("/nix/store/").and_then(|p| p.get(..32)).map(String::from);
+        let mut mismatches = Vec::new();
+        for (attr, out) in outs {
+            let Some(SrcList::Pending(p)) = lists.get(attr).filter(|_| switch.contains(attr)) else { continue };
+            if p.out == *out || !Path::new(&p.out).exists() {
+                continue;
+            }
+            let rewrites: Vec<(String, String)> = hash(&p.out).zip(hash(out)).into_iter().collect();
+            if let Err(diff) = src_list::compare_outputs(Path::new(&p.out), Path::new(out), &rewrites) {
+                mismatches.push(format!("{attr}: {diff}"));
+            }
+        }
+        mismatches
     }
 
     /// Compares the output of each unit in `switch`, built with its list for the first time, with its output
