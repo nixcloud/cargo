@@ -351,9 +351,18 @@ fn run(
     tx: &Sender<Event>,
     eval: &mut Option<Duration>,
 ) -> Result<(String, (usize, u64)), Failure> {
-    let extra: Vec<String> = gate.attrs.iter().chain(want).cloned().collect();
+    // a run of the gate can be wanted too (for its file list): nix-instantiate prints each drv once
+    let extra: Vec<String> =
+        gate.attrs.iter().chain(want.iter().filter(|a| !gate.attrs.contains(a))).cloned().collect();
     let (target, roots, mut gate_drvs) = instantiate(caller, gc_dir, slot, selection, &extra, tx, eval)?;
-    let want_drvs = gate_drvs.split_off(gate.attrs.len());
+    let mut others = gate_drvs.split_off(gate.attrs.len()).into_iter();
+    let want_drvs: Vec<String> = want
+        .iter()
+        .filter_map(|a| match gate.attrs.iter().position(|g| g == a) {
+            Some(i) => Some(gate_drvs[i].clone()),
+            None => others.next(),
+        })
+        .collect();
     let daemon_err = |e: daemon::Error| {
         let _ = tx.send(Event::Error { msg: e.to_string() });
         Failure::Daemon
@@ -462,7 +471,7 @@ fn run(
     old.extend(gc_roots::built_paths(slot));
     gc_roots::set_root(&mut d, slot, gc_roots::RETAINED_PATHS, &roots_out, tx).map_err(daemon_err)?;
     // the drvs of the gate and of `want`: their outputs are among the retained paths now
-    for i in 0..gate_drvs.len() + want_drvs.len() {
+    for i in 0..extra.len() {
         let _ = std::fs::remove_file(slot.join(format!("{}-{}", gc_roots::EVAL_ROOT, i + 3)));
     }
     old.extend(gc_roots::evict(gc_dir, slot));
