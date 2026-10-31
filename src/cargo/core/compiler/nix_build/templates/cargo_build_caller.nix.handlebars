@@ -21,14 +21,23 @@ let
   fenix = import fenixSrc { inherit system; };
 
   # import of fenix's default.nix (not its flake): the package set itself, no packages.${system}
-  toolchain_1_87_vanilla_pin = fenix.toolchainOf {
+  manifest_1_87 = {
     channel = "1.87.0";
     sha256 = "sha256-KUm16pHj+cRedf8vxs/Hd2YWxpOrWZ7UOrwhILdSJBU=";
   };
+  toolchain_1_87_vanilla_pin = fenix.toolchainOf manifest_1_87;
+
+  # the --target triples of the build (cross compiling), other than the host: their std from the same manifest
+  targets = builtins.filter (t: t != pkgs.stdenv.hostPlatform.rust.rustcTarget) [ {{#each targets}}"{{{this}}}" {{/each}}];
+  rust_std_1_87_targets = map (t: (fenix.targets.${t}.toolchainOf manifest_1_87).rust-std) targets;
 
   # rustc with std only: a toolchain with rust-src makes rustc map std's /rustc/<commit>/ panic locations to
-  # the toolchain's store path, which then lands in every binary's runtime closure (nixcloud/pankat-rs#24)
-  rustc_1_87_vanilla_pin = toolchain_1_87_vanilla_pin.rustc;
+  # the toolchain's store path, which then lands in every binary's runtime closure (nixcloud/pankat-rs#24). With
+  # --target, fenix's combine (it copies rustc, so its sysroot is the combination) adds the std of the targets.
+  # 1.87 links with the cc's ld (rustc's own lld is the default since 1.90), so its bundled ld.lld needs no wrapper
+  rustc_1_87_vanilla_pin =
+    if targets == [ ] then toolchain_1_87_vanilla_pin.rustc
+    else fenix.combine ([ toolchain_1_87_vanilla_pin.rustc ] ++ rust_std_1_87_targets);
   cargo_1_87_vanilla_pin = toolchain_1_87_vanilla_pin.cargo;
   # the rustc the units build with, also for the gc roots and the rustdoc of the doc tests
   toolchain = rustc_1_87_vanilla_pin;

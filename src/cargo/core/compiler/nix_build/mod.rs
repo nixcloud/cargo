@@ -287,10 +287,25 @@ impl<'a, 'gctx> NixBuildRunner {
             None => "../../..".to_string(),
         };
 
+        // the --target triples (cross compiling): cargo_build_caller.nix adds the std of each to the rustc
+        let mut targets: Vec<String> = Vec::new();
+        for kind in &bcx.build_config.requested_kinds {
+            if let crate::core::compiler::CompileKind::Target(t) = kind {
+                let triple = t.rustc_target().to_string();
+                if triple.ends_with(".json") {
+                    anyhow::bail!("nix mode: a target spec file ({triple}) has no std from fenix, use a target triple");
+                }
+                if !targets.contains(&triple) {
+                    targets.push(triple);
+                }
+            }
+        }
+
         let rendered = templates::render(
             templates::CARGO_BUILD_CALLER,
             &serde_json::json!({
                 "project_root": project_root,
+                "targets": targets,
             }),
         )?;
 
