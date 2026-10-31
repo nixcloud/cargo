@@ -21,25 +21,53 @@ let
   fenix = import fenixSrc { inherit system; };
 
   # import of fenix's default.nix (not its flake): the package set itself, no packages.${system}
-  toolchain_1_99_vanilla_pin = fenix.toolchainOf {
+  manifest_1_99 = {
     channel = "1.99.0";
     sha256 = "sha256-zm3dyIY2T414ZRR3EhLOvptzG6gta4WZUcawzMUWtqI=";
   };
+  toolchain_1_99_vanilla_pin = fenix.toolchainOf manifest_1_99;
+
+  # the --target triples of the build (cross compiling), other than the host: their std from the same manifest
+  targets = builtins.filter (t: t != pkgs.stdenv.hostPlatform.rust.rustcTarget) [ {{#each targets}}"{{{this}}}" {{/each}}];
+  rust_std_1_99_targets = map (t: (fenix.targets.${t}.toolchainOf manifest_1_99).rust-std) targets;
 
   # rustc with std only: a toolchain with rust-src makes rustc map std's /rustc/<commit>/ panic locations to
   # the toolchain's store path, which then lands in every binary's runtime closure (nixcloud/pankat-rs#24)
   #
   # since 1.90 rustc links with its own lld on x86_64-linux (-fuse-ld=lld -B<sysroot>/gcc-ld), which bypasses the ld
   # wrapper of nix's cc: no rpath for the -L directories (e.g. openssl), so the binaries miss their libraries at
-  # runtime. -C linker-features=-lld links with the cc's ld, as before
-  rustc_1_99_vanilla_pin = pkgs.symlinkJoin {
-    name = "rustc-1.99.0-nix-ld";
-    paths = [ toolchain_1_99_vanilla_pin.rustc ];
-    nativeBuildInputs = [ pkgs.makeWrapper ];
-    postBuild = ''
-      for b in rustc rustdoc; do wrapProgram $out/bin/$b --add-flags "-C linker-features=-lld"; done
+  # runtime. As rust-overlay (oxalica/rust-overlay#171) and libfenix do: the bundled gcc-ld/ld.lld goes through
+  # nixpkgs' ld-wrapper.sh, which adds the rpath like nix's ld. Other targets don't link through it (wasm32: rust-lld,
+  # musl: cc with its own crt), so unlike -C linker-features=-lld (stable on x86_64-unknown-linux-gnu only, an error
+  # with any other --target) it leaves cross compiling as it is
+  rust_lld_1_99_nix_ld = let
+    gcc_ld = "lib/rustlib/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/bin/gcc-ld";
+    wrappers = pkgs.path + "/pkgs/build-support";
+  in pkgs.stdenv.mkDerivation {
+    name = "rust-lld-1.99.0-nix-ld";
+    # the @...@ of ld-wrapper.sh, as nix's bintools wrapper sets them
+    env = {
+      inherit (pkgs.stdenv.cc.bintools) expandResponseParams shell suffixSalt wrapperName coreutils_bin rm mktemp;
+      hardening_unsupported_flags = "";
+      darwinMinVersion = "";
+      fallback_sdk = "";
+      # the bundled ld.lld is a wrapper of rust-lld itself, found next to it
+      prog = "${toolchain_1_99_vanilla_pin.rustc}/${gcc_ld}/ld.lld";
+      use_response_file_by_default = "0";
+    };
+    buildCommand = ''
+      mkdir -p $out/nix-support $out/${gcc_ld}
+      substituteAll ${wrappers}/wrapper-common/utils.bash $out/nix-support/utils.bash
+      substituteAll ${wrappers}/wrapper-common/darwin-sdk-setup.bash $out/nix-support/darwin-sdk-setup.bash
+      substituteAll ${wrappers}/bintools-wrapper/add-flags.sh $out/nix-support/add-flags.sh
+      substituteAll ${wrappers}/bintools-wrapper/add-hardening.sh $out/nix-support/add-hardening.sh
+      substituteAll ${wrappers}/bintools-wrapper/ld-wrapper.sh $out/${gcc_ld}/ld.lld
+      chmod +x $out/${gcc_ld}/ld.lld
     '';
   };
+  # fenix's combine copies rustc, so its sysroot (with the wrapped ld.lld, listed first, and the std of the targets)
+  # is the combination
+  rustc_1_99_vanilla_pin = fenix.combine ([ rust_lld_1_99_nix_ld toolchain_1_99_vanilla_pin.rustc ] ++ rust_std_1_99_targets);
   cargo_1_99_vanilla_pin = toolchain_1_99_vanilla_pin.cargo;
   # the rustc the units build with, also for the gc roots and the rustdoc of the doc tests
   toolchain = rustc_1_99_vanilla_pin;
