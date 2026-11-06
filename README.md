@@ -341,7 +341,7 @@ cargo resolves the dependencies and plans the build as usual. In nix mode it the
 
 ## Regression tests
 
-Each branch's `test.nix` builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions and runs their binaries: the 1.99 line passes all 31, among them [grok-build](https://github.com/xai-org/grok-build); the 1.87 line passes 30 of 31 (union needs a nightly rustc). Details are in the README of [rust-1.99.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix#regression-tests).
+Each branch's `test.nix` builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions and runs their binaries: the 1.99 line passes all 31, among them [grok-build](https://github.com/xai-org/grok-build); the 1.87 line passes all 30 (2026-11-06, with `--release` added to the cargo flags of `test.nix`). The GC and cross compiling tests pass on both lines. Details are in the README of [rust-1.99.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix#regression-tests).
 
 # Exporting the build system
 
