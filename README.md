@@ -82,6 +82,31 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 
 [test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently 30 of 31 projects pass with rustc 1.87.0 (2026-10-19, with build-rs-libnix 0.1.12; codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are pinned to their last release before they needed a newer rustc). union fails: it needs a nightly rustc (`#![feature]`). `cargo:rustc-link-arg` (`tikv-jemalloc-sys`) is supported since build-rs-libnix 0.1.12. For the 1.99 line, see [master-libnix](https://github.com/nixcloud/cargo/tree/master-libnix). Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix).
 
+### Cross compiling tests
+
+[tests-libnix/cross/run.sh](tests-libnix/cross/run.sh) builds two workspaces in nix mode with `--target` for each target below, checks the binary (architecture, statically linked) and runs it, natively, with qemu-user or with wasmtime (both from nixpkgs, fetched when needed):
+
+* `hello`: a `main.rs` printing `std::env::consts::ARCH`, which must be the target's
+* `c-library` ([tests-libnix/cross/c-library](tests-libnix/cross/c-library)): a C library whose function returns `"hello world from c"`, its rust wrapper `hello-c-sys` and a bin `hello-c` printing it. The build script of `hello-c-sys` compiles `c/hello.c` with `clang --target=<triple>` and archives it with `llvm-ar`, both from its `Cargo.dependencies.nix`; the C code is freestanding (no headers), so clang alone cross compiles it for every target, without a C toolchain or libc per target. `CASES=c-library` runs only this one
+
+```bash
+nix build .#cargo-libnix-git-head-via-ifd -o target/cargo-head     # cargo (libnix) of the working tree
+CARGO=target/cargo-head/bin/cargo tests-libnix/cross/run.sh        # all targets
+CARGO=target/cargo-head/bin/cargo tests-libnix/cross/run.sh wasm32-wasip1 aarch64-unknown-linux-musl
+KEEP=1 CARGO=target/cargo-head/bin/cargo tests-libnix/cross/run.sh # keeps target/cross-tests/workspace-<pid>
+CASES=c-library CARGO=target/cargo-head/bin/cargo tests-libnix/cross/run.sh aarch64-unknown-linux-musl
+```
+
+| target | runs with | notes |
+|---|---|---|
+| `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl` | native | |
+| `i686-`, `aarch64-`, `riscv64gc-unknown-linux-musl`, `armv7-unknown-linux-musleabihf` | qemu-user | linked with `CARGO_TARGET_<TRIPLE>_LINKER=rust-lld` (the host cc can't link them); riscv64 also with `-C target-feature=+crt-static` |
+| `wasm32-wasip1` | wasmtime | |
+| `wasm32-unknown-unknown` | – | checked to be WebAssembly only |
+| `aarch64-unknown-linux-gnu` | – | xfail: needs a cross C toolchain (cc and glibc of the target) in the units' build environment |
+
+cargo needs a rustc for the target information; without one in `PATH` the script uses the flake's `rustc_1_87_vanilla_pin`. The units build with the toolchain of `cargo_build_caller.nix`, which adds the rust-std of each `--target`. `xfail` lines are known failures that don't fail the run: nix mode links cross outputs to `target/debug` instead of `target/<triple>/debug`, and the wasm binaries' `bin/hello` link misses the `.wasm` extension. Like `tests-libnix/gc/run.sh` it needs the nix-daemon, so it runs outside of a nix build, and in `target/`, not in `/tmp`.
+
 # Using cargo (libnix)
 
 There are three ways to use cargo (libnix):
