@@ -21,10 +21,15 @@ let
   fenix = import fenixSrc { inherit system; };
 
   # import of fenix's default.nix (not its flake): the package set itself, no packages.${system}
-  toolchain_1_99_vanilla_pin = fenix.toolchainOf {
+  manifest_1_99 = {
     channel = "1.99.0";
     sha256 = "sha256-zm3dyIY2T414ZRR3EhLOvptzG6gta4WZUcawzMUWtqI=";
   };
+  toolchain_1_99_vanilla_pin = fenix.toolchainOf manifest_1_99;
+
+  # the --target triples of the build (cross compiling), other than the host: their std from the same manifest
+  targets = builtins.filter (t: t != pkgs.stdenv.hostPlatform.rust.rustcTarget) [ {{#each targets}}"{{{this}}}" {{/each}}];
+  rust_std_1_99_targets = map (t: (fenix.targets.${t}.toolchainOf manifest_1_99).rust-std) targets;
 
   # rustc with std only: a toolchain with rust-src makes rustc map std's /rustc/<commit>/ panic locations to
   # the toolchain's store path, which then lands in every binary's runtime closure (nixcloud/pankat-rs#24)
@@ -60,8 +65,9 @@ let
       chmod +x $out/${gcc_ld}/ld.lld
     '';
   };
-  # fenix's combine copies rustc, so its sysroot (with the wrapped ld.lld, listed first) is the combination
-  rustc_1_99_vanilla_pin = fenix.combine [ rust_lld_1_99_nix_ld toolchain_1_99_vanilla_pin.rustc ];
+  # fenix's combine copies rustc, so its sysroot (with the wrapped ld.lld, listed first, and the std of the targets)
+  # is the combination
+  rustc_1_99_vanilla_pin = fenix.combine ([ rust_lld_1_99_nix_ld toolchain_1_99_vanilla_pin.rustc ] ++ rust_std_1_99_targets);
   cargo_1_99_vanilla_pin = toolchain_1_99_vanilla_pin.cargo;
   # the rustc the units build with, also for the gc roots and the rustdoc of the doc tests
   toolchain = rustc_1_99_vanilla_pin;
