@@ -56,8 +56,6 @@ let
     trunk = { owner = "trunk-rs"; repo = "trunk"; rev = "f1ee3d4032cb939b8513d1d8fabfcb84ce46d811"; };
     # v0.13.1 (2025-03-07); 9f3a9e72 needs rustc 1.89
     typst = { owner = "typst"; repo = "typst"; rev = "8ace67d942a4b8c6b9d95b73b3a39f5d0259c7b2"; };
-    # main (2025-06-14, no release tags); c68c3b2d needs rustc 1.90. Fails either way: union pins nightly-2025-03-28 (#![feature])
-    union = { owner = "unionlabs"; repo = "union"; rev = "64d943d04294c6c4637b22082c9feee88ce8be13"; };
     # a database backend is required (README: `cargo build --features sqlite`)
     vaultwarden = { owner = "dani-garcia"; repo = "vaultwarden"; rev = "5d84f17600e179280e44c391b92ee9eecc2b7cdc"; cargoFlags = [ "--features" "sqlite" ]; };
     # v33.0.0 (2025-05-20); ecd1cb3d needs rustc 1.90
