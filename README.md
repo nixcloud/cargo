@@ -53,7 +53,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | `run` | ✅ | binaries and examples; `std::env::current_exe()` is the binary in the store |
 | `test` | ✅ | unit, integration and doc tests; the tests run outside of nix, the sources at `env!("CARGO_MANIFEST_DIR")` are read-only |
 | `clean` | ✅ partial | the target directory or a profile, together with the store paths it rooted; `clean -p` and `clean gc` are refused |
-| `check` | ❌ planned | refused with "not supported yet" |
+| `check` | ❌ planned | refused with "not supported yet"; rust-analyzer needs it (build script outputs, proc-macros, diagnostics), so IDEs need `CARGO_BACKEND=legacy` for now; `cargo metadata` works |
 | `install`, `uninstall` | ✅ | binaries stay in the store, rooted in `<root>/nix/install`, `<root>/bin` links to them; uninstall deletes the store paths nothing else uses |
 | `doc`, `rustdoc`, `rustc`, `bench`, `package`, `vendor` | ❌ | refused with "not supported yet" |
 | `new`, `init`, `add`, `remove`, `update`, `fetch`, `generate-lockfile`, `tree`, `metadata`, `fmt`, `publish`, … | unchanged | vanilla cargo, the backend is not involved |
@@ -74,7 +74,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | cargo-like output | ✅ | nix logs are shown in cargo's format |
 | other registries | ❌ | only crates.io; others fail when the build system is generated |
 | incremental builds / fingerprints | ❌ | changed crates are always compiled from scratch, so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |
-| cross-compilation, `--target` (e.g. wasm) | ❓ | untested, known failures (wasm) |
+| cross-compilation, `--target` (e.g. wasm) | ⚠️ | the units build with the rust-std of each `--target`: x86_64, i686, aarch64, armv7 and riscv64 musl, wasm32-wasip1 and wasm32-unknown-unknown build and run, also with a C library compiled by a build script, see [Cross compiling tests](#cross-compiling-tests); pankat-rs' `pankat_wasm` (151 units) builds for wasm32-unknown-unknown. Open: the outputs are linked to `target/<profile>` instead of `target/<triple>/<profile>`, cdylibs not at all, so wasm-pack and trunk don't find them yet ([pankat-wasm.nix](https://github.com/nixcloud/pankat-rs/blob/main/pankat-wasm.nix) runs wasm-pack with cargo (libnix) in legacy mode and a [libfenix](https://github.com/nixcloud/libfenix) toolchain); musl targets other than x86_64 need `CARGO_TARGET_<TRIPLE>_LINKER=rust-lld`; glibc targets other than the host need a cross C toolchain, which isn't provided yet |
 | platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
 | toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.99.0); rustc ≥ 1.90 links with its bundled lld, which bypasses nix's linker wrapper: the units are built with a rustc whose bundled `gcc-ld/ld.lld` goes through nixpkgs' `ld-wrapper.sh` (as rust-overlay does), which adds the rpaths; other targets (wasm32, musl) don't link through it |
 
@@ -116,6 +116,17 @@ nix develop github:nixcloud/cargo              # libnix-1.99.0+v2; `cargo +1.87 
 nix develop github:nixcloud/cargo#rust-1_87    # only libnix-1.87.0+v5
 ```
 
+For projects, consider [libfenix](https://github.com/nixcloud/libfenix) instead: [fenix](https://github.com/nix-community/fenix)'s toolchains (rustc, rust-std of other targets, clippy, rustfmt, rust-analyzer, …) with cargo (libnix) as their `cargo`, prebuilt, so nothing is compiled. Cross compiling works as with fenix, e.g. `libfenix.combine [ libfenix.rust-1_99.minimalToolchain libfenix.targets.wasm32-unknown-unknown.rust-1_99.rust-std ]`. [pankat-rs](https://github.com/nixcloud/pankat-rs) is an example: its [flake.nix](https://github.com/nixcloud/pankat-rs/blob/main/flake.nix) takes the 1.99 toolchain from libfenix and [pankat-wasm.nix](https://github.com/nixcloud/pankat-rs/blob/main/pankat-wasm.nix) builds its wasm frontend with it and wasm-pack.
+
+```nix
+{
+  inputs.libfenix.url = "github:nixcloud/libfenix";
+  outputs = { self, libfenix }: {
+    devShells.x86_64-linux.default = libfenix.devShells.x86_64-linux.rust-1_99;   # CARGO_BACKEND=nix
+  };
+}
+```
+
 ## Developing this branch
 
 The [flake.nix](flake.nix) of this branch is for development:
@@ -147,10 +158,16 @@ Crates that link against system libraries (`openssl-sys`, `libsqlite3-sys`, …)
           "PROC_MACRO_TEST_LOCATION" = "";
         };
       };
+      project_src = {
+        # include = [ ".git" ];                       # left out by default, e.g. for a build.rs that runs `git log`
+        exclude = [ "pankat-wasm" ];                  # a directory no crate of the cargo build uses
+      };
     }
     ```
 
 3. run `cargo build`; the inputs and variables are added to every derivation of that crate (build script, build script run, compilation)
+
+`project_src` is optional: the crates of your workspace are built from a copy of the workspace root without `target`, `result*` and `.git`. `exclude` leaves out more top-level files or directories, so changes there rebuild nothing (in [pankat-rs](https://github.com/nixcloud/pankat-rs/blob/main/Cargo.dependencies.nix) that is `pankat-wasm`, which wasm-pack builds separately); `include` brings back `.git`, for a build script that reads it. A name in both lists is an error.
 
 More examples are in [Cargo.dependencies.nix](Cargo.dependencies.nix) (the one of cargo itself) and in [tests-libnix](tests-libnix).
 
