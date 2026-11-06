@@ -271,10 +271,16 @@ Crates that link against system libraries (`openssl-sys`, `libsqlite3-sys`, …)
           "PROC_MACRO_TEST_LOCATION" = "";
         };
       };
+      project_src = {
+        # include = [ ".git" ];                       # left out by default, e.g. for a build.rs that runs `git log`
+        exclude = [ "pankat-wasm" ];                  # a directory no crate of the cargo build uses
+      };
     }
     ```
 
 3. run `cargo build`; the inputs and variables are added to every derivation of that crate (build script, build script run, compilation)
+
+`project_src` is optional: the crates of your workspace are built from a copy of the workspace root without `target`, `result*` and `.git`. `exclude` leaves out more top-level files or directories, so changes there rebuild nothing (in [pankat-rs](https://github.com/nixcloud/pankat-rs/blob/main/Cargo.dependencies.nix) that is `pankat-wasm`, which wasm-pack builds separately); `include` brings back `.git`, for a build script that reads it. A name in both lists is an error.
 
 More examples are in [Cargo.dependencies.nix](https://github.com/nixcloud/cargo/blob/rust-1.99.0-libnix/Cargo.dependencies.nix) (the one of cargo itself) and in [tests-libnix](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix/tests-libnix).
 
