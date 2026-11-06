@@ -55,7 +55,7 @@
 
           ######################## cargo-libnix-*-via-ifd ###########################
 
-          # the cargo binary unit (cargo-0_88_0-bin-…, cargo-0_100_0-bin-…)
+          # the cargo binary unit (cargo-0_100_0-bin-…)
           cargoBin = units: units.${pkgs.lib.findFirst (n: builtins.match "cargo-[0-9_]+-bin-.*" n != null)
             (throw "no cargo-*-bin-* unit in the generated build system") (builtins.attrNames units)};
 
@@ -89,15 +89,8 @@
                 in !(dirOf path == toString project_root && (base == "target" || base == "result" || builtins.match "result-.*" base != null))
             ) project_root;
 
-          # a pinned commit of nixcloud/cargo
-          revision-src = builtins.fetchGit {
-            url = "https://github.com/nixcloud/cargo";
-            ref = "rust-1.87.0-libnix";
-            rev = "4445af918349cec57adc3c431c9eb8b1f46054a2";
-          };
 
           cargo-libnix-git-head-via-ifd = buildCargoBin { src = head-src; };
-          cargo-libnix-git-revision-via-ifd = buildCargoBin { src = revision-src; };
 
           ######################################################################################
 
@@ -110,7 +103,6 @@
             inherit rustc_1_99_nix_ld;
             inherit cargo-libnix-1_99_0_plus_v2;
             inherit cargo-libnix-git-head-via-ifd;
-            inherit cargo-libnix-git-revision-via-ifd;
 
             default = pkgs.symlinkJoin {
               name = "cargo-libnix-1_99_0_plus_v2-with-rustc";

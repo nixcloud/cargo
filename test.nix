@@ -45,7 +45,7 @@ let
     nix-installer = { owner = "DeterminateSystems"; repo = "nix-installer"; rev = "d2feb9836f5af7085ba84388d59a38f8998f65dc"; };
     nushell = { owner = "nushell"; repo = "nushell"; rev = "1aa2ed1947a0b891398558fcf4e4289849cc5a1d"; };
     ripgrep = { owner = "BurntSushi"; repo = "ripgrep"; rev = "0a88cccd5188074de96f54a4b6b44a63971ac157"; };
-    # release 2026-10-19 (rust-version 1.98); cd12ef85, the pin of the 1.87 line, doesn't compile with rustc 1.99 (E0365)
+    # release 2026-10-19 (rust-version 1.98); cd12ef85 doesn't compile with rustc 1.99 (E0365)
     rust-analyzer = { owner = "rust-lang"; repo = "rust-analyzer"; rev = "5ec20d044dbf04895877a55921ddc0ae6e73e127"; };
     rustpad = { owner = "ekzhang"; repo = "rustpad"; rev = "54e4a9383c84d7317af42a7ddb177ce8bcba058d"; };
     RustPython = { owner = "RustPython"; repo = "RustPython"; rev = "1abaf87abe241da7a9836bd387f2aee33a1d6378"; };

@@ -32,7 +32,7 @@ cargo resolves the dependencies and plans the build as usual. In nix mode it the
 
 cargo (legacy) runs a `build.rs`, reads the `cargo:` directives it prints (`rustc-cfg`, `rustc-link-lib`, `rustc-env`, …) and applies them to the rustc calls that follow. In nix mode the build script run is a derivation of its own, and the units built after it can't ask cargo anything, so the parsing happens inside that derivation: its output goes through [build-rs-libnix](https://github.com/nixcloud/build-rs-libnix), a small CLI that writes the result to `$out/nix` (`rustc-arguments` for the crate itself, `rustc-propagated-arguments` for the crates linking it, `environment-variables`, e.g. `DEP_<LINKS>_<KEY>`), which the dependent derivations read.
 
-* the generated `build_rs_libnix.nix` builds it from a pinned commit of nixcloud/build-rs-libnix; the 1.87 and the 1.99 line pin the same version, as the `cargo:` protocol didn't change between them
+* the generated `build_rs_libnix.nix` builds it from a pinned commit of nixcloud/build-rs-libnix
 * every build script run depends on it, so changing the pin rebuilds all build script runs and everything after them; fixes go to nixcloud/build-rs-libnix first and each branch bumps its pin in one step
 * not supported yet (planned for 0.1.13): the `cargo::` syntax (Rust ≥ 1.77) and old-style `cargo:KEY=VALUE` metadata other than `include`, `root`, `conf`, `version_number` and `static` are skipped with a warning; `metadata`, `rustc-flags` and `rustc-link-arg-{bin,bins,tests,examples,cdylib}` fail the build script run
 
@@ -80,7 +80,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 
 ## Regression tests
 
-[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently all 31 projects pass with rustc 1.99.0 (2026-11-06, with `--release` added to the cargo flags of `test.nix`), among them [grok-build](https://github.com/xai-org/grok-build) (~1600 units; `tikv-jemalloc-sys` uses `cargo:rustc-link-arg`, supported since build-rs-libnix 0.1.12) and rust-analyzer (release 2026-10-19; the older pin of the 1.87 line doesn't compile with rustc 1.99). union was removed: it needs a nightly rustc (`#![feature]`). codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are still pinned to their last release before they needed a rustc newer than 1.87; they can move to newer revisions now. The 1.87 line passes all 30, see [rust-1.87.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix). Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix). On the same day `tests-libnix/gc/run.sh` and [`tests-libnix/cross/run.sh`](#cross-compiling-tests) passed (debug builds; the cross script reports its known `xfail`s).
+[test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently all 31 projects pass with rustc 1.99.0 (2026-11-06, with `--release` added to the cargo flags of `test.nix`), among them [grok-build](https://github.com/xai-org/grok-build) (~1600 units; `tikv-jemalloc-sys` uses `cargo:rustc-link-arg`, supported since build-rs-libnix 0.1.12) and rust-analyzer (release 2026-10-19). union was removed: it needs a nightly rustc (`#![feature]`). codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are pinned to older releases and can move to newer revisions. Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix). On the same day `tests-libnix/gc/run.sh` and [`tests-libnix/cross/run.sh`](#cross-compiling-tests) passed (debug builds; the cross script reports its known `xfail`s).
 
 ### Cross compiling tests
 
@@ -112,8 +112,7 @@ cargo needs a rustc for the target information; without one in `PATH` the script
 The releases of every supported toolchain are served by the flake of [master-libnix](https://github.com/nixcloud/cargo/tree/master-libnix), with 1.99 as the default; its README shows how to use them from a devshell, a flake or traditional nix code:
 
 ```bash
-nix develop github:nixcloud/cargo              # libnix-1.99.0+v2; `cargo +1.87 build` for libnix-1.87.0+v5
-nix develop github:nixcloud/cargo#rust-1_87    # only libnix-1.87.0+v5
+nix develop github:nixcloud/cargo              # libnix-1.99.0+v2
 ```
 
 For projects, consider [libfenix](https://github.com/nixcloud/libfenix) instead: [fenix](https://github.com/nix-community/fenix)'s toolchains (rustc, rust-std of other targets, clippy, rustfmt, rust-analyzer, …) with cargo (libnix) as their `cargo`, prebuilt, so nothing is compiled. Cross compiling works as with fenix, e.g. `libfenix.combine [ libfenix.rust-1_99.minimalToolchain libfenix.targets.wasm32-unknown-unknown.rust-1_99.rust-std ]`. [pankat-rs](https://github.com/nixcloud/pankat-rs) is an example: its [flake.nix](https://github.com/nixcloud/pankat-rs/blob/main/flake.nix) takes the 1.99 toolchain from libfenix and [pankat-wasm.nix](https://github.com/nixcloud/pankat-rs/blob/main/pankat-wasm.nix) builds its wasm frontend with it and wasm-pack.
@@ -133,7 +132,6 @@ The [flake.nix](flake.nix) of this branch is for development:
 
 * `nix develop` in a checkout: cargo `libnix-1.99.0+v2`, rustc 1.99.0, rustfmt, clippy, and `CARGO_BACKEND=nix`; nix mode pins its own rustc, so building this repository with its own cargo needs `CARGO_BACKEND=legacy`
 * `cargo-libnix-git-head-via-ifd`: the working tree, built through its generated nix build system (IFD), with `libnix-1.99.0+v2` as generator
-* `cargo-libnix-git-revision-via-ifd`: a pinned commit of `rust-1.87.0-libnix`, with `libnix-1.99.0+v2` as generator
 * [test.nix](test.nix) and `tests-libnix/run.sh` build the regression tests with `cargo-libnix-git-head-via-ifd`, see [Regression tests](#regression-tests)
 
 # Injecting dependencies
@@ -232,12 +230,11 @@ cargo (libnix) does not follow every upstream cargo release, only selected Rust 
 |---|---|
 | [`master-libnix`](https://github.com/nixcloud/cargo/tree/master-libnix) | the user README and the [flake.nix](https://github.com/nixcloud/cargo/blob/master-libnix/flake.nix) serving the releases; no code |
 | [`rust-1.99.0-libnix`](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix) (this branch) | the main line, on the newest supported toolchain: new features, `README-DEV.md`, `test.nix`; pull requests go here |
-| [`rust-1.87.0-libnix`](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix) | maintenance branch of the 1.87 line |
 | `master` | upstream cargo, untouched |
 
-The naming follows upstream: cargo has a release branch per toolchain (`rust-1.87.0`, `rust-1.99.0`) and tags the cargo crate version (`0.88.0` is the cargo of Rust 1.87.0, `0.100.0` the one of Rust 1.99.0).
+The naming follows upstream: cargo has a release branch per toolchain (`rust-1.99.0`) and tags the cargo crate version (`0.100.0` is the cargo of Rust 1.99.0).
 
-Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87.0+v1`, `libnix-1.87.0+v2`, … Each release has a tarball of its generated nix build system on the [releases](https://github.com/nixcloud/cargo/releases) page. The tags stay valid no matter what happens to the branches; flakes and nix code should pin a tag, a release tarball or a commit of `master-libnix`, not a version branch.
+Releases are tags named after the toolchain plus a libnix revision: `libnix-1.99.0+v1`, `libnix-1.99.0+v2`, … Each release has a tarball of its generated nix build system on the [releases](https://github.com/nixcloud/cargo/releases) page. The tags stay valid no matter what happens to the branches; flakes and nix code should pin a tag, a release tarball or a commit of `master-libnix`, not a version branch.
 
 ## releasing
 
@@ -254,7 +251,7 @@ Releases are tags named after the toolchain plus a libnix revision: `libnix-1.87
 
 ## maintenance branches
 
-`rust-<version>-libnix` branches of older toolchains only get fixes (cherry-picked), no new features; a fix released there gets the next tag of that line, e.g. `libnix-1.87.0+v5`.
+`rust-<version>-libnix` branches of older toolchains only get fixes (cherry-picked), no new features; a fix released there gets the next tag of that line.
 
 # Similar projects 📚
 
