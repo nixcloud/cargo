@@ -76,7 +76,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | incremental builds / fingerprints | ❌ | changed crates are always compiled from scratch, so iterating is slower than with cargo (legacy) ([#3](https://github.com/nixcloud/cargo/issues/3)) |
 | cross-compilation, `--target` (e.g. wasm) | ❓ | untested, known failures (wasm) |
 | platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
-| toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.99.0); rustc ≥ 1.90 links with its bundled lld, which bypasses nix's linker wrapper, so the units are built with a wrapped rustc passing `-C linker-features=-lld` |
+| toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.99.0); rustc ≥ 1.90 links with its bundled lld, which bypasses nix's linker wrapper: the units are built with a rustc whose bundled `gcc-ld/ld.lld` goes through nixpkgs' `ld-wrapper.sh` (as rust-overlay does), which adds the rpaths; other targets (wasm32, musl) don't link through it |
 
 ## Regression tests
 
