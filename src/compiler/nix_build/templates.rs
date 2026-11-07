@@ -47,7 +47,7 @@ const BUILD_SCRIPT_RUN_COMMAND_LINE_SRC: &str = indoc! {
     set +x -e
 
     if [ "$build_parser_exit_value" -ne 0 ]; then
-        print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "{{{filename_notice_build_parser}}}" $build_script_build_exit_value $build_script_build_output_lines
+        print_cargo_message_type_3 "${meta.cargo_crate_info.name}" "${meta.cargo_crate_info.type}" "{{{filename_notice_build_parser}}}" $build_parser_exit_value $build_parser_output_lines
         cat $build_parser_output_lines
         exit $build_parser_exit_value
     fi
