@@ -82,6 +82,14 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 
 [test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently all 31 projects pass with rustc 1.99.0 (2026-11-06, with `--release` added to the cargo flags of `test.nix`), among them [grok-build](https://github.com/xai-org/grok-build) (~1600 units; `tikv-jemalloc-sys` uses `cargo:rustc-link-arg`, supported since build-rs-libnix 0.1.12) and rust-analyzer (release 2026-10-19). union was removed: it needs a nightly rustc (`#![feature]`). codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are pinned to older releases and can move to newer revisions. Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix). On the same day `tests-libnix/gc/run.sh` and [`tests-libnix/cross/run.sh`](#cross-compiling-tests) passed (debug builds; the cross script reports its known `xfail`s).
 
+### Link search tests
+
+[tests-libnix/link-search/run.sh](tests-libnix/link-search/run.sh) builds a workspace with `cargo:rustc-link-search` in each form cargo accepts and `cargo:rustc-link-arg-bins`: a C library in a directory below `OUT_DIR`, linker scripts for the crate itself and for its dependents, without a kind, as embedded projects (cortex-m-rt, `memory.x`) print them. The binary must run and contain both linker scripts' sections, and only the bin target may read the link args.
+
+```sh
+CARGO=target/cargo-head/bin/cargo tests-libnix/link-search/run.sh
+```
+
 ### Cross compiling tests
 
 [tests-libnix/cross/run.sh](tests-libnix/cross/run.sh) builds two workspaces in nix mode with `--target` for each target below, checks the binary (architecture, statically linked) and runs it, natively, with qemu-user or with wasmtime (both from nixpkgs, fetched when needed):
