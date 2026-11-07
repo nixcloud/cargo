@@ -112,7 +112,7 @@ cargo needs a rustc for the target information; without one in `PATH` the script
 The releases of every supported toolchain are served by the flake of [master-libnix](https://github.com/nixcloud/cargo/tree/master-libnix), with 1.99 as the default; its README shows how to use them from a devshell, a flake or traditional nix code:
 
 ```bash
-nix develop github:nixcloud/cargo              # libnix-1.99.0+v2
+nix develop github:nixcloud/cargo              # libnix-1.99.0+v3
 ```
 
 For projects, consider [libfenix](https://github.com/nixcloud/libfenix) instead: [fenix](https://github.com/nix-community/fenix)'s toolchains (rustc, rust-std of other targets, clippy, rustfmt, rust-analyzer, …) with cargo (libnix) as their `cargo`, prebuilt, so nothing is compiled. Cross compiling works as with fenix, e.g. `libfenix.combine [ libfenix.rust-1_99.minimalToolchain libfenix.targets.wasm32-unknown-unknown.rust-1_99.rust-std ]`. [pankat-rs](https://github.com/nixcloud/pankat-rs) is an example: its [flake.nix](https://github.com/nixcloud/pankat-rs/blob/main/flake.nix) takes the 1.99 toolchain from libfenix and [pankat-wasm.nix](https://github.com/nixcloud/pankat-rs/blob/main/pankat-wasm.nix) builds its wasm frontend with it and wasm-pack.
@@ -130,8 +130,8 @@ For projects, consider [libfenix](https://github.com/nixcloud/libfenix) instead:
 
 The [flake.nix](flake.nix) of this branch is for development:
 
-* `nix develop` in a checkout: cargo `libnix-1.99.0+v2`, rustc 1.99.0, rustfmt, clippy, and `CARGO_BACKEND=nix`; nix mode pins its own rustc, so building this repository with its own cargo needs `CARGO_BACKEND=legacy`
-* `cargo-libnix-git-head-via-ifd`: the working tree, built through its generated nix build system (IFD), with `libnix-1.99.0+v2` as generator
+* `nix develop` in a checkout: cargo `libnix-1.99.0+v3`, rustc 1.99.0, rustfmt, clippy, and `CARGO_BACKEND=nix`; nix mode pins its own rustc, so building this repository with its own cargo needs `CARGO_BACKEND=legacy`
+* `cargo-libnix-git-head-via-ifd`: the working tree, built through its generated nix build system (IFD), with `libnix-1.99.0+v3` as generator
 * [test.nix](test.nix) and `tests-libnix/run.sh` build the regression tests with `cargo-libnix-git-head-via-ifd`, see [Regression tests](#regression-tests)
 
 # Injecting dependencies
