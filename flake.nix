@@ -101,9 +101,18 @@
             wrapRustc = nixLd;
           };
 
+          cargo-libnix-1_87_0_plus_v6 = release {
+            tag = "libnix-1.87.0+v6";
+            buildsystemSha256 = "sha256:1fqc257xjywbs475512lmf2pnjj6kgh8bfxnspzbnhrpc0xbs8vz";
+            srcSha256 = "sha256:1vhkxl0pby6n06257bmlzl9iyk79hsndcys5m5wk2vjswrqsjfql";
+            unit = "cargo-0_88_0-bin-d7e8a77a599efbea";
+            channel = "1.87.0";
+            toolchainSha256 = "sha256-KUm16pHj+cRedf8vxs/Hd2YWxpOrWZ7UOrwhILdSJBU=";
+          };
+
           # the newest release of each line
           lines = {
-            "1.87" = cargo-libnix-1_87_0_plus_v5;
+            "1.87" = cargo-libnix-1_87_0_plus_v6;
             "1.99" = cargo-libnix-1_99_0_plus_v3;
           };
           defaultLine = "1.99";
@@ -151,7 +160,7 @@
         {
           packages = {
             # a fixed release
-            inherit cargo-libnix-1_87_0_plus_v4 cargo-libnix-1_99_0_plus_v1 cargo-libnix-1_87_0_plus_v5 cargo-libnix-1_99_0_plus_v2 cargo-libnix-1_99_0_plus_v3;
+            inherit cargo-libnix-1_87_0_plus_v4 cargo-libnix-1_99_0_plus_v1 cargo-libnix-1_87_0_plus_v5 cargo-libnix-1_99_0_plus_v2 cargo-libnix-1_99_0_plus_v3 cargo-libnix-1_87_0_plus_v6;
             # the newest release of a line
             cargo-libnix-1_87 = lines."1.87";
             cargo-libnix-1_99 = lines."1.99";
