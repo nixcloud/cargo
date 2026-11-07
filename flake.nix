@@ -91,6 +91,19 @@
             cargo = cargo_1_87_vanilla_pin;
           }).cargo-0_88_0-bin-d7e8a77a599efbea;
 
+          ######################## cargo-libnix-1_87_0_plus_v6 ###########################
+
+          cargo-libnix-1_87_0_plus_v6_src = builtins.fetchTarball {
+            url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv6/libnix-1.87.0+v6.tar.bz2";
+            sha256 = "sha256:1fqc257xjywbs475512lmf2pnjj6kgh8bfxnspzbnhrpc0xbs8vz";
+          };
+          cargo-libnix-1_87_0_plus_v6 = (import (cargo-libnix-1_87_0_plus_v6_src + "/derivations/default.nix"){
+            inherit project_root pkgs;
+            external_crate_dependencies = import (cargo-libnix-1_87_0_plus_v6_src + "/Cargo.dependencies.nix") { inherit pkgs; };
+            rustc = rustc_1_87_vanilla_pin;
+            cargo = cargo_1_87_vanilla_pin;
+          }).cargo-0_88_0-bin-d7e8a77a599efbea;
+
           ######################## cargo-libnix-*-via-ifd ###########################
 
           cargoBin = units: units.${pkgs.lib.findFirst (n: pkgs.lib.hasPrefix "cargo-0_88_0-bin-" n)
@@ -107,10 +120,10 @@
                 })
                 (builtins.filter (p: (p.source or "") == "registry+https://github.com/rust-lang/crates.io-index") lock.package);
 
-              generated = pkgs.runCommand "cargo-nix-generated" { inherit crateTarballs; nativeBuildInputs = [ cargo-libnix-1_87_0_plus_v5 rustc_1_87_vanilla_pin ]; } ''
+              generated = pkgs.runCommand "cargo-nix-generated" { inherit crateTarballs; nativeBuildInputs = [ cargo-libnix-1_87_0_plus_v6 rustc_1_87_vanilla_pin ]; } ''
                 export HOME=$TMPDIR CARGO_BACKEND=nix
                 cp -r ${src} project && chmod -R u+w project && cd project
-                ${cargo-libnix-1_87_0_plus_v5}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
+                ${cargo-libnix-1_87_0_plus_v6}/bin/cargo build --offline write-nix-buildsystem --out-dir $out
               '';
             in
             cargoBin (import "${generated}/cargo_build_caller.nix" { inherit system; project_root = src; });
@@ -145,13 +158,14 @@
             inherit cargo-libnix-1_87_0_plus_v3;
             inherit cargo-libnix-1_87_0_plus_v4;
             inherit cargo-libnix-1_87_0_plus_v5;
+            inherit cargo-libnix-1_87_0_plus_v6;
             inherit cargo-libnix-git-head-via-ifd;
             inherit cargo-libnix-git-revision-via-ifd;
 
             default = pkgs.symlinkJoin {
-              name = "cargo-libnix-1_87_0_plus_v5-with-rustc";
+              name = "cargo-libnix-1_87_0_plus_v6-with-rustc";
               paths = [
-                cargo-libnix-1_87_0_plus_v5
+                cargo-libnix-1_87_0_plus_v6
                 rustc_1_87_vanilla_pin
               ];
             };
@@ -160,7 +174,7 @@
             buildInputs = [
               # rust toolchain
               rustc_1_87_vanilla_pin
-              cargo-libnix-1_87_0_plus_v5
+              cargo-libnix-1_87_0_plus_v6
               # used by cargo (libnix)
               nix-prefetch-scripts
               # comfy tools
