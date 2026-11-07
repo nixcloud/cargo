@@ -262,13 +262,17 @@ impl LogOne {
 
     fn result(&mut self, drv: &str, status: Status, error_msg: &str) {
         let key = match status {
-            Status::Built => "built",
-            Status::Substituted => "fetched",
-            Status::AlreadyValid | Status::ResolvesToAlreadyValid => "fresh",
-            Status::DependencyFailed => "skipped",
-            _ => "failed",
+            Status::Built => Some("built"),
+            Status::Substituted => Some("fetched"),
+            // only cargo's own target and roots derivations can be valid already: units in the store aren't
+            // requested, so this would count those two on a build with nothing to do, never a crate
+            Status::AlreadyValid | Status::ResolvesToAlreadyValid => None,
+            Status::DependencyFailed => Some("skipped"),
+            _ => Some("failed"),
         };
-        *self.counts.entry(key).or_default() += 1;
+        if let Some(key) = key {
+            *self.counts.entry(key).or_default() += 1;
+        }
         if status.is_success() {
             return;
         }
@@ -377,10 +381,9 @@ impl LogOne {
         }
         let c = |k| self.counts.get(k).copied().unwrap_or(0);
         let detail = format!(
-            "{} built, {} fetched, {} fresh, {} failed, {} skipped in {:.1}s",
+            "{} built, {} fetched, {} failed, {} skipped in {:.1}s",
             c("built"),
             c("fetched"),
-            c("fresh"),
             c("failed"),
             c("skipped"),
             self.t0.elapsed().as_secs_f64()
@@ -414,14 +417,26 @@ impl LogOne {
         let names: Vec<String> =
             names.into_iter().map(|(n, k)| if k > 1 { format!("{n} (×{k})") } else { n.to_string() }).collect();
         let p = &self.progress;
-        let failed = if p.failed > 0 { format!("\x1b[1;31m{} Failed\x1b[0m", p.failed) } else { "0 Failed".into() };
+        // the numbers in color: done and expected green, running yellow, failed red (bold, with its word, once
+        // something failed)
+        let paint = |code: &str, n: u64| if self.color { format!("\x1b[{code}m{n}\x1b[0m") } else { n.to_string() };
+        let failed = match (p.failed, self.color) {
+            (0, _) => format!("{} Failed", paint("31", 0)),
+            (n, true) => format!("\x1b[1;31m{n} Failed\x1b[0m"),
+            (n, false) => format!("{n} Failed"),
+        };
         // Nix's expected grows while the worker discovers goals and is off by one once builds finish
         // (2.34: [5 done, 6 expected] for 5 builds, `nix build` shows the same); QueryMissing is the real total.
         let expected = if self.planned > 0 { self.planned } else { p.expected };
         // Nix's done overcounts on 2.34 (63 done for 51 builds), so done/running come from the build activities:
         // exactly one start and one stop per build (R7). Nix's done excludes failures, ours does too.
         let done = self.stopped.saturating_sub(p.failed);
-        let mut line = format!("[ {done} Done | {expected} Expected | {} Running | {failed} ]", self.running.len());
+        let mut line = format!(
+            "[ {} Done | {} Expected | {} Running | {failed} ]",
+            paint("32", done),
+            paint("32", expected),
+            paint("33", self.running.len() as u64)
+        );
         if !names.is_empty() {
             line = format!("{line} {}", names.join(", "));
         }
