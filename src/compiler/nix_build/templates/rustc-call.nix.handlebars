@@ -31,7 +31,9 @@
       collect_flagfile rustc-parent.rsp rustc-arguments "$RUST_CRATE_PARENT"
       collect_flagfile rustc-script.rsp rustc-propagated-arguments "$RUST_SCRIPT_BUILD_RUN"
       collect_flagfile rustc-libs.rsp rustc-propagated-arguments "$RUST_CRATE_LIBRARIES_ALL"
-      cat rustc-parent.rsp rustc-script.rsp rustc-libs.rsp > rustc-extra.rsp
+      cat rustc-parent.rsp rustc-script.rsp rustc-libs.rsp > rustc-extra.rsp{{#if is_bin}}
+      collect_flagfile rustc-bins.rsp rustc-link-arg-bins "$RUST_CRATE_PARENT"
+      cat rustc-bins.rsp >> rustc-extra.rsp{{/if}}
 
       {{{change_directory}}}
       mkdir -p $out/nix

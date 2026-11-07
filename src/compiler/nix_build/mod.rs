@@ -801,6 +801,7 @@ impl<'a, 'gctx> NixBuildRunner {
             &serde_json::json!({
                 "function_arguments": function_arguments.join(", "),
                 "nix_attribute_name": create_nix_name(unit, build_runner, NixNameMode::AttributeName, false),
+                "is_bin": unit.target.is_bin(),
                 "cargo_crate_info": cargo_crate_info(unit, build_runner)?,
                 "nix_phases": phases.join(" "),
                 "crate_name": crate_name,
