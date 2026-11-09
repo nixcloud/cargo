@@ -10,7 +10,7 @@ mod templates;
 
 use cargo_util::ProcessBuilder;
 use indoc::indoc;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,7 @@ use std::fs;
 use asserts::assert_escapes;
 use deps::{Dependencies, handle_dynamic_crate_aspects};
 use nix_files::{create_nix_filepath, write_nix_file};
-use nix_code::{IndentationExt, bins_in_store, cargo_crate_info, create_nix_name, generate_environment_variables, generate_unpack_phase, generate_src};
+use nix_code::{IndentationExt, bins_in_store, cargo_crate_info, create_nix_name, relative_env_values, generate_environment_variables, generate_unpack_phase, generate_src};
 use crate::compiler::nix_build::nix_build_runner::NixBuild;
 pub use crate::compiler::nix_build::nix_build_runner::gc_roots::BuildOutputs;
 use crate::compiler::nix_build::nix_files::ensure_garbage_collected_directory;
@@ -139,6 +139,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let gctx: &'gctx GlobalContext = bcx.gctx;
 
         let unit_graph: &UnitGraph = &bcx.unit_graph;
+        let relative_env: HashMap<String, String> = relative_env_values(gctx, workspace.root())?;
         
         // FIXME is this limitation required? can't we just support all profiles?
         let requested_profile = if build_runner.bcx.build_config.requested_profile == "release" {
@@ -247,6 +248,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     is_root,
                     &mut all_nodes,
                     build_runner,
+                    &relative_env,
                     &deps,
                     &nix_derivations_dir,
                     &src,
@@ -262,6 +264,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     is_root,
                     &mut all_nodes,
                     build_runner,
+                    &relative_env,
                     &deps,
                     &nix_derivations_dir,
                     &mut symlinked_targets,
@@ -496,6 +499,7 @@ impl<'a, 'gctx> NixBuildRunner {
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
         build_runner: &BuildRunner<'a, 'gctx>,
+        relative_env: &HashMap<String, String>,
         deps: &Dependencies,
         nix_derivations_dir: &Filesystem,
         src: &String,
@@ -515,7 +519,7 @@ impl<'a, 'gctx> NixBuildRunner {
             create_nix_filepath(&nix_derivations_dir, &file_name, is_root)?;
 
         let environment_variables: String =
-            generate_environment_variables(workspace, unit, process_builder, build_runner)?;
+            generate_environment_variables(workspace, unit, process_builder, build_runner, relative_env)?;
 
         let phases: Vec<&str> = vec!["unpackPhase", "buildPhase"];
 
@@ -608,6 +612,7 @@ impl<'a, 'gctx> NixBuildRunner {
         is_root: bool,
         all_nodes: &mut Vec<DefaultNixEntry>,
         build_runner: &BuildRunner<'a, 'gctx>,
+        relative_env: &HashMap<String, String>,
         deps: &Dependencies,
         nix_derivations_dir: &Filesystem,
         symlinked_targets: &mut Vec<SymlinkedTargets>,
@@ -627,7 +632,7 @@ impl<'a, 'gctx> NixBuildRunner {
         let unpack_phase: String = generate_unpack_phase(&unit, &crate_name, &crate_version)?;
 
         let environment_variables: String =
-            generate_environment_variables(workspace, unit, process_builder, build_runner)?;
+            generate_environment_variables(workspace, unit, process_builder, build_runner, relative_env)?;
 
         let process_builder = process_builder
             .get_args()

@@ -505,6 +505,14 @@ impl EnvConfigValue {
         }
     }
 
+    /// Whether the value is a path relative to its config file (`relative = true`).
+    pub fn is_relative(&self) -> bool {
+        match self.inner {
+            EnvConfigValueInner::Simple(_) => false,
+            EnvConfigValueInner::WithOptions { relative, .. } => relative,
+        }
+    }
+
     /// Resolves the environment variable value.
     ///
     /// If `relative = true`,
