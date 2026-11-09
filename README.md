@@ -82,6 +82,14 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 
 [test.nix](test.nix) builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions with this cargo and runs their binaries; `tests-libnix/run.sh` writes a `RESULTS.md`. Currently all 30 projects pass with rustc 1.87.0 (2026-11-06, with `--release` added to the cargo flags of `test.nix`, build-rs-libnix 0.1.12; codex, leptos, mdBook, sniffnet, starship, typst and wasmtime are pinned to their last release before they needed a newer rustc). `cargo:rustc-link-arg` (`tikv-jemalloc-sys`) is supported since build-rs-libnix 0.1.12. For the 1.99 line, see [master-libnix](https://github.com/nixcloud/cargo/tree/master-libnix). Some projects need a `Cargo.dependencies.nix`, see [tests-libnix](tests-libnix). On the same day `tests-libnix/gc/run.sh` and [`tests-libnix/cross/run.sh`](#cross-compiling-tests) passed (debug builds; the cross script reports its known `xfail`s).
 
+### [env] tests
+
+[tests-libnix/env/run.sh](tests-libnix/env/run.sh) builds a workspace whose `.cargo/config.toml` has an `[env]` value with `relative = true`, read by a build script: the file must be readable in the sandbox, a change of it must arrive in the binary, a path it can't provide is warned about, and no path of the checkout is in the derivations.
+
+```sh
+CARGO=target/cargo-head/bin/cargo tests-libnix/env/run.sh
+```
+
 ### Link search tests
 
 [tests-libnix/link-search/run.sh](tests-libnix/link-search/run.sh) builds a workspace with `cargo:rustc-link-search` in each form cargo accepts and `cargo:rustc-link-arg-bins`: a C library in a directory below `OUT_DIR`, linker scripts for the crate itself and for its dependents, without a kind, as embedded projects (cortex-m-rt, `memory.x`) print them. The binary must run and contain both linker scripts' sections, and only the bin target may read the link args.
