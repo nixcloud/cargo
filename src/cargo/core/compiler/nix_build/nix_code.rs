@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use anyhow::anyhow;
 use indoc::indoc;
@@ -17,6 +18,7 @@ use crate::core::TargetKind;
 use crate::core::workspace::Workspace;
 use crate::core::SourceKind;
 use crate::util::{CargoResult, GlobalContext};
+use crate::util::context::EnvConfig;
 
 pub trait AttrReplaceExt: ToString {
     fn nix_attr_replace(&self) -> String;
@@ -234,11 +236,37 @@ fn bin_exe_in_store(unit: &Unit, build_runner: &BuildRunner<'_, '_>, name: &str)
     bins_in_store(unit, build_runner).into_iter().find(|(n, _)| n == name).map(|(_, file)| file)
 }
 
+/// The `[env]` values with `relative = true` as nix expressions: cargo makes them absolute paths of this machine, which
+/// don't exist in the sandbox (and would be part of every derivation). A file or directory below the workspace root
+/// becomes a store path of its own, `${project_root + "/keyboard.toml"}`, so a unit only depends on that path. Anything
+/// else can't be provided and stays as it is, with a warning.
+pub fn relative_env_values(gctx: &GlobalContext, workspace_root: &Path) -> CargoResult<HashMap<String, String>> {
+    let mut values = HashMap::new();
+    let env_config = gctx.env_config()?;
+    for (key, value) in gctx.get::<EnvConfig>("env")? {
+        // not in env_config: the variable of the environment wins, `relative` doesn't apply
+        let Some(path) = value.is_relative().then(|| env_config.get(&key)).flatten() else { continue };
+        let path = Path::new(path);
+        match path.strip_prefix(workspace_root) {
+            Ok(relative) if !relative.as_os_str().is_empty() && path.exists() => {
+                values.insert(key, format!("${{project_root + \"/{}\"}}", relative.display()));
+            }
+            _ => gctx.shell().warn(format!(
+                "nix mode: [env] {key} = {}: only existing paths below the workspace root are available in the \
+                 build sandbox",
+                path.display()
+            ))?,
+        }
+    }
+    Ok(values)
+}
+
 pub fn generate_environment_variables<'gctx>(
     workspace: &Workspace<'gctx>,
     unit: &Unit,
     process_builder: &ProcessBuilder,
     build_runner: &BuildRunner<'_, 'gctx>,
+    relative_env: &HashMap<String, String>,
 ) -> CargoResult<String> {
     let ret = process_builder
         .get_envs()
@@ -269,6 +297,7 @@ pub fn generate_environment_variables<'gctx>(
                         bin_exe_in_store(unit, build_runner, &k["CARGO_BIN_EXE_".len()..])
                             .unwrap_or_else(|| escape_environment_variable(env_value))
                     }
+                    k if relative_env.contains_key(k) => relative_env[k].clone(),
                     _ => escape_environment_variable(env_value),
                 };
                 format!("    {} = \"{}\";", key, res.trim())

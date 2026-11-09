@@ -3044,6 +3044,14 @@ impl EnvConfigValue {
         }
     }
 
+    /// Whether the value is a path relative to its config file (`relative = true`).
+    pub fn is_relative(&self) -> bool {
+        match self.inner.val {
+            EnvConfigValueInner::Simple(_) => false,
+            EnvConfigValueInner::WithOptions { relative, .. } => relative,
+        }
+    }
+
     pub fn resolve<'a>(&'a self, gctx: &GlobalContext) -> Cow<'a, OsStr> {
         match self.inner.val {
             EnvConfigValueInner::Simple(ref s) => Cow::Borrowed(OsStr::new(s.as_str())),
