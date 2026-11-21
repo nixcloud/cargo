@@ -4,16 +4,16 @@
 
 pkgs.rustPlatform.buildRustPackage rec {
   pname = "build-rs-libnix-cli";
-  version = "0.1.15";
+  version = "0.1.16";
 
   src = pkgs.fetchFromGitHub {
     owner = "nixcloud";
     repo = "build-rs-libnix";
-    rev = "70ecf889cb20b87f01018db0311a4d1d735ee05e";
-    sha256 = "sha256-y3smDXjFcRJepaCMfBxhi7FzOaOdj/yP95ZCStdw+tw=";
+    rev = "ba53b59c1a77874d19c91df2495df0b153f55013";
+    sha256 = "sha256-HXVVY9QyRKhhDucqGenY4+iAbiq5Q5Y3W+bnZnnZFLE=";
   };
 
-  cargoHash = "sha256-hoaYuv2kVe/OOHNtZ5OqvqCL4MtJqSzSri90dX5qZkM=";
+  cargoHash = "sha256-ZdRhlk5sP/ISbm6YnAIEhu/JYn5qkFIYUx0asxWOw2c=";
 
   nativeBuildInputs = [];
   buildInputs = [];
