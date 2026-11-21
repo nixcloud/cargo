@@ -1,9 +1,11 @@
 # generated from default.nix.handlebars using cargo (manual edits won't be persistent)
 { pkgs, lib ? pkgs.lib, rustc, cargo, external_crate_dependencies, project_root }:
 let
-  build_rs_libnix' = pkgs.callPackage ./build_rs_libnix.nix {
+  # Cargo.dependencies.nix can bring its own, e.g. a vendored checkout with a fix not released yet:
+  #   build_rs_libnix = pkgs.callPackage ./vendor/build-rs-libnix {};
+  build_rs_libnix' = external_crate_dependencies.build_rs_libnix or (pkgs.callPackage ./build_rs_libnix.nix {
     inherit pkgs;
-  };
+  });
   callPackage' = lib.callPackageWith (pkgs // lib // self // { inherit fn rustc cargo project_root; });
   fn = rec {
     build_rs_libnix = "${build_rs_libnix'}/bin/build-rs-libnix";

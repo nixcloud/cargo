@@ -181,6 +181,8 @@ Crates that link against system libraries (`openssl-sys`, `libsqlite3-sys`, …)
 
 3. run `cargo build`; the inputs and variables are added to every derivation of that crate (build script, build script run, compilation)
 
+`build_rs_libnix` is optional too: the [build-rs-libnix](https://github.com/nixcloud/build-rs-libnix) package that reads the output of the build scripts, instead of the release pinned in `build_rs_libnix.nix`. It's for a fix that isn't released yet, e.g. a vendored checkout: `build_rs_libnix = pkgs.callPackage ./vendor/build-rs-libnix {};`. Every build script run and everything built after one gets a new hash then.
+
 `project_src` is optional: the crates of your workspace are built from a copy of the workspace root without `target`, `result*` and `.git`. `exclude` leaves out more top-level files or directories, so changes there rebuild nothing (in [pankat-rs](https://github.com/nixcloud/pankat-rs/blob/main/Cargo.dependencies.nix) that is `pankat-wasm`, which wasm-pack builds separately); `include` brings back `.git`, for a build script that reads it. A name in both lists is an error.
 
 More examples are in [Cargo.dependencies.nix](Cargo.dependencies.nix) (the one of cargo itself) and in [tests-libnix](tests-libnix).
