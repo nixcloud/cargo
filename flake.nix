@@ -110,10 +110,29 @@
             toolchainSha256 = "sha256-KUm16pHj+cRedf8vxs/Hd2YWxpOrWZ7UOrwhILdSJBU=";
           };
 
+          cargo-libnix-1_99_0_plus_v4 = release {
+            tag = "libnix-1.99.0+v4";
+            buildsystemSha256 = "sha256:1ykajfx1k8pydnqhmc0z45idlsg4w34bk8jg1w07wgk7xk47havj";
+            srcSha256 = "sha256:1f7wrz7fqz02l156npl9mdnkix34j3qhvqpw7pah2rkdh36dm9b1";
+            unit = "cargo-0_100_0-bin-463824861cef8abc";
+            channel = "1.99.0";
+            toolchainSha256 = "sha256-zm3dyIY2T414ZRR3EhLOvptzG6gta4WZUcawzMUWtqI=";
+            wrapRustc = nixLd;
+          };
+
+          cargo-libnix-1_87_0_plus_v7 = release {
+            tag = "libnix-1.87.0+v7";
+            buildsystemSha256 = "sha256:0zj6idkr7pgdyfm9xwfz4va5y0q41hzzlirl1rk83mxf4kw2nfn0";
+            srcSha256 = "sha256:1vadwsdi57ghyh84w5144p9hkl0z27phrlh2zwfnngsmd6kr9c07";
+            unit = "cargo-0_88_0-bin-d7e8a77a599efbea";
+            channel = "1.87.0";
+            toolchainSha256 = "sha256-KUm16pHj+cRedf8vxs/Hd2YWxpOrWZ7UOrwhILdSJBU=";
+          };
+
           # the newest release of each line
           lines = {
-            "1.87" = cargo-libnix-1_87_0_plus_v6;
-            "1.99" = cargo-libnix-1_99_0_plus_v3;
+            "1.87" = cargo-libnix-1_87_0_plus_v7;
+            "1.99" = cargo-libnix-1_99_0_plus_v4;
           };
           defaultLine = "1.99";
 
@@ -160,7 +179,7 @@
         {
           packages = {
             # a fixed release
-            inherit cargo-libnix-1_87_0_plus_v4 cargo-libnix-1_99_0_plus_v1 cargo-libnix-1_87_0_plus_v5 cargo-libnix-1_99_0_plus_v2 cargo-libnix-1_99_0_plus_v3 cargo-libnix-1_87_0_plus_v6;
+            inherit cargo-libnix-1_87_0_plus_v4 cargo-libnix-1_99_0_plus_v1 cargo-libnix-1_87_0_plus_v5 cargo-libnix-1_99_0_plus_v2 cargo-libnix-1_99_0_plus_v3 cargo-libnix-1_87_0_plus_v6 cargo-libnix-1_99_0_plus_v4 cargo-libnix-1_87_0_plus_v7;
             # the newest release of a line
             cargo-libnix-1_87 = lines."1.87";
             cargo-libnix-1_99 = lines."1.99";

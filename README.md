@@ -183,11 +183,11 @@ Add cargo (libnix) with its `rustc` to your project's devshell:
 
 Then `nix develop` in your project gives you the same shell as the [Quick start](#quick-start-). Use `rust-1_87` instead of `rust-1_99` to stay on Rust 1.87.
 
-`rust-1_99` follows the 1.99 line (currently `libnix-1.99.0+v3`); to stay on one release, use `cargo-libnix-1_99_0_plus_v3` and its `.rustc`, or pin the flake input to a commit of this branch.
+`rust-1_99` follows the 1.99 line (currently `libnix-1.99.0+v4`); to stay on one release, use `cargo-libnix-1_99_0_plus_v4` and its `.rustc`, or pin the flake input to a commit of this branch.
 
 ## b) This flake: traditional nix code
 
-A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.99.0+v3` with a pinned rustc/cargo 1.99.0 from [fenix](https://github.com/nix-community/fenix):
+A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.99.0+v4` with a pinned rustc/cargo 1.99.0 from [fenix](https://github.com/nix-community/fenix):
 
 ```nix
 { pkgs ? import <nixpkgs> { } }:
@@ -212,12 +212,12 @@ let
   };
   # the generated build system of cargo (libnix) and the cargo sources it builds
   buildsystem = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.99.0%2Bv3/libnix-1.99.0+v3.tar.bz2";
-    sha256 = "sha256:1qqagxk4i0ixrnmv7g9hmgv51vk2nz9x12kivgkfwmx1s3lxb5mq";
+    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.99.0%2Bv4/libnix-1.99.0+v4.tar.bz2";
+    sha256 = "sha256:1ykajfx1k8pydnqhmc0z45idlsg4w34bk8jg1w07wgk7xk47havj";
   };
   cargo-src = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.99.0%2Bv3.tar.gz";
-    sha256 = "sha256:08kriapilxskjfxg3pnsk731hzvm8czzhjw9r1mhzqxz3bslj2hd";
+    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.99.0%2Bv4.tar.gz";
+    sha256 = "sha256:1f7wrz7fqz02l156npl9mdnkix34j3qhvqpw7pah2rkdh36dm9b1";
   };
   cargo-libnix = (import (buildsystem + "/derivations/default.nix") {
     inherit pkgs rustc;
@@ -240,11 +240,11 @@ The [flake.nix](flake.nix) of this branch serves the newest release of each supp
 
 | output | contents |
 |---|---|
-| `packages.default`, `devShells.default` | cargo `libnix-1.99.0+v3` and rustc 1.99.0; `cargo +1.87 …` runs the 1.87 release instead (like rustup's `+toolchain`) |
-| `packages.rust-1_99`, `devShells.rust-1_99` | cargo `libnix-1.99.0+v3` and rustc 1.99.0 |
-| `packages.rust-1_87`, `devShells.rust-1_87` | cargo `libnix-1.87.0+v6` and rustc 1.87.0 |
+| `packages.default`, `devShells.default` | cargo `libnix-1.99.0+v4` and rustc 1.99.0; `cargo +1.87 …` runs the 1.87 release instead (like rustup's `+toolchain`) |
+| `packages.rust-1_99`, `devShells.rust-1_99` | cargo `libnix-1.99.0+v4` and rustc 1.99.0 |
+| `packages.rust-1_87`, `devShells.rust-1_87` | cargo `libnix-1.87.0+v7` and rustc 1.87.0 |
 | `packages.cargo-libnix-1_99`, `packages.cargo-libnix-1_87` | only cargo, the newest release of that line; its rustc is `.rustc` |
-| `packages.cargo-libnix-1_99_0_plus_v3`, `packages.cargo-libnix-1_87_0_plus_v6` (and the earlier `…_plus_v1`, `…_plus_v2`, `…_plus_v4`, `…_plus_v5`) | only cargo, exactly that release |
+| `packages.cargo-libnix-1_99_0_plus_v4`, `packages.cargo-libnix-1_87_0_plus_v7` (and the earlier `…-1_99_0_plus_v1` to `_v3`, `…-1_87_0_plus_v4` to `_v6`) | only cargo, exactly that release |
 | `overlays.default` | `cargo-libnix` (= `default`), `cargo-libnix_1_99`, `cargo-libnix_1_87` (= `rust-1_99`, `rust-1_87`) |
 
 cargo (libnix) only works with a rustc of its own version, so use `rust-1_99` / `rust-1_87` (cargo and rustc in one package), or `cargo-libnix-*` together with its `.rustc`, never a rustc from elsewhere. The rustc 1.99.0 is wrapped with `-C linker-features=-lld`: since 1.90 rustc links with its own lld, which bypasses nix's linker wrapper (no rpath, the binaries miss their libraries). That flag is stable on `x86_64-unknown-linux-gnu` only, so this rustc fails with any other `--target` (`… is unstable on the … target`); for cross compiling use a toolchain from [libfenix](#a-libfenix).
@@ -321,7 +321,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 | platforms | ❓ | developed and tested on x86_64-linux only, Darwin is untested |
 | toolchain | ⚠️ | `rustc` and `cargo` must have the same version (currently 1.99.0); rustc ≥ 1.90 links with its bundled lld, which bypasses nix's linker wrapper: in nix mode the units are built with a rustc whose bundled `gcc-ld/ld.lld` goes through nixpkgs' `ld-wrapper.sh` instead (as rust-overlay and libfenix do), which also works with `--target` |
 
-The tables describe the 1.99 line (`libnix-1.99.0+v3`). The 1.87 line (`libnix-1.87.0+v6`) has the same subcommands and features and needs no wrapped rustc; see the README of [rust-1.87.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix) for its state.
+The tables describe the 1.99 line (`libnix-1.99.0+v4`). The 1.87 line (`libnix-1.87.0+v7`) has the same subcommands and features and needs no wrapped rustc; see the README of [rust-1.87.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.87.0-libnix) for its state.
 
 ## How it works
 
@@ -341,7 +341,7 @@ cargo resolves the dependencies and plans the build as usual. In nix mode it the
 
 ## Regression tests
 
-Each branch's `test.nix` builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions and runs their binaries: the 1.99 line passes all 31, among them [grok-build](https://github.com/xai-org/grok-build); the 1.87 line passes all 30 (2026-11-06, with `--release` added to the cargo flags of `test.nix`). The GC and cross compiling tests pass on both lines. Details are in the README of [rust-1.99.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix#regression-tests).
+Each branch's `test.nix` builds the projects of [#18](https://github.com/nixcloud/cargo/issues/18) at pinned revisions and runs their binaries: the 1.99 line passes all 31, among them [grok-build](https://github.com/xai-org/grok-build); the 1.87 line passes all 30 (2026-11-24, with `--release` added to the cargo flags of `test.nix`). The GC, cross compiling, link search and [env] tests pass on both lines. Details are in the README of [rust-1.99.0-libnix](https://github.com/nixcloud/cargo/tree/rust-1.99.0-libnix#regression-tests).
 
 # Exporting the build system
 
