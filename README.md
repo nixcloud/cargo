@@ -164,7 +164,7 @@ Add the cargo (libnix) binary and the matching `rustc` to your project's devshel
         devShells.default = pkgs.mkShell {
           buildInputs = [
             libnix-flake.packages.${system}.rustc_1_87_vanilla_pin
-            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v6
+            libnix-flake.packages.${system}.cargo-libnix-1_87_0_plus_v7
             pkgs.nix-prefetch-scripts
           ];
           shellHook = ''
@@ -182,7 +182,7 @@ Afterwards check that `cargo` is the one from the store:
 
 ## 3. traditional nix code
 
-A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.87.0+v6` with a pinned rustc/cargo 1.87.0 from [fenix](https://github.com/nix-community/fenix):
+A `shell.nix` that builds cargo (libnix) from the build system of release `libnix-1.87.0+v7` with a pinned rustc/cargo 1.87.0 from [fenix](https://github.com/nix-community/fenix):
 
 ```nix
 { pkgs ? import <nixpkgs> { } }:
@@ -197,12 +197,12 @@ let
   };
   # the generated build system of cargo (libnix) and the cargo sources it builds
   buildsystem = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv6/libnix-1.87.0+v6.tar.bz2";
-    sha256 = "sha256:1fqc257xjywbs475512lmf2pnjj6kgh8bfxnspzbnhrpc0xbs8vz";
+    url = "https://github.com/nixcloud/cargo/releases/download/libnix-1.87.0%2Bv7/libnix-1.87.0+v7.tar.bz2";
+    sha256 = "sha256:0zj6idkr7pgdyfm9xwfz4va5y0q41hzzlirl1rk83mxf4kw2nfn0";
   };
   cargo-src = builtins.fetchTarball {
-    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.87.0%2Bv6.tar.gz";
-    sha256 = "sha256:1vhkxl0pby6n06257bmlzl9iyk79hsndcys5m5wk2vjswrqsjfql";
+    url = "https://github.com/nixcloud/cargo/archive/refs/tags/libnix-1.87.0%2Bv7.tar.gz";
+    sha256 = "sha256:1vadwsdi57ghyh84w5144p9hkl0z27phrlh2zwfnngsmd6kr9c07";
   };
   cargo-libnix = (import (buildsystem + "/derivations/default.nix") {
     inherit pkgs;
