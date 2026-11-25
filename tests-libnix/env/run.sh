@@ -2,7 +2,8 @@
 # Tests of the `[env]` table of .cargo/config.toml in nix mode: a build script reads a file through a variable with
 # `relative = true`, which cargo makes an absolute path of this machine, and passes its content to the crate.
 # The path must be readable in the sandbox, a changed file must arrive in the binary, and the path of the checkout
-# must not end up in the derivations.
+# must not end up in the derivations. A path the sandbox can't provide is told about when the build fails (or with -v),
+# not on every build, and never for the workspace root and variables nix mode drops.
 #
 #   tests-libnix/env/run.sh                     # with target/debug/cargo
 #   CARGO=path/to/cargo tests-libnix/env/run.sh
@@ -31,6 +32,8 @@ cat > "$dir/.cargo/config.toml" <<'TOML'
 PLAIN_VALUE = "plain"
 CONF_FILE = { value = "conf/value.txt", relative = true }
 MISSING_FILE = { value = "conf/missing.txt", relative = true }
+WORKSPACE_DIR = { value = "", relative = true }
+CARGO_RUSTC_CURRENT_DIR = { value = "", relative = true }
 TOML
 echo one > "$dir/conf/value.txt"
 cat > "$dir/Cargo.toml" <<'TOML'
@@ -68,13 +71,16 @@ echo 'fn main() { println!("{} {}", reader::VALUE, env!("PLAIN_VALUE")); }' > "$
 (cd "$dir" && git init -q . && git add -A)
 echo "env ($cargo)"
 
-build() { log=$(cd "$dir" && CARGO_BACKEND=nix "$cargo" build 2>&1); }
+build() { log=$(cd "$dir" && CARGO_BACKEND=nix "$cargo" build "$@" 2>&1); }
+notes() { grep -c "nix mode: \[env\] ${1:-}" <<< "$log"; }
 
 if build; then
   ok "builds: relative = true reaches the build script"
   out=$("$dir/target/debug/app" 2>&1)
   if [ "$out" = "one plain" ]; then ok "runs: $out"; else fail "runs" "$out"; fi
-  if grep -q 'MISSING_FILE' <<< "$log"; then ok "warns about a path it can't provide"; else fail "warns about a path it can't provide"; fi
+  if [ "$(notes)" = 0 ]; then ok "a build that works tells nothing"; else fail "a build that works tells nothing" "$(grep "nix mode" <<< "$log")"; fi
+  build -v
+  if [ "$(notes MISSING_FILE)/$(notes)" = 1/1 ]; then ok "-v: the missing path only"; else fail "-v: the missing path only" "$(grep "nix mode" <<< "$log")"; fi
   if grep -rlF "CONF_FILE = \"$dir" "$dir/target/debug/nix/derivations" > /dev/null; then fail "the checkout's path in the derivations"
   else ok "no path of the checkout in CONF_FILE"; fi
 
@@ -84,6 +90,15 @@ if build; then
     if [ "$out" = "two plain" ]; then ok "a changed file is rebuilt: $out"; else fail "a changed file is rebuilt" "$out"; fi
   else
     fail "build after the change" "$(tail -8 <<< "$log")"
+  fi
+
+  # a failing build: one note, below the errors
+  echo 'fn main() { panic!("no"); }' > "$dir/reader/build.rs"
+  if build; then fail "a failing build script fails the build"; else
+    if [ "$(notes MISSING_FILE)/$(notes)" = 1/1 ]; then ok "a failed build tells the missing path, once"
+    else fail "a failed build tells the missing path, once" "$(grep "nix mode" <<< "$log")"; fi
+    error=$(grep -n "error 1/" <<< "$log" | head -1 | cut -d: -f1) note=$(grep -n "nix mode: \[env\]" <<< "$log" | head -1 | cut -d: -f1)
+    if [ -n "$error" ] && [ -n "$note" ] && [ "$error" -lt "$note" ]; then ok "below the errors"; else fail "below the errors" "error line $error, note line $note"; fi
   fi
 else
   fail "build" "$(grep -v -E '^ +(Compiling|Planning|Status)' <<< "$log" | tail -12)"
