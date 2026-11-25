@@ -238,10 +238,16 @@ impl LogOne {
     }
 
     fn cargo(&mut self, build: ActivityId, m: CargoMsg) {
-        let label = if m.crate_type.is_empty() { m.crate_name } else { format!("{} {}", m.crate_name, m.crate_type) };
+        let label =
+            if m.crate_type.is_empty() { m.crate_name.clone() } else { format!("{} {}", m.crate_name, m.crate_type) };
         match m.kind {
             0 => {
-                self.label("Compiling", &label, false);
+                // the kind in grey: `libc (build.rs run)`
+                let shown = match label.strip_suffix(&m.crate_type) {
+                    Some(name) if self.color && !m.crate_type.is_empty() => format!("{name}\x1b[90m{}\x1b[0m", m.crate_type),
+                    _ => label.clone(),
+                };
+                self.label("Compiling", &shown, false);
                 self.acts.get_mut(&build).unwrap().crate_label = Some(label);
             }
             2 | 3 => {
