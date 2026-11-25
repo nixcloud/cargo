@@ -84,7 +84,7 @@ With `CARGO_BACKEND=nix`, the build-related subcommands go through nix; all othe
 
 ### [env] tests
 
-[tests-libnix/env/run.sh](tests-libnix/env/run.sh) builds a workspace whose `.cargo/config.toml` has an `[env]` value with `relative = true`, read by a build script: the file must be readable in the sandbox, a change of it must arrive in the binary, a path it can't provide is warned about, and no path of the checkout is in the derivations.
+[tests-libnix/env/run.sh](tests-libnix/env/run.sh) builds a workspace whose `.cargo/config.toml` has an `[env]` value with `relative = true`, read by a build script: the file must be readable in the sandbox, a change of it must arrive in the binary, and no path of the checkout is in the derivations. A path the sandbox can't provide is told about below the errors of a failed build (or with `-v`), not on every build.
 
 ```sh
 CARGO=target/cargo-head/bin/cargo tests-libnix/env/run.sh

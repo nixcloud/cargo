@@ -236,29 +236,49 @@ fn bin_exe_in_store(unit: &Unit, build_runner: &BuildRunner<'_, '_>, name: &str)
     bins_in_store(unit, build_runner).into_iter().find(|(n, _)| n == name).map(|(_, file)| file)
 }
 
+/// Variables of cargo's `rustc` and build script processes the units don't get: they are paths of this machine, or the
+/// derivation sets its own.
+const DROPPED_VARIABLES: &[&str] = &["CARGO", "RUSTC", "LD_LIBRARY_PATH", "OUT_DIR", "CARGO_RUSTC_CURRENT_DIR"];
+
+/// The `[env]` values with `relative = true`, see `relative_env_values`.
+pub struct RelativeEnv {
+    /// variable -> nix expression
+    pub values: HashMap<String, String>,
+    /// What the build sandbox can't provide, one message each. Whether a crate reads the variable isn't known before the
+    /// build, so this is only worth telling when the build fails (or with `--verbose`).
+    pub unavailable: Vec<String>,
+}
+
 /// The `[env]` values with `relative = true` as nix expressions: cargo makes them absolute paths of this machine, which
 /// don't exist in the sandbox (and would be part of every derivation). A file or directory below the workspace root
 /// becomes a store path of its own, `${project_root + "/keyboard.toml"}`, so a unit only depends on that path. Anything
-/// else can't be provided and stays as it is, with a warning.
-pub fn relative_env_values(gctx: &GlobalContext, workspace_root: &Path) -> CargoResult<HashMap<String, String>> {
+/// else can't be provided and stays as it is. So does the workspace root itself (CARGO_WORKSPACE_DIR): as a store path,
+/// every file of the workspace would be an input of every unit.
+pub fn relative_env_values(gctx: &GlobalContext, workspace_root: &Path) -> CargoResult<RelativeEnv> {
     let mut values = HashMap::new();
+    let mut unavailable = Vec::new();
     let env_config = gctx.env_config()?;
     for (key, value) in gctx.get::<EnvConfig>("env")? {
+        if DROPPED_VARIABLES.contains(&key.as_str()) {
+            continue;
+        }
         // not in env_config: the variable of the environment wins, `relative` doesn't apply
         let Some(path) = value.is_relative().then(|| env_config.get(&key)).flatten() else { continue };
         let path = Path::new(path);
         match path.strip_prefix(workspace_root) {
-            Ok(relative) if !relative.as_os_str().is_empty() && path.exists() => {
+            Ok(relative) if relative.as_os_str().is_empty() => {}
+            Ok(relative) if path.exists() => {
                 values.insert(key, format!("${{project_root + \"/{}\"}}", relative.display()));
             }
-            _ => gctx.shell().warn(format!(
-                "nix mode: [env] {key} = {}: only existing paths below the workspace root are available in the \
-                 build sandbox",
+            _ => unavailable.push(format!(
+                "nix mode: [env] {key} = {} isn't available in the build sandbox, only existing paths below the \
+                 workspace root are",
                 path.display()
-            ))?,
+            )),
         }
     }
-    Ok(values)
+    unavailable.sort();
+    Ok(RelativeEnv { values, unavailable })
 }
 
 pub fn generate_environment_variables<'gctx>(
@@ -271,13 +291,7 @@ pub fn generate_environment_variables<'gctx>(
     let ret = process_builder
         .get_envs()
         .iter()
-        .filter(|(key, _)| {
-            *key != "CARGO"
-                && *key != "RUSTC"
-                && *key != "LD_LIBRARY_PATH"
-                && *key != "OUT_DIR"
-                && *key != "CARGO_RUSTC_CURRENT_DIR"
-        })
+        .filter(|(key, _)| !DROPPED_VARIABLES.contains(&key.as_str()))
         .map(|(key, value)| match value {
             Some(os_str) => {
                 let env_value: String = os_str.to_string_lossy().to_string();

@@ -9,6 +9,7 @@ pub mod nix_build_runner;
 mod templates;
 
 use cargo_util::ProcessBuilder;
+use cargo_util_terminal::Verbosity;
 use indoc::indoc;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
@@ -139,7 +140,8 @@ impl<'a, 'gctx> NixBuildRunner {
         let gctx: &'gctx GlobalContext = bcx.gctx;
 
         let unit_graph: &UnitGraph = &bcx.unit_graph;
-        let relative_env: HashMap<String, String> = relative_env_values(gctx, workspace.root())?;
+        let relative_env = relative_env_values(gctx, workspace.root())?;
+        gctx.shell().verbose(|s| relative_env.unavailable.iter().try_for_each(|message| s.note(message)))?;
         
         // FIXME is this limitation required? can't we just support all profiles?
         let requested_profile = if build_runner.bcx.build_config.requested_profile == "release" {
@@ -248,7 +250,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     is_root,
                     &mut all_nodes,
                     build_runner,
-                    &relative_env,
+                    &relative_env.values,
                     &deps,
                     &nix_derivations_dir,
                     &src,
@@ -264,7 +266,7 @@ impl<'a, 'gctx> NixBuildRunner {
                     is_root,
                     &mut all_nodes,
                     build_runner,
-                    &relative_env,
+                    &relative_env.values,
                     &deps,
                     &nix_derivations_dir,
                     &mut symlinked_targets,
@@ -445,8 +447,15 @@ impl<'a, 'gctx> NixBuildRunner {
             selection.sort();
             selection.dedup();
             let selection = selection.join("\n") + "\n";
-            return NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names, &target_dir, &selection, generated)
-                .map(Some);
+            let result =
+                NixBuild::build(nix_base_dir, &gctx, keep_going, jobs, unit_drv_names, &target_dir, &selection, generated);
+            // below the errors, which logone has printed by now; with --verbose they were at the start already
+            if result.is_err() && gctx.shell().verbosity() != Verbosity::Verbose {
+                for message in &relative_env.unavailable {
+                    gctx.shell().note(message)?;
+                }
+            }
+            return result.map(Some);
         } else if write_nix_buildsystem_options.as_ref().is_some_and(|o| o.remote_src.is_none()) {
             // project_root is the workspace itself, so its Cargo.dependencies.nix is used in place
             gctx.shell().status(
